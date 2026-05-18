@@ -3,17 +3,17 @@
 import { useEffect, useRef, useState } from "react";
 
 export default function Home() {
-  const scene1Ref = useRef(null);
-  const videoRef = useRef(null);
-  const maskVideoRef = useRef(null);
-  const overlayRef = useRef(null);
+  const scene1Ref = useRef<HTMLDivElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const maskVideoRef = useRef<HTMLVideoElement>(null);
+  const overlayRef = useRef<HTMLVideoElement>(null);
   const [opacity, setOpacity] = useState(1);
   const [blur, setBlur] = useState(0);
   const [playCount, setPlayCount] = useState(0);
   const [imgSize, setImgSize] = useState(140);
-  const canvasRefs = useRef([]);
-  const animFrameRef = useRef(null);
-  const gridRef = useRef(null);
+  const canvasRefs = useRef<(HTMLCanvasElement | null)[]>([]);
+  const animFrameRef = useRef<number | null>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
   const maskOpacityRef = useRef(0);
 
   const row0 = ["/1.jpg", "/2.jpg", "/3.jpg", "/4.jpg", "/5.jpg", "/6.jpg", "/7.jpg", "/8.jpg", "/9.jpg", "/10.jpg"];
@@ -24,7 +24,7 @@ export default function Home() {
 
   const rows = [row0, row1, row2, row3, row4];
   const directions = [true, false, true, false, true];
-  const trackRefs = useRef([null, null, null, null, null]);
+  const trackRefs = useRef<(HTMLDivElement | null)[]>([null, null, null, null, null]);
   const GAP = 20;
 
   useEffect(() => {
@@ -64,6 +64,7 @@ export default function Home() {
       canvasRefs.current.forEach((canvas) => {
         if (!canvas) return;
         const ctx = canvas.getContext("2d");
+        if (!ctx) return;
         const rect = canvas.getBoundingClientRect();
 
         const relX = rect.left - gridRect.left;
@@ -86,7 +87,9 @@ export default function Home() {
     };
 
     animFrameRef.current = requestAnimationFrame(draw);
-    return () => cancelAnimationFrame(animFrameRef.current);
+    return () => {
+      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+    };
   }, [imgSize]);
 
   useEffect(() => {
@@ -113,16 +116,8 @@ export default function Home() {
       // Фоновое видео
       const fadeStart = 0.8;
       const fadeOpacity = Math.max((progress - fadeStart) / (1 - fadeStart), 0);
-      video.style.opacity = fadeOpacity;
+      video.style.opacity = String(fadeOpacity);
 
-      // ======================
-      // МАСКА: появляется ~33% → пик ~50% → исчезает ~66%
-      // Весь скролл = 250vh, 1vh ≈ 0.004 прогресса
-      // "секунда скролла" ≈ ~0.13 прогресса (эмпирически ~100px)
-      // Появление: 0.28 → 0.40 (fade in)
-      // Держится: 0.40 → 0.52
-      // Исчезание: 0.52 → 0.64 (fade out)
-      // ======================
       const FADE_IN_START = 0.28;
       const FADE_IN_END = 0.40;
       const FADE_OUT_START = 0.52;
@@ -139,9 +134,7 @@ export default function Home() {
 
       maskOpacityRef.current = maskOpacity;
 
-      // Скраббинг маск-видео — только в активном окне
       if (maskVideo && maskVideo.duration) {
-        // Маппим активный диапазон [FADE_IN_START → FADE_OUT_END] на [0 → duration]
         const videoProgress = Math.min(
           Math.max((progress - FADE_IN_START) / (FADE_OUT_END - FADE_IN_START), 0),
           1
@@ -261,7 +254,7 @@ export default function Home() {
                 return (
                   <div
                     key={rowIndex}
-                    ref={(el) => (trackRefs.current[rowIndex] = el)}
+                    ref={(el) => { trackRefs.current[rowIndex] = el; }}
                     style={{
                       display: "flex",
                       gap: `${GAP}px`,
@@ -287,6 +280,7 @@ export default function Home() {
                         >
                           <img
                             src={img}
+                            alt=""
                             style={{
                               width: "100%",
                               height: "100%",
@@ -295,7 +289,7 @@ export default function Home() {
                             }}
                           />
                           <canvas
-                            ref={(el) => (canvasRefs.current[idx] = el)}
+                            ref={(el) => { canvasRefs.current[idx] = el; }}
                             width={imgSize}
                             height={imgSize}
                             style={{
