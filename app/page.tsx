@@ -4,13 +4,12 @@ import { useEffect, useRef, useState } from "react";
 
 export default function Home() {
   const scene1Ref = useRef<HTMLElement | null>(null);
-
-  const [imgSize, setImgSize] = useState<number>(140);
-
-  const canvasRefs = useRef<(HTMLCanvasElement | null)[]>([]);
   const gridRef = useRef<HTMLDivElement | null>(null);
 
   const trackRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const canvasRefs = useRef<(HTMLCanvasElement | null)[]>([]);
+
+  const [imgSize, setImgSize] = useState<number>(140);
 
   const GAP = 20;
 
@@ -47,11 +46,11 @@ export default function Home() {
 
         const maxMove = track.scrollWidth / 2;
 
-        if (directions[i]) {
-          track.style.transform = `translateX(${-progress * maxMove}px)`;
-        } else {
-          track.style.transform = `translateX(${-maxMove + progress * maxMove}px)`;
-        }
+        const x = directions[i]
+          ? -progress * maxMove
+          : -maxMove + progress * maxMove;
+
+        track.style.transform = `translateX(${x}px)`;
       });
     };
 
@@ -61,16 +60,20 @@ export default function Home() {
 
   let canvasIndex = 0;
 
+  // ✅ SAFE REF SETTERS (fix TypeScript forever)
+  const setTrackRef = (index: number) => (el: HTMLDivElement | null) => {
+    trackRefs.current[index] = el;
+  };
+
+  const setCanvasRef = (index: number) => (el: HTMLCanvasElement | null) => {
+    canvasRefs.current[index] = el;
+  };
+
   return (
     <main style={{ background: "black", color: "white" }}>
       <section
         ref={scene1Ref}
-        style={{
-          height: "250vh",
-          position: "relative",
-          zIndex: 2,
-          background: "transparent",
-        }}
+        style={{ height: "250vh", position: "relative" }}
       >
         <div
           style={{
@@ -80,18 +83,15 @@ export default function Home() {
             overflow: "hidden",
             display: "flex",
             alignItems: "center",
-            zIndex: 2,
           }}
         >
           <div
-            ref={gridRef}
             style={{
               display: "flex",
               flexDirection: "column",
               gap: `${GAP}px`,
               paddingTop: `${GAP}px`,
               paddingBottom: `${GAP}px`,
-              position: "relative",
             }}
           >
             {rows.map((images, rowIndex) => {
@@ -100,9 +100,7 @@ export default function Home() {
               return (
                 <div
                   key={rowIndex}
-                  ref={(el) => {
-                    trackRefs.current[rowIndex] = el;
-                  }}
+                  ref={setTrackRef(rowIndex)}
                   style={{
                     display: "flex",
                     gap: `${GAP}px`,
@@ -116,7 +114,7 @@ export default function Home() {
 
                     return (
                       <div
-                        key={rowIndex + "-" + i}
+                        key={`${rowIndex}-${i}`}
                         style={{
                           width: `${imgSize}px`,
                           height: `${imgSize}px`,
@@ -135,8 +133,9 @@ export default function Home() {
                             display: "block",
                           }}
                         />
+
                         <canvas
-                          ref={(el) => (canvasRefs.current[idx] = el)}
+                          ref={setCanvasRef(idx)}
                           width={imgSize}
                           height={imgSize}
                           style={{
