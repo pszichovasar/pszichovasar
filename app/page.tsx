@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 export default function Home() {
   const scene1Ref = useRef(null);
-  const videoRef = useRef(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   const maskVideoRef = useRef(null);
   const overlayRef = useRef(null);
   const [opacity, setOpacity] = useState(1);
@@ -92,7 +92,7 @@ export default function Home() {
   useEffect(() => {
     const handleScroll = () => {
       const scene = scene1Ref.current;
-      const video = videoRef.current as HTMLVideoElement | null;
+      const video = videoRef.current;
       const maskVideo = maskVideoRef.current;
       if (!scene || !video) return;
 
