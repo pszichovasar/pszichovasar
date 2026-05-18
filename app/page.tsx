@@ -92,7 +92,7 @@ export default function Home() {
   useEffect(() => {
     const handleScroll = () => {
       const scene = scene1Ref.current;
-      const video = videoRef.current;
+      const video = videoRef.current as HTMLVideoElement | null;
       const maskVideo = maskVideoRef.current;
       if (!scene || !video) return;
 
