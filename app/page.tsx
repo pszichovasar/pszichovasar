@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 export default function Home() {
   const scene1Ref = useRef<HTMLElement | null>(null);
+
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const maskVideoRef = useRef<HTMLVideoElement | null>(null);
   const overlayRef = useRef<HTMLVideoElement | null>(null);
@@ -14,22 +15,23 @@ export default function Home() {
   const [imgSize, setImgSize] = useState<number>(140);
 
   const canvasRefs = useRef<(HTMLCanvasElement | null)[]>([]);
-  const animFrameRef = useRef<number | null>(null);
   const gridRef = useRef<HTMLDivElement | null>(null);
 
+  const animFrameRef = useRef<number | null>(null);
   const maskOpacityRef = useRef<number>(0);
 
   const trackRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   const GAP = 20;
 
-  const row0 = ["/1.jpg", "/2.jpg", "/3.jpg", "/4.jpg", "/5.jpg", "/6.jpg", "/7.jpg", "/8.jpg", "/9.jpg", "/10.jpg"];
-  const row1 = ["/11.jpg", "/12.jpg", "/13.jpg", "/14.jpg", "/15.jpg", "/16.jpg", "/17.jpg", "/18.jpg", "/19.jpg", "/20.jpg"];
-  const row2 = ["/1.jpg", "/3.jpg", "/5.jpg", "/7.jpg", "/9.jpg", "/2.jpg", "/4.jpg", "/6.jpg", "/8.jpg", "/10.jpg"];
-  const row3 = ["/11.jpg", "/13.jpg", "/15.jpg", "/17.jpg", "/19.jpg", "/12.jpg", "/14.jpg", "/16.jpg", "/18.jpg", "/20.jpg"];
-  const row4 = ["/2.jpg", "/4.jpg", "/6.jpg", "/8.jpg", "/10.jpg", "/1.jpg", "/3.jpg", "/5.jpg", "/7.jpg", "/9.jpg"];
+  const rows = [
+    ["/1.jpg", "/2.jpg", "/3.jpg", "/4.jpg", "/5.jpg", "/6.jpg", "/7.jpg", "/8.jpg", "/9.jpg", "/10.jpg"],
+    ["/11.jpg", "/12.jpg", "/13.jpg", "/14.jpg", "/15.jpg", "/16.jpg", "/17.jpg", "/18.jpg", "/19.jpg", "/20.jpg"],
+    ["/1.jpg", "/3.jpg", "/5.jpg", "/7.jpg", "/9.jpg", "/2.jpg", "/4.jpg", "/6.jpg", "/8.jpg", "/10.jpg"],
+    ["/11.jpg", "/13.jpg", "/15.jpg", "/17.jpg", "/19.jpg", "/12.jpg", "/14.jpg", "/16.jpg", "/18.jpg", "/20.jpg"],
+    ["/2.jpg", "/4.jpg", "/6.jpg", "/8.jpg", "/10.jpg", "/1.jpg", "/3.jpg", "/5.jpg", "/7.jpg", "/9.jpg"],
+  ];
 
-  const rows = [row0, row1, row2, row3, row4];
   const directions = [true, false, true, false, true];
 
   useEffect(() => {
@@ -50,26 +52,29 @@ export default function Home() {
     const draw = () => {
       const grid = gridRef.current;
 
+      // 🔥 FIX: video может быть null или не готов
       if (!grid || !video || video.readyState < 2) {
         animFrameRef.current = requestAnimationFrame(draw);
         return;
       }
 
-      const currentMaskOpacity = maskOpacityRef.current;
-
+      const ctxList = canvasRefs.current;
       const gridRect = grid.getBoundingClientRect();
+
       const vw = video.videoWidth;
       const vh = video.videoHeight;
 
-      const scaleX = gridRect.width / vw;
-      const scaleY = gridRect.height / vh;
-      const scale = Math.max(scaleX, scaleY);
+      const scale = Math.max(
+        gridRect.width / vw,
+        gridRect.height / vh
+      );
 
       const offsetX = (vw * scale - gridRect.width) / 2;
       const offsetY = (vh * scale - gridRect.height) / 2;
 
-      canvasRefs.current.forEach((canvas) => {
+      ctxList.forEach((canvas) => {
         if (!canvas) return;
+
         const ctx = canvas.getContext("2d");
         if (!ctx) return;
 
@@ -85,8 +90,10 @@ export default function Home() {
 
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        if (currentMaskOpacity > 0) {
-          ctx.globalAlpha = currentMaskOpacity;
+        const opacity = maskOpacityRef.current;
+
+        if (opacity > 0) {
+          ctx.globalAlpha = opacity;
           ctx.drawImage(video, srcX, srcY, srcW, srcH, 0, 0, canvas.width, canvas.height);
           ctx.globalAlpha = 1;
         }
@@ -100,7 +107,7 @@ export default function Home() {
     return () => {
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     };
-  }, [imgSize]);
+  }, []);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -118,15 +125,12 @@ export default function Home() {
 
         const maxMove = track.scrollWidth / 2;
 
-        if (directions[i]) {
-          track.style.transform = `translateX(${-progress * maxMove}px)`;
-        } else {
-          track.style.transform = `translateX(${-maxMove + progress * maxMove}px)`;
-        }
+        track.style.transform = directions[i]
+          ? `translateX(${-progress * maxMove}px)`
+          : `translateX(${-maxMove + progress * maxMove}px)`;
       });
 
-      const fadeStart = 0.8;
-      video.style.opacity = String(Math.max((progress - fadeStart) / (1 - fadeStart), 0));
+      video.style.opacity = String(Math.max((progress - 0.8) / 0.2, 0));
 
       const FADE_IN_START = 0.28;
       const FADE_IN_END = 0.40;
@@ -146,12 +150,8 @@ export default function Home() {
       maskOpacityRef.current = maskOpacity;
 
       if (maskVideo && maskVideo.duration) {
-        const videoProgress = Math.min(
-          Math.max((progress - FADE_IN_START) / (FADE_OUT_END - FADE_IN_START), 0),
-          1
-        );
-
-        maskVideo.currentTime = videoProgress * maskVideo.duration;
+        const t = (progress - FADE_IN_START) / (FADE_OUT_END - FADE_IN_START);
+        maskVideo.currentTime = Math.max(0, Math.min(1, t)) * maskVideo.duration;
       }
     };
 
@@ -163,14 +163,7 @@ export default function Home() {
 
   return (
     <>
-      <video
-        ref={maskVideoRef}
-        src="/overlay.webm"
-        muted
-        playsInline
-        preload="auto"
-        style={{ display: "none" }}
-      />
+      <video ref={maskVideoRef} src="/overlay.webm" muted playsInline preload="auto" style={{ display: "none" }} />
 
       {playCount < 3 && (
         <video
@@ -189,7 +182,6 @@ export default function Home() {
             pointerEvents: "none",
             opacity,
             filter: `blur(${blur}px)`,
-            transition: "opacity 0.1s linear, filter 0.1s linear",
           }}
           onTimeUpdate={() => {
             const v = overlayRef.current;
@@ -198,7 +190,7 @@ export default function Home() {
             const timeLeft = v.duration - v.currentTime;
 
             if (timeLeft <= 1) {
-              const t = timeLeft / 1;
+              const t = timeLeft;
               setOpacity(t);
               setBlur((1 - t) * 12);
             }
@@ -211,10 +203,7 @@ export default function Home() {
       )}
 
       <main style={{ background: "black", color: "white" }}>
-        <section
-          ref={scene1Ref}
-          style={{ height: "250vh", position: "relative" }}
-        >
+        <section ref={scene1Ref} style={{ height: "250vh" }}>
           <video
             ref={videoRef}
             src="/me.mp4"
@@ -263,10 +252,8 @@ export default function Home() {
                           overflow: "hidden",
                         }}
                       >
-                        <img
-                          src={img}
-                          style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                        />
+                        <img src={img} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+
                         <canvas
                           ref={(el) => (canvasRefs.current[idx] = el)}
                           width={imgSize}
