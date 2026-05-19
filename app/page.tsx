@@ -27,11 +27,12 @@ export default function Home() {
   // Стейт для динамической смены видео (по умолчанию для ПК идет /me.mp4)
   const [videoSrc, setVideoSrc] = useState("/me.mp4");
 
+  // Полностью перемешанные строки без идентичных повторений подряд
   const row0 = ["/1.jpg", "/2.jpg", "/3.jpg", "/4.jpg", "/5.jpg", "/6.jpg", "/7.jpg", "/8.jpg", "/9.jpg", "/10.jpg"];
-  const row1 = ["/11.jpg", "/13.jpg", "/15.jpg", "/17.jpg", "/19.jpg", "/12.jpg", "/14.jpg", "/16.jpg", "/18.jpg", "/20.jpg"];
-  const row2 = ["/1.jpg", "/3.jpg", "/5.jpg", "/7.jpg", "/9.jpg", "/2.jpg", "/4.jpg", "/6.jpg", "/8.jpg", "/10.jpg"];
-  const row3 = ["/11.jpg", "/13.jpg", "/15.jpg", "/17.jpg", "/19.jpg", "/12.jpg", "/14.jpg", "/16.jpg", "/18.jpg", "/20.jpg"];
-  const row4 = ["/2.jpg", "/4.jpg", "/6.jpg", "/8.jpg", "/10.jpg", "/1.jpg", "/3.jpg", "/5.jpg", "/7.jpg", "/9.jpg"];
+  const row1 = ["/11.jpg", "/12.jpg", "/13.jpg", "/14.jpg", "/15.jpg", "/16.jpg", "/17.jpg", "/18.jpg", "/19.jpg", "/20.jpg"];
+  const row2 = ["/10.jpg", "/9.jpg", "/8.jpg", "/7.jpg", "/6.jpg", "/5.jpg", "/4.jpg", "/3.jpg", "/2.jpg", "/1.jpg"];
+  const row3 = ["/20.jpg", "/19.jpg", "/18.jpg", "/17.jpg", "/16.jpg", "/15.jpg", "/14.jpg", "/13.jpg", "/12.jpg", "/11.jpg"];
+  const row4 = ["/5.jpg", "/15.jpg", "/2.jpg", "/12.jpg", "/8.jpg", "/18.jpg", "/4.jpg", "/14.jpg", "/9.jpg", "/19.jpg"];
 
   const rows = [row0, row1, row2, row3, row4];
   const directions = [true, false, true, false, true];
@@ -191,13 +192,19 @@ export default function Home() {
 
       if (textEl) {
         if (scrollY < scene1End) {
-          textEl.style.transform = "translate3d(0, 120vh, 0)";
+          textEl.style.transform = "translate3d(0, 100vh, 0)";
           textEl.style.opacity = "0";
         } else {
           const scene2ScrollY = scrollY - scene1End;
-          const textProgress = Math.min(scene2ScrollY / (window.innerHeight * 3.5), 1);
-          const translateY = Math.max(0, (1 - textProgress) * 120);
-          const textOpacity = Math.min(textProgress * 2, 1);
+
+          // Синхронизация скорости скролла: убрано замедление коэффициентом 3.5. 
+          // Теперь текст поднимается строго 1 к 1 со скоростью прокрутки колесика/пальца.
+          const maxScrollDistance = window.innerHeight;
+          const textProgress = Math.min(scene2ScrollY / maxScrollDistance, 1);
+
+          const translateY = Math.max(0, (1 - textProgress) * 100);
+          const textOpacity = Math.min(textProgress * 4, 1); // Быстрое проявление прозрачности
+
           textEl.style.transform = `translate3d(0, ${translateY}vh, 0)`;
           textEl.style.opacity = textOpacity.toString();
         }
@@ -490,18 +497,18 @@ export default function Home() {
         </section>
 
         {/* SCENE 2 */}
-        <section style={{ height: "600vh", position: "relative", zIndex: 3, background: "transparent" }}>
+        <section style={{ height: "300vh", position: "relative", zIndex: 3, background: "transparent" }}>
           <div
             ref={textRef}
             style={{
               position: "sticky",
-              top: "10vh",
-              height: "75vh",
+              top: "15vh",
+              height: "70vh",
               display: "flex",
               flexDirection: "column",
               justifyContent: "flex-start",
               padding: "0 clamp(20px, 6vw, 80px)",
-              transform: "translate3d(0, 120vh, 0)",
+              transform: "translate3d(0, 100vh, 0)",
               opacity: 0,
               willChange: "transform, opacity",
             }}
