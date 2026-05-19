@@ -6,6 +6,9 @@ export default function Home() {
   const scene1Ref = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const maskVideoRef = useRef<HTMLVideoElement>(null);
+  const overlayRef = useRef<HTMLVideoElement>(null);
+  const [opacity, setOpacity] = useState(1);
+  const [blur, setBlur] = useState(0);
   const [playCount, setPlayCount] = useState(0);
   const [imgSize, setImgSize] = useState(140);
   const canvasRefs = useRef<(HTMLCanvasElement | null)[]>([]);
@@ -80,9 +83,7 @@ export default function Home() {
       const screenH = window.innerHeight;
       const scaleX = screenW / vw;
       const scaleY = screenH / vh;
-
-      // Math.min вместо Math.max аккуратно вписывает маску в экран телефона (contain)
-      const scale = Math.min(scaleX, scaleY);
+      const scale = Math.max(scaleX, scaleY);
       const scaledW = vw * scale;
       const scaledH = vh * scale;
       const screenOffsetX = (scaledW - screenW) / 2;
@@ -205,6 +206,7 @@ export default function Home() {
       textEl.style.transition = "opacity 0.4s ease, filter 0.4s ease";
       textEl.style.opacity = "";
       textEl.style.filter = "blur(0px)";
+      // Убираем transition после завершения чтобы не мешал scroll-анимации
       setTimeout(() => {
         if (textEl) textEl.style.transition = "";
       }, 450);
@@ -261,7 +263,7 @@ export default function Home() {
 
       <video ref={maskVideoRef} src="/mask.mp4" muted playsInline preload="auto" style={{ display: "none" }} />
 
-      {/* Contact modal */}
+      {/* Contact modal — центр экрана, квадрат */}
       {showContact && (
         <div
           onClick={(e) => e.target === e.currentTarget && closeContact()}
@@ -319,7 +321,7 @@ export default function Home() {
                 </div>
               ))}
 
-              {/* Message */}
+              {/* Message — растёт по контенту */}
               <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                 <label style={labelStyle}>MESSAGE</label>
                 <textarea
@@ -356,6 +358,36 @@ export default function Home() {
         </div>
       )}
 
+      {/* Изменено: objectFit выставлен в "cover", чтобы убрать видимые края сверху и снизу */}
+      {playCount < 3 && (
+        <video
+          ref={overlayRef}
+          autoPlay
+          muted
+          playsInline
+          style={{
+            position: "fixed", top: 0, left: 0,
+            width: "100vw", height: "100vh",
+            objectFit: "cover", zIndex: 9999, // <--- Здесь теперь "cover" вместо "contain"
+            pointerEvents: "none", opacity,
+            filter: `blur(${blur}px)`,
+            transition: "opacity 0.1s linear, filter 0.1s linear",
+          }}
+          onTimeUpdate={() => {
+            const v = overlayRef.current;
+            if (!v) return;
+            const timeLeft = v.duration - v.currentTime;
+            if (timeLeft <= 1) { setOpacity(timeLeft); setBlur((1 - timeLeft) * 12); }
+          }}
+          onEnded={() => { setOpacity(0); setBlur(12); }}
+        >
+          {/* iOS / macOS Safari подхватит этот HEVC файл */}
+          <source src="/overlay.mp4" type='video/mp4; codecs="hvc1"' />
+          {/* Chrome / Firefox подхватят старый webm */}
+          <source src="/overlay.webm" type="video/webm" />
+        </video>
+      )}
+
       <main style={{ background: "black", color: "white" }}>
 
         {/* SCENE 1 */}
@@ -365,7 +397,7 @@ export default function Home() {
             style={{
               position: "fixed", top: 0, left: 0,
               width: "100vw", height: "100vh",
-              objectFit: "contain", zIndex: 0, // Изменено на contain, чтобы видео не обрезалось на мобильных
+              objectFit: "cover", zIndex: 0,
               opacity: 0, transition: "opacity 0.3s ease",
             }}
           />
