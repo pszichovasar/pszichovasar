@@ -191,21 +191,19 @@ export default function Home() {
       const scene1End = scene1Top + scene1Height - window.innerHeight;
 
       if (textEl) {
-        if (scrollY < scene1End) {
-          textEl.style.transform = "translate3d(0, 100vh, 0)";
+        // Избавление от ступенчатого эффекта: вычисляем позицию плавно на протяжении всего скролла
+        const scene2ScrollY = scrollY - scene1End;
+        const maxScrollDistance = window.innerHeight;
+
+        if (scene2ScrollY <= 0) {
+          textEl.style.transform = "translate3d(0, 100dvh, 0)";
           textEl.style.opacity = "0";
         } else {
-          const scene2ScrollY = scrollY - scene1End;
-
-          // Синхронизация скорости скролла: убрано замедление коэффициентом 3.5. 
-          // Теперь текст поднимается строго 1 к 1 со скоростью прокрутки колесика/пальца.
-          const maxScrollDistance = window.innerHeight;
           const textProgress = Math.min(scene2ScrollY / maxScrollDistance, 1);
-
           const translateY = Math.max(0, (1 - textProgress) * 100);
-          const textOpacity = Math.min(textProgress * 4, 1); // Быстрое проявление прозрачности
+          const textOpacity = Math.min(textProgress * 4, 1);
 
-          textEl.style.transform = `translate3d(0, ${translateY}vh, 0)`;
+          textEl.style.transform = `translate3d(0, ${translateY}dvh, 0)`;
           textEl.style.opacity = textOpacity.toString();
         }
       }
@@ -221,7 +219,6 @@ export default function Home() {
     };
 
     window.addEventListener("scroll", onScroll, { passive: true });
-    // Вызываем один раз сразу для инициализации начального состояния
     updateScrollMetrics();
 
     return () => {
@@ -280,9 +277,19 @@ export default function Home() {
   return (
     <>
       <style>{`
+        html, body {
+          overflow-x: hidden !important;
+          width: 100% !important;
+          max-width: 100% !important;
+          touch-action: pan-y !important; /* Убирает случайный зум жестами и лишний горизонтальный люфт */
+          margin: 0;
+          padding: 0;
+        }
+
         * {
           font-family: 'Arial Black', Gadget, sans-serif !important;
           text-transform: uppercase !important;
+          box-sizing: border-box;
         }
 
         @keyframes shakeY {
@@ -302,13 +309,15 @@ export default function Home() {
           display: flex;
           flex-direction: column;
           position: relative;
+          width: 100vw;
+          overflow: hidden;
         }
         .mask-video-element {
           position: fixed;
           top: 0;
           left: 0;
           width: 100vw;
-          height: 100vh;
+          height: 100dvh;
           object-fit: cover;
           pointer-events: none;
           mix-blend-mode: multiply;
@@ -365,7 +374,7 @@ export default function Home() {
             background: "#fff",
             color: "#000",
             width: "min(520px, 90vw)",
-            aspectRatio: "1 / 1", // Превращает контейнер в идеальный квадрат
+            aspectRatio: "1 / 1",
             padding: "clamp(24px, 5vw, 40px)",
             transform: contactVisible ? "translate3d(0, 0, 0)" : "translate3d(0, 60px, 0)",
             opacity: contactVisible ? 1 : 0,
@@ -373,7 +382,7 @@ export default function Home() {
             boxSizing: "border-box",
             display: "flex",
             flexDirection: "column",
-            justifyContent: "space-between" // Распределяет заголовок и форму по высоте квадрата
+            justifyContent: "space-between"
           }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", width: "100%" }}>
               <div style={{ fontSize: "clamp(18px, 3.2vw, 28px)", fontWeight: 900, letterSpacing: "-0.01em", lineHeight: 1, color: "#000" }}>
@@ -435,7 +444,7 @@ export default function Home() {
           playsInline
           style={{
             position: "fixed", top: 0, left: 0,
-            width: "100vw", height: "100vh",
+            width: "100vw", height: "100dvh",
             objectFit: "cover", zIndex: 9999,
             pointerEvents: "none", opacity,
             filter: `blur(${blur}px)`,
@@ -454,10 +463,10 @@ export default function Home() {
         </video>
       )}
 
-      <main style={{ background: "black", color: "white" }}>
+      <main style={{ background: "black", color: "white", width: "100vw", overflowX: "hidden" }}>
 
         {/* SCENE 1 */}
-        <section ref={scene1Ref} style={{ height: "250vh", position: "relative", zIndex: 2 }}>
+        <section ref={scene1Ref} style={{ height: "250vh", position: "relative", zIndex: 2, width: "100vw", overflowX: "hidden" }}>
           <video
             ref={videoRef}
             src={videoSrc}
@@ -467,14 +476,14 @@ export default function Home() {
             playsInline
             style={{
               position: "fixed", top: 0, left: 0,
-              width: "100vw", height: "100vh",
+              width: "100vw", height: "100dvh",
               objectFit: "cover", zIndex: 0,
               opacity: 0, transition: "opacity 0.3s ease",
             }}
           />
-          <div style={{ position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh", background: "rgba(0,0,0,0.3)", zIndex: 1, pointerEvents: "none" }} />
+          <div style={{ position: "fixed", top: 0, left: 0, width: "100vw", height: "100dvh", background: "rgba(0,0,0,0.3)", zIndex: 1, pointerEvents: "none" }} />
 
-          <div style={{ position: "sticky", top: 0, height: "100vh", overflow: "hidden", display: "flex", alignItems: "center", zIndex: 2 }}>
+          <div style={{ position: "sticky", top: 0, height: "100dvh", overflow: "hidden", display: "flex", alignItems: "center", zIndex: 2 }}>
             <div ref={gridRef} className="masked-grid" style={{ gap: `${GAP}px`, paddingTop: `${GAP}px`, paddingBottom: `${GAP}px` }}>
               {rows.map((images, rowIndex) => {
                 const looped = [...images, ...images];
@@ -482,7 +491,7 @@ export default function Home() {
                   <div
                     key={rowIndex}
                     ref={(el) => { trackRefs.current[rowIndex] = el; }}
-                    style={{ display: "flex", gap: `${GAP}px`, width: "max-content", paddingLeft: `${GAP}px`, paddingRight: `${GAP}px` }}
+                    style={{ display: "flex", gap: `${GAP}px`, width: "max-content", paddingLeft: `${GAP}px`, paddingRight: `${GAP}px`, willChange: "transform" }}
                   >
                     {looped.map((img, i) => (
                       <div key={rowIndex + "-" + i} style={{ width: `${imgSize}px`, height: `${imgSize}px`, borderRadius: "12px", flexShrink: 0, position: "relative", overflow: "hidden" }}>
@@ -497,18 +506,18 @@ export default function Home() {
         </section>
 
         {/* SCENE 2 */}
-        <section style={{ height: "300vh", position: "relative", zIndex: 3, background: "transparent" }}>
+        <section style={{ height: "300vh", position: "relative", zIndex: 3, background: "transparent", width: "100vw", overflowX: "hidden" }}>
           <div
             ref={textRef}
             style={{
               position: "sticky",
-              top: "15vh",
-              height: "70vh",
+              top: "15dvh",
+              height: "70dvh",
               display: "flex",
               flexDirection: "column",
               justifyContent: "flex-start",
               padding: "0 clamp(20px, 6vw, 80px)",
-              transform: "translate3d(0, 100vh, 0)",
+              transform: "translate3d(0, 100dvh, 0)",
               opacity: 0,
               willChange: "transform, opacity",
             }}
