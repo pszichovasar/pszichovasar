@@ -24,6 +24,7 @@ export default function Home() {
   const [form, setForm] = useState({ name: "", email: "", message: "" });
   const [isSending, setIsSending] = useState(false);
 
+  // Стейт для динамической смены видео (по умолчанию для ПК идет /me.mp4)
   const [videoSrc, setVideoSrc] = useState("/me.mp4");
 
   const row0 = ["/1.jpg", "/2.jpg", "/3.jpg", "/4.jpg", "/5.jpg", "/6.jpg", "/7.jpg", "/8.jpg", "/9.jpg", "/10.jpg"];
@@ -88,13 +89,15 @@ export default function Home() {
     }
   };
 
+  // ОПРЕДЕЛЕНИЕ IPHONE / IOS УСТРОЙСТВ
   useEffect(() => {
     const isiPhone = /iPhone|iPad|iPod/i.test(navigator.userAgent);
     if (isiPhone) {
-      setVideoSrc("/iome.mp4?v=" + new Date().getTime());
+      setVideoSrc("/iome.mp4");
     }
   }, []);
 
+  // Перезагрузка видеоплеера при смене источника
   useEffect(() => {
     if (videoRef.current) {
       videoRef.current.load();
@@ -135,44 +138,45 @@ export default function Home() {
     return () => video.removeEventListener("timeupdate", handleTimeUpdate);
   }, []);
 
+  // Оптимизированный скролл-обработчик через requestAnimationFrame без скачков на iOS
   useEffect(() => {
     const TRIGGER_PROGRESS = 0.28;
+    let rId: number | null = null;
 
-    const handleScroll = () => {
+    const updateScrollMetrics = () => {
       const scene1 = scene1Ref.current;
       const video = videoRef.current;
       const maskVideo = maskVideoRef.current;
-      const customBgOverlay = document.getElementById("video-dark-overlay");
+      const textEl = textRef.current;
       if (!scene1 || !video) return;
 
-      const scrollY = window.scrollY;
-      const maxScrollScene1 = scene1.offsetHeight - window.innerHeight;
+      const scrollY = window.pageYOffset || document.documentElement.scrollTop;
+      const scene1Top = scene1.offsetTop;
+      const scene1Height = scene1.offsetHeight;
 
-      const progress = Math.min(Math.max(scrollY / maxScrollScene1, 0), 1);
+      // Вычисляем прогресс на основе стабильных координат top и offsetHeight
+      let progress = (scrollY - scene1Top) / scene1Height;
+      progress = Math.min(Math.max(progress, 0), 1);
 
       trackRefs.current.forEach((track, i) => {
         if (!track) return;
         const maxMove = track.scrollWidth / 2;
         if (directions[i]) {
-          track.style.transform = `translateX(${-progress * maxMove}px)`;
+          track.style.transform = `translate3d(${-progress * maxMove}px, 0, 0)`;
         } else {
-          track.style.transform = `translateX(${-maxMove + progress * maxMove}px)`;
+          track.style.transform = `translate3d(${-maxMove + progress * maxMove}px, 0, 0)`;
         }
       });
 
       const fadeStart = 0.8;
       const meOpacity = Math.max((progress - fadeStart) / (1 - fadeStart), 0);
-
       video.style.opacity = meOpacity.toString();
-      if (customBgOverlay) {
-        customBgOverlay.style.opacity = (meOpacity * 0.3).toString();
-      }
 
       if (maskVideo && !maskTriggeredRef.current && progress >= TRIGGER_PROGRESS) {
         maskTriggeredRef.current = true;
         maskPlayingRef.current = true;
         maskVideo.currentTime = 0;
-        maskVideo.play();
+        maskVideo.play().catch(() => { });
         const fadeIn = () => {
           setMaskOpacity((prev) => {
             if (prev >= 1) return 1;
@@ -182,10 +186,41 @@ export default function Home() {
         };
         fadeIn();
       }
+
+      const scene1End = scene1Top + scene1Height - window.innerHeight;
+
+      if (textEl) {
+        if (scrollY < scene1End) {
+          textEl.style.transform = "translate3d(0, 120vh, 0)";
+          textEl.style.opacity = "0";
+        } else {
+          const scene2ScrollY = scrollY - scene1End;
+          const textProgress = Math.min(scene2ScrollY / (window.innerHeight * 3.5), 1);
+          const translateY = Math.max(0, (1 - textProgress) * 120);
+          const textOpacity = Math.min(textProgress * 2, 1);
+          textEl.style.transform = `translate3d(0, ${translateY}vh, 0)`;
+          textEl.style.opacity = textOpacity.toString();
+        }
+      }
     };
 
-    window.addEventListener("scroll", handleScroll);
-    return () => window.removeEventListener("scroll", handleScroll);
+    const onScroll = () => {
+      if (rId === null) {
+        rId = requestAnimationFrame(() => {
+          updateScrollMetrics();
+          rId = null;
+        });
+      }
+    };
+
+    window.addEventListener("scroll", onScroll, { passive: true });
+    // Вызываем один раз сразу для инициализации начального состояния
+    updateScrollMetrics();
+
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      if (rId !== null) cancelAnimationFrame(rId);
+    };
   }, []);
 
   useEffect(() => {
@@ -199,6 +234,9 @@ export default function Home() {
       textEl.style.transition = "opacity 0.4s ease, filter 0.4s ease";
       textEl.style.opacity = "";
       textEl.style.filter = "blur(0px)";
+      setTimeout(() => {
+        if (textEl) textEl.style.transition = "";
+      }, 450);
     }
   }, [contactVisible]);
 
@@ -216,7 +254,7 @@ export default function Home() {
     border: "none",
     borderBottom: "1.5px solid #000",
     color: "#000",
-    fontSize: "clamp(13px, 1.6vw, 17px)",
+    fontSize: "clamp(12px, 1.5vw, 15px)",
     padding: "6px 0",
     outline: "none",
     fontFamily: "'Arial Black', Gadget, sans-serif",
@@ -292,17 +330,6 @@ export default function Home() {
             font-size: 8.5vw !important;
             margin-top: 1.2em !important;
           }
-
-          .contact-modal-content {
-            border-radius: 0px !important;
-            aspect-ratio: 1 / 1 !important;
-            width: 92vw !important;
-            height: 92vw !important;
-            padding: 24px !important;
-            display: flex !important;
-            flex-direction: column !important;
-            justify-content: center !important;
-          }
         }
       `}</style>
 
@@ -316,7 +343,7 @@ export default function Home() {
         style={{ opacity: maskOpacity, display: maskOpacity > 0 ? "block" : "none" }}
       />
 
-      {/* Contact modal */}
+      {/* Contact modal - Строгий Квадрат */}
       {showContact && (
         <div
           onClick={(e) => e.target === e.currentTarget && !isSending && closeContact()}
@@ -327,34 +354,33 @@ export default function Home() {
             display: "flex", alignItems: "center", justifyContent: "center",
           }}
         >
-          <div
-            className="contact-modal-content"
-            style={{
-              background: "#fff",
-              color: "#000",
-              width: "min(520px, 90vw)",
-              padding: "48px",
-              transform: contactVisible ? "translateY(0)" : "translateY(60px)",
-              opacity: contactVisible ? 1 : 0,
-              transition: "transform 0.5s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.5s ease",
-              boxSizing: "border-box",
-              borderRight: "1px solid #000",
-              borderBottom: "1px solid #000",
-              borderRadius: "0px",
-            }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "24px" }}>
-              <div style={{ fontSize: "clamp(18px, 3.5vw, 32px)", fontWeight: 900, letterSpacing: "-0.01em", lineHeight: 1, color: "#000" }}>
+          <div style={{
+            background: "#fff",
+            color: "#000",
+            width: "min(520px, 90vw)",
+            aspectRatio: "1 / 1", // Превращает контейнер в идеальный квадрат
+            padding: "clamp(24px, 5vw, 40px)",
+            transform: contactVisible ? "translate3d(0, 0, 0)" : "translate3d(0, 60px, 0)",
+            opacity: contactVisible ? 1 : 0,
+            transition: "transform 0.5s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.5s ease",
+            boxSizing: "border-box",
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "space-between" // Распределяет заголовок и форму по высоте квадрата
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", width: "100%" }}>
+              <div style={{ fontSize: "clamp(18px, 3.2vw, 28px)", fontWeight: 900, letterSpacing: "-0.01em", lineHeight: 1, color: "#000" }}>
                 LET'S WORK
               </div>
-              <button disabled={isSending} onClick={closeContact} style={{ background: "none", border: "none", color: "#000", fontSize: "26px", cursor: isSending ? "not-allowed" : "pointer", lineHeight: 1, padding: 0, marginTop: "-2px" }}>×</button>
+              <button disabled={isSending} onClick={closeContact} style={{ background: "none", border: "none", color: "#000", fontSize: "24px", cursor: isSending ? "not-allowed" : "pointer", lineHeight: 1, padding: 0, marginTop: "-4px" }}>×</button>
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "clamp(12px, 2.5vw, 20px)", flexGrow: 1, justifyContent: "center", margin: "16px 0" }}>
               {[
                 { label: "YOUR NAME", key: "name" as const, type: "text" },
                 { label: "EMAIL", key: "email" as const, type: "email" },
               ].map(({ label, key, type }) => (
-                <div key={key} style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                <div key={key} style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
                   <label style={labelStyle}>{label}</label>
                   <input
                     type={type}
@@ -366,31 +392,30 @@ export default function Home() {
                 </div>
               ))}
 
-              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
                 <label style={labelStyle}>MESSAGE</label>
                 <textarea ref={textareaRef} disabled={isSending} value={form.message} onChange={handleMessageChange} rows={1} style={{ ...inputStyle, resize: "none", overflow: "hidden", lineHeight: "1.4", transition: "height 0.25s ease", display: "block", verticalAlign: "bottom" }} />
               </div>
-
-              <button
-                onClick={handleSubmit}
-                disabled={isSending}
-                style={{
-                  marginTop: "8px",
-                  background: "#000",
-                  color: "#fff",
-                  border: "none",
-                  padding: "14px 32px",
-                  fontSize: "11px",
-                  letterSpacing: "0.2em",
-                  fontWeight: 900,
-                  cursor: isSending ? "not-allowed" : "pointer",
-                  alignSelf: "flex-start",
-                  opacity: isSending ? 0.6 : 1
-                }}
-              >
-                {isSending ? "SENDING..." : "SEND"}
-              </button>
             </div>
+
+            <button
+              onClick={handleSubmit}
+              disabled={isSending}
+              style={{
+                background: "#000",
+                color: "#fff",
+                border: "none",
+                padding: "14px 32px",
+                fontSize: "10px",
+                letterSpacing: "0.2em",
+                fontWeight: 900,
+                cursor: isSending ? "not-allowed" : "pointer",
+                alignSelf: "flex-start",
+                opacity: isSending ? 0.6 : 1
+              }}
+            >
+              {isSending ? "SENDING..." : "SEND"}
+            </button>
           </div>
         </div>
       )}
@@ -426,7 +451,6 @@ export default function Home() {
 
         {/* SCENE 1 */}
         <section ref={scene1Ref} style={{ height: "250vh", position: "relative", zIndex: 2 }}>
-          {/* 1. Заднее видео */}
           <video
             ref={videoRef}
             src={videoSrc}
@@ -434,29 +458,15 @@ export default function Home() {
             loop
             autoPlay
             playsInline
-            controls={false}
             style={{
               position: "fixed", top: 0, left: 0,
               width: "100vw", height: "100vh",
-              objectFit: "cover", zIndex: 3,
+              objectFit: "cover", zIndex: 0,
               opacity: 0, transition: "opacity 0.3s ease",
             }}
           />
-          {/* 2. Черный слой с непрозрачностью ровно 30% строго ПОВЕРХ видео (zIndex: 4) */}
-          <div
-            id="video-dark-overlay"
-            style={{
-              position: "fixed", top: 0, left: 0,
-              width: "100vw", height: "100vh",
-              background: "black",
-              zIndex: 4,
-              pointerEvents: "none",
-              opacity: 0,
-              transition: "opacity 0.3s ease"
-            }}
-          />
+          <div style={{ position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh", background: "rgba(0,0,0,0.3)", zIndex: 1, pointerEvents: "none" }} />
 
-          {/* 3. Контейнер бесконечной сетки картинок (zIndex: 2) */}
           <div style={{ position: "sticky", top: 0, height: "100vh", overflow: "hidden", display: "flex", alignItems: "center", zIndex: 2 }}>
             <div ref={gridRef} className="masked-grid" style={{ gap: `${GAP}px`, paddingTop: `${GAP}px`, paddingBottom: `${GAP}px` }}>
               {rows.map((images, rowIndex) => {
@@ -480,47 +490,49 @@ export default function Home() {
         </section>
 
         {/* SCENE 2 */}
-        <section style={{ position: "relative", zIndex: 6, background: "transparent" }}>
+        <section style={{ height: "600vh", position: "relative", zIndex: 3, background: "transparent" }}>
           <div
             ref={textRef}
             style={{
-              width: "100vw",
-              minHeight: "100vh",
+              position: "sticky",
+              top: "10vh",
+              height: "75vh",
               display: "flex",
               flexDirection: "column",
-              justifyContent: "center",
-              padding: "80px clamp(20px, 6vw, 80px)",
-              willChange: "opacity, filter",
+              justifyContent: "flex-start",
+              padding: "0 clamp(20px, 6vw, 80px)",
+              transform: "translate3d(0, 120vh, 0)",
+              opacity: 0,
+              willChange: "transform, opacity",
             }}
           >
-            <div style={{ display: "flex", flexDirection: "column" }}>
-              <div className="text-line" style={{ fontSize: "clamp(32px, 6.5vw, 88px)" }}>
-                MY NAME <span className="mobile-br" />IS ARTEM
-              </div>
+            <div className="text-line" style={{ fontSize: "clamp(32px, 6.5vw, 88px)" }}>
+              MY NAME <span className="mobile-br" />IS ARTEM
+            </div>
 
-              <div className="text-line" style={{ fontSize: "clamp(32px, 6.5vw, 88px)", marginTop: "0.15em" }}>
-                I'M A <span className="mobile-br" />DESIGNER
-              </div>
+            <div className="text-line" style={{ fontSize: "clamp(32px, 6.5vw, 88px)", marginTop: "0.15em" }}>
+              I'M A <span className="mobile-br" />DESIGNER
+            </div>
 
-              <div
-                className={`text-line contact-trigger ${shaking ? "shakeY" : ""}`}
-                onMouseEnter={handleContactEnter}
-                onMouseLeave={() => setContactHovered(false)}
-                onClick={openContact}
-                style={{
-                  fontSize: "clamp(32px, 6.5vw, 88px)",
-                  marginTop: "1.6em",
-                  cursor: "pointer",
-                  display: "inline-block",
-                  userSelect: "none",
-                  alignSelf: "flex-start"
-                }}
-              >
-                {contactHovered ? "GET YOUR BEST DESIGN EVER" : "CONTACT ME"}
-              </div>
+            <div
+              className={`text-line contact-trigger ${shaking ? "shakeY" : ""}`}
+              onMouseEnter={handleContactEnter}
+              onMouseLeave={() => setContactHovered(false)}
+              onClick={openContact}
+              style={{
+                fontSize: "clamp(32px, 6.5vw, 88px)",
+                marginTop: "1.6em",
+                cursor: "pointer",
+                display: "inline-block",
+                userSelect: "none"
+              }}
+            >
+              {contactHovered ? "GET YOUR BEST DESIGN EVER" : "CONTACT ME"}
             </div>
           </div>
         </section>
+
+        <section style={{ height: "40vh", background: "#000" }} />
       </main>
     </>
   );
