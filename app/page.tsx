@@ -199,22 +199,32 @@ export default function Home() {
       }
     });
 
-    // Уменьшаем масштаб всей сетки к концу ее анимации
+    // Изменение масштаба и плавное исчезновение сетки В ДВИЖЕНИИ
     if (gridRef.current) {
       const scale = 1 - gridProgress * 0.05;
       gridRef.current.style.transform = `scale(${scale})`;
-      // Плавно гасим сетку в самом конце
-      gridRef.current.style.opacity = progress > 0.6 ? Math.max(0, 1 - (progress - 0.6) * 10).toString() : "1";
+
+      // НАСТРОЙКА ИСЧЕЗНОВЕНИЯ:
+      // Сетка начинает таять на 35% скролла и полностью исчезает на 55%
+      if (progress < 0.35) {
+        gridRef.current.style.opacity = "1";
+      } else if (progress > 0.55) {
+        gridRef.current.style.opacity = "0";
+      } else {
+        // Вычисляем затухание в диапазоне от 0.35 до 0.55
+        const fadeProgress = (progress - 0.35) / (0.55 - 0.35);
+        gridRef.current.style.opacity = (1 - fadeProgress).toString();
+      }
     }
 
-    // 2. Появление фонового видео заднего плана (плавно с 40% прогресса)
+    // 2. Появление фонового видео заднего плана (плавно с 35% прогресса, синхронно с исчезновением сетки)
     if (videoRef.current) {
-      const videoProgress = progress < 0.4 ? 0 : Math.min((progress - 0.4) / 0.2, 1);
+      const videoProgress = progress < 0.35 ? 0 : Math.min((progress - 0.35) / 0.2, 1);
       videoRef.current.style.opacity = videoProgress.toString();
     }
 
     // 3. Запуск триггера видео-маски
-    if (maskVideoRef.current && !maskTriggeredRef.current && progress >= 0.25) {
+    if (maskVideoRef.current && !maskTriggeredRef.current && progress >= 0.2) {
       maskTriggeredRef.current = true;
       maskPlayingRef.current = true;
       maskVideoRef.current.currentTime = 0;
@@ -229,10 +239,10 @@ export default function Home() {
       fadeIn();
     }
 
-    // 4. Появление текста (начинается с 60% и полностью раскрывается к 85%)
+    // 4. Появление текста (начинается с 50% и полностью раскрывается к 75%)
     if (textRef.current) {
-      if (progress > 0.55) {
-        const textProgress = Math.min((progress - 0.55) / 0.25, 1);
+      if (progress > 0.5) {
+        const textProgress = Math.min((progress - 0.5) / 0.25, 1);
         textRef.current.style.opacity = textProgress.toString();
         textRef.current.style.transform = `translate3d(0, ${(1 - textProgress) * 30}px, 0)`;
         textRef.current.style.pointerEvents = "auto";
