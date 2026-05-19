@@ -415,7 +415,7 @@ export default function Home() {
                 return (
                   <div
                     key={rowIndex}
-                    ref={(el) => (trackRefs.current[rowIndex] = el)}
+                    ref={(el) => { trackRefs.current[rowIndex] = el; }}
                     style={{
                       display: "flex", gap: `${GAP}px`,
                       width: "max-content",
@@ -432,7 +432,7 @@ export default function Home() {
                         }}>
                           <img src={img} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
                           <canvas
-                            ref={(el) => (canvasRefs.current[idx] = el)}
+                            ref={(el) => { canvasRefs.current[idx] = el; }}
                             width={imgSize} height={imgSize}
                             style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%" }}
                           />
