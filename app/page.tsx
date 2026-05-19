@@ -11,10 +11,8 @@ export default function Home() {
   const [blur, setBlur] = useState(0);
   const [playCount, setPlayCount] = useState(0);
   const [imgSize, setImgSize] = useState(140);
-  const canvasRefs = useRef<(HTMLCanvasElement | null)[]>([]);
-  const animFrameRef = useRef<number | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
-  const maskOpacityRef = useRef(0);
+  const [maskOpacity, setMaskOpacity] = useState(0);
   const maskTriggeredRef = useRef(false);
   const maskPlayingRef = useRef(false);
   const textRef = useRef<HTMLDivElement>(null);
@@ -46,7 +44,6 @@ export default function Home() {
     setTimeout(() => setShowContact(false), 500);
   };
 
-  // Авто-высота textarea
   const handleMessageChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setForm({ ...form, message: e.target.value });
     const ta = textareaRef.current;
@@ -70,66 +67,25 @@ export default function Home() {
     const video = maskVideoRef.current;
     if (!video) return;
 
-    const draw = () => {
-      const grid = gridRef.current;
-      if (!grid || !video || video.readyState < 2) {
-        animFrameRef.current = requestAnimationFrame(draw);
-        return;
-      }
-      const currentMaskOpacity = maskOpacityRef.current;
-      const vw = video.videoWidth;
-      const vh = video.videoHeight;
-      const screenW = window.innerWidth;
-      const screenH = window.innerHeight;
-      const scaleX = screenW / vw;
-      const scaleY = screenH / vh;
-      const scale = Math.max(scaleX, scaleY);
-      const scaledW = vw * scale;
-      const scaledH = vh * scale;
-      const screenOffsetX = (scaledW - screenW) / 2;
-      const screenOffsetY = (scaledH - screenH) / 2;
-
-      canvasRefs.current.forEach((canvas) => {
-        if (!canvas) return;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return;
-        const rect = canvas.getBoundingClientRect();
-        const srcX = (rect.left + screenOffsetX) / scale;
-        const srcY = (rect.top + screenOffsetY) / scale;
-        const srcW = rect.width / scale;
-        const srcH = rect.height / scale;
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        if (currentMaskOpacity > 0) {
-          ctx.globalAlpha = currentMaskOpacity;
-          ctx.drawImage(video, srcX, srcY, srcW, srcH, 0, 0, canvas.width, canvas.height);
-          ctx.globalAlpha = 1;
-        }
-      });
-
-      animFrameRef.current = requestAnimationFrame(draw);
-    };
-
     const handleTimeUpdate = () => {
       if (!video.duration) return;
       const timeLeft = video.duration - video.currentTime;
       if (timeLeft <= 1.5 && maskPlayingRef.current) {
         maskPlayingRef.current = false;
         const fadeOut = () => {
-          if (maskOpacityRef.current <= 0) { maskOpacityRef.current = 0; return; }
-          maskOpacityRef.current = Math.max(0, maskOpacityRef.current - 0.02);
-          requestAnimationFrame(fadeOut);
+          setMaskOpacity((prev) => {
+            if (prev <= 0) return 0;
+            requestAnimationFrame(fadeOut);
+            return Math.max(0, prev - 0.02);
+          });
         };
         fadeOut();
       }
     };
 
     video.addEventListener("timeupdate", handleTimeUpdate);
-    animFrameRef.current = requestAnimationFrame(draw);
-    return () => {
-      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
-      video.removeEventListener("timeupdate", handleTimeUpdate);
-    };
-  }, [imgSize]);
+    return () => video.removeEventListener("timeupdate", handleTimeUpdate);
+  }, []);
 
   useEffect(() => {
     const TRIGGER_PROGRESS = 0.28;
@@ -164,9 +120,11 @@ export default function Home() {
         maskVideo.currentTime = 0;
         maskVideo.play();
         const fadeIn = () => {
-          if (maskOpacityRef.current >= 1) { maskOpacityRef.current = 1; return; }
-          maskOpacityRef.current = Math.min(1, maskOpacityRef.current + 0.03);
-          requestAnimationFrame(fadeIn);
+          setMaskOpacity((prev) => {
+            if (prev >= 1) return 1;
+            requestAnimationFrame(fadeIn);
+            return Math.min(1, prev + 0.03);
+          });
         };
         fadeIn();
       }
@@ -175,17 +133,15 @@ export default function Home() {
 
       if (textEl) {
         if (scrollY < scene1End) {
-          textEl.style.transform = "translateY(200vh)";
+          textEl.style.transform = "translateY(150vh)";
           textEl.style.opacity = "0";
-          textEl.style.filter = "blur(0px)";
         } else {
           const scene2ScrollY = scrollY - scene1End;
           const textProgress = Math.min(scene2ScrollY / (window.innerHeight * 3.5), 1);
-          const translateY = Math.max(0, (1 - textProgress) * 200);
+          const translateY = Math.max(0, (1 - textProgress) * 150);
           const textOpacity = Math.min(textProgress * 2, 1);
           textEl.style.transform = `translateY(${translateY}vh)`;
           textEl.style.opacity = textOpacity.toString();
-          textEl.style.filter = "blur(0px)";
         }
       }
     };
@@ -194,7 +150,6 @@ export default function Home() {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  // Блюр текста когда открыта карточка
   useEffect(() => {
     const textEl = textRef.current;
     if (!textEl) return;
@@ -206,7 +161,6 @@ export default function Home() {
       textEl.style.transition = "opacity 0.4s ease, filter 0.4s ease";
       textEl.style.opacity = "";
       textEl.style.filter = "blur(0px)";
-      // Убираем transition после завершения чтобы не мешал scroll-анимации
       setTimeout(() => {
         if (textEl) textEl.style.transition = "";
       }, 450);
@@ -221,8 +175,6 @@ export default function Home() {
       setContactHovered(true);
     }, 400);
   };
-
-  let canvasIndex = 0;
 
   const inputStyle: React.CSSProperties = {
     background: "transparent",
@@ -259,11 +211,71 @@ export default function Home() {
         }
         .shakeY { animation: shakeY 0.4s ease forwards; }
         input::placeholder, textarea::placeholder { color: rgba(0,0,0,0.2); }
+        
+        .masked-grid {
+          display: flex;
+          flex-direction: column;
+          position: relative;
+        }
+        .mask-video-element {
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 100vw;
+          height: 100vh;
+          object-fit: cover;
+          pointer-events: none;
+          mix-blend-mode: multiply;
+          z-index: 5;
+          will-change: opacity;
+        }
+
+        /* АДАПТИВНЫЕ СТИЛИ ДЛЯ ТЕКСТА */
+        .text-line {
+          font-family: "'Arial Black', Arial, sans-serif";
+          font-weight: 900;
+          letter-spacing: -0.01em;
+          line-height: 1.0;
+          color: white;
+          text-transform: uppercase;
+        }
+        
+        /* Разделение текста по строкам по умолчанию (ПК) */
+        .desktop-br { display: block; }
+        .mobile-br { display: none; }
+        .designer-text { display: none; }
+        .illustrator-text { display: inline; }
+
+        @media (max-width: 768px) {
+          .desktop-br { display: none; }
+          .mobile-br { display: block; }
+          
+          /* На телефоне меняем ILLUSTRATOR на DESIGNER */
+          .illustrator-text { display: none; }
+          .designer-text { display: inline; }
+          
+          /* Увеличиваем размер текста, чтобы занял почти всю ширину экрана */
+          .text-line {
+            font-size: 8.5vw !important; 
+          }
+          .contact-trigger {
+            font-size: 8.5vw !important;
+            margin-top: 1.2em !important;
+          }
+        }
       `}</style>
 
-      <video ref={maskVideoRef} src="/mask.mp4" muted playsInline preload="auto" style={{ display: "none" }} />
+      <video
+        ref={maskVideoRef}
+        src="/mask.mp4"
+        muted
+        playsInline
+        preload="auto"
+        className="mask-video-element"
+        style={{ opacity: maskOpacity, display: maskOpacity > 0 ? "block" : "none" }}
+      />
 
-      {/* Contact modal — центр экрана, квадрат */}
+      {/* Contact modal */}
       {showContact && (
         <div
           onClick={(e) => e.target === e.currentTarget && closeContact()}
@@ -285,24 +297,11 @@ export default function Home() {
             transition: "transform 0.5s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.5s ease",
             boxSizing: "border-box",
           }}>
-
-            {/* Шапка */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "40px" }}>
-              <div style={{
-                fontSize: "clamp(20px, 3.5vw, 32px)",
-                fontWeight: 900, letterSpacing: "-0.01em",
-                lineHeight: 1, textTransform: "uppercase", color: "#000",
-              }}>
+              <div style={{ fontSize: "clamp(20px, 3.5vw, 32px)", fontWeight: 900, letterSpacing: "-0.01em", lineHeight: 1, textTransform: "uppercase", color: "#000" }}>
                 LET'S WORK
               </div>
-              <button
-                onClick={closeContact}
-                style={{
-                  background: "none", border: "none", color: "#000",
-                  fontSize: "26px", cursor: "pointer", lineHeight: 1,
-                  padding: 0, fontFamily: "inherit", marginTop: "-2px",
-                }}
-              >×</button>
+              <button onClick={closeContact} style={{ background: "none", border: "none", color: "#000", fontSize: "26px", cursor: "pointer", lineHeight: 1, padding: 0, fontFamily: "inherit", marginTop: "-2px" }}>×</button>
             </div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: "28px" }}>
@@ -312,53 +311,21 @@ export default function Home() {
               ].map(({ label, key, type }) => (
                 <div key={key} style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                   <label style={labelStyle}>{label}</label>
-                  <input
-                    type={type}
-                    value={form[key]}
-                    onChange={(e) => setForm({ ...form, [key]: e.target.value })}
-                    style={inputStyle}
-                  />
+                  <input type={type} value={form[key]} onChange={(e) => setForm({ ...form, [key]: e.target.value })} style={inputStyle} />
                 </div>
               ))}
 
-              {/* Message — растёт по контенту */}
               <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                 <label style={labelStyle}>MESSAGE</label>
-                <textarea
-                  ref={textareaRef}
-                  value={form.message}
-                  onChange={handleMessageChange}
-                  rows={1}
-                  style={{
-                    ...inputStyle,
-                    resize: "none",
-                    overflow: "hidden",
-                    lineHeight: "1.5",
-                    transition: "height 0.25s ease",
-                    display: "block",
-                    verticalAlign: "bottom",
-                  }}
-                />
+                <textarea ref={textareaRef} value={form.message} onChange={handleMessageChange} rows={1} style={{ ...inputStyle, resize: "none", overflow: "hidden", lineHeight: "1.5", transition: "height 0.25s ease", display: "block", verticalAlign: "bottom" }} />
               </div>
 
-              <button
-                onClick={closeContact}
-                style={{
-                  marginTop: "12px",
-                  background: "#000", color: "#fff",
-                  border: "none", padding: "16px 36px",
-                  fontSize: "11px", letterSpacing: "0.2em",
-                  fontFamily: "'Arial Black', Arial, sans-serif",
-                  fontWeight: 900, cursor: "pointer",
-                  alignSelf: "flex-start", textTransform: "uppercase",
-                }}
-              >SEND</button>
+              <button onClick={closeContact} style={{ marginTop: "12px", background: "#000", color: "#fff", border: "none", padding: "16px 36px", fontSize: "11px", letterSpacing: "0.2em", fontFamily: "'Arial Black', Arial, sans-serif", fontWeight: 900, cursor: "pointer", alignSelf: "flex-start", textTransform: "uppercase" }}>SEND</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Изменено: objectFit выставлен в "cover", чтобы убрать видимые края сверху и снизу */}
       {playCount < 3 && (
         <video
           ref={overlayRef}
@@ -368,7 +335,7 @@ export default function Home() {
           style={{
             position: "fixed", top: 0, left: 0,
             width: "100vw", height: "100vh",
-            objectFit: "cover", zIndex: 9999, // <--- Здесь теперь "cover" вместо "contain"
+            objectFit: "cover", zIndex: 9999,
             pointerEvents: "none", opacity,
             filter: `blur(${blur}px)`,
             transition: "opacity 0.1s linear, filter 0.1s linear",
@@ -381,9 +348,7 @@ export default function Home() {
           }}
           onEnded={() => { setOpacity(0); setBlur(12); }}
         >
-          {/* iOS / macOS Safari подхватит этот HEVC файл */}
           <source src="/overlay.mp4" type='video/mp4; codecs="hvc1"' />
-          {/* Chrome / Firefox подхватят старый webm */}
           <source src="/overlay.webm" type="video/webm" />
         </video>
       )}
@@ -401,52 +366,23 @@ export default function Home() {
               opacity: 0, transition: "opacity 0.3s ease",
             }}
           />
-          <div style={{
-            position: "fixed", top: 0, left: 0,
-            width: "100vw", height: "100vh",
-            background: "rgba(0,0,0,0.3)",
-            zIndex: 1, pointerEvents: "none",
-          }} />
+          <div style={{ position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh", background: "rgba(0,0,0,0.3)", zIndex: 1, pointerEvents: "none" }} />
 
-          <div style={{
-            position: "sticky", top: 0, height: "100vh",
-            overflow: "hidden", display: "flex",
-            alignItems: "center", zIndex: 2,
-          }}>
-            <div ref={gridRef} style={{
-              display: "flex", flexDirection: "column",
-              gap: `${GAP}px`, paddingTop: `${GAP}px`,
-              paddingBottom: `${GAP}px`, position: "relative",
-            }}>
+          <div style={{ position: "sticky", top: 0, height: "100vh", overflow: "hidden", display: "flex", alignItems: "center", zIndex: 2 }}>
+            <div ref={gridRef} className="masked-grid" style={{ gap: `${GAP}px`, paddingTop: `${GAP}px`, paddingBottom: `${GAP}px` }}>
               {rows.map((images, rowIndex) => {
                 const looped = [...images, ...images];
                 return (
                   <div
                     key={rowIndex}
                     ref={(el) => { trackRefs.current[rowIndex] = el; }}
-                    style={{
-                      display: "flex", gap: `${GAP}px`,
-                      width: "max-content",
-                      paddingLeft: `${GAP}px`, paddingRight: `${GAP}px`,
-                    }}
+                    style={{ display: "flex", gap: `${GAP}px`, width: "max-content", paddingLeft: `${GAP}px`, paddingRight: `${GAP}px` }}
                   >
-                    {looped.map((img, i) => {
-                      const idx = canvasIndex++;
-                      return (
-                        <div key={rowIndex + "-" + i} style={{
-                          width: `${imgSize}px`, height: `${imgSize}px`,
-                          borderRadius: "12px", flexShrink: 0,
-                          position: "relative", overflow: "hidden",
-                        }}>
-                          <img src={img} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-                          <canvas
-                            ref={(el) => { canvasRefs.current[idx] = el; }}
-                            width={imgSize} height={imgSize}
-                            style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%" }}
-                          />
-                        </div>
-                      );
-                    })}
+                    {looped.map((img, i) => (
+                      <div key={rowIndex + "-" + i} style={{ width: `${imgSize}px`, height: `${imgSize}px`, borderRadius: "12px", flexShrink: 0, position: "relative", overflow: "hidden" }}>
+                        <img src={img} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                      </div>
+                    ))}
                   </div>
                 );
               })}
@@ -454,47 +390,44 @@ export default function Home() {
           </div>
         </section>
 
-        {/* SCENE 2 — текст */}
+        {/* SCENE 2 — ТЕКСТ С КОРРЕКТНЫМИ ПЕРЕНОСАМИ ДЛЯ МОБИЛЫ */}
         <section style={{ height: "600vh", position: "relative", zIndex: 3, background: "transparent" }}>
           <div
             ref={textRef}
             style={{
-              position: "sticky", top: 0, height: "100vh",
-              display: "flex", flexDirection: "column",
+              position: "sticky",
+              top: 0,
+              height: "85vh", // Чуть уменьшили контейнер, чтобы поднять текст визуально повыше
+              display: "flex",
+              flexDirection: "column",
               justifyContent: "center",
-              padding: "0 clamp(24px, 6vw, 80px)",
-              transform: "translateY(200vh)",
+              padding: "0 clamp(20px, 6vw, 80px)",
+              transform: "translateY(150vh)",
               opacity: 0,
               willChange: "transform, opacity",
             }}
           >
-            <div style={{
-              fontFamily: "'Arial Black', Arial, sans-serif",
-              fontSize: "clamp(32px, 6.5vw, 88px)",
-              fontWeight: 900, letterSpacing: "-0.01em",
-              lineHeight: 1.0, color: "white", textTransform: "uppercase",
-            }}>MY NAME IS ARTEM</div>
+            <div className="text-line" style={{ fontSize: "clamp(32px, 6.5vw, 88px)" }}>
+              MY NAME <span className="mobile-br" />IS ARTEM
+            </div>
 
-            <div style={{
-              fontFamily: "'Arial Black', Arial, sans-serif",
-              fontSize: "clamp(32px, 6.5vw, 88px)",
-              fontWeight: 900, letterSpacing: "-0.01em",
-              lineHeight: 1.0, color: "white", textTransform: "uppercase",
-              marginTop: "0.05em",
-            }}>I'M AN ILLUSTRATOR</div>
+            <div className="text-line" style={{ fontSize: "clamp(32px, 6.5vw, 88px)", marginTop: "0.15em" }}>
+              I'M A<span className="desktop-br" />
+              <span className="illustrator-text">N ILLUSTRATOR</span>
+              <span className="designer-text"> DESIGNER</span>
+            </div>
 
             <div
-              className={shaking ? "shakeY" : ""}
+              className={`text-line contact-trigger ${shaking ? "shakeY" : ""}`}
               onMouseEnter={handleContactEnter}
               onMouseLeave={() => setContactHovered(false)}
               onClick={openContact}
               style={{
-                fontFamily: "'Arial Black', Arial, sans-serif",
                 fontSize: "clamp(32px, 6.5vw, 88px)",
-                fontWeight: 900, letterSpacing: "-0.01em",
-                lineHeight: 1.0, color: "white", textTransform: "uppercase",
-                marginTop: "2em", cursor: "pointer",
-                display: "inline-block", userSelect: "none",
+                marginTop: "1.6em",
+                cursor: "pointer",
+                display: "inline-block",
+                userSelect: "none"
               }}
             >
               {contactHovered ? "GET YOUR BEST DESIGN EVER" : "CONTACT ME"}
