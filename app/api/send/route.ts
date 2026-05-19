@@ -6,7 +6,7 @@ export async function POST(req: Request) {
     const { name, email, message } = await req.json();
 
     if (!name || !email || !message) {
-      return NextResponse.json({ error: 'FIELDS_MISSING' }, { status: 400 });
+      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
     const apiKey = process.env.RESEND_API_KEY;
@@ -15,21 +15,19 @@ export async function POST(req: Request) {
     }
 
     const resend = new Resend(apiKey);
+    const MY_RESEND_EMAIL = 'obolongueuil@gmail.com';
 
-    // Укажи здесь свою почту, на которую регистрировал Resend!
-    const MY_RESEND_EMAIL = 'твой-email-регистрации@gmail.com';
-
-    // Отправляем ОДНО тестовое письмо, чтобы минимизировать риски блокировки
     const { error: resendError } = await resend.emails.send({
       from: 'Portfolio Form <onboarding@resend.dev>',
       to: MY_RESEND_EMAIL,
       subject: `🔥 NEW ORDER FROM ${name.toUpperCase()}`,
       html: `
         <div style="font-family: sans-serif; background: #000; color: #fff; padding: 30px; text-transform: uppercase;">
-          <h2>NEW PROJECT REQUEST</h2>
+          <h2 style="border-bottom: 2px solid #fff; padding-bottom: 10px;">NEW PROJECT REQUEST</h2>
           <p><strong>NAME:</strong> ${name}</p>
           <p><strong>EMAIL:</strong> ${email}</p>
-          <p><strong>MESSAGE:</strong> ${message}</p>
+          <p style="margin-top: 20px;"><strong>MESSAGE:</strong></p>
+          <div style="background: #222; padding: 15px; border-radius: 4px; white-space: pre-wrap;">${message}</div>
         </div>
       `,
     });
@@ -39,7 +37,7 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({ success: true });
-  } catch (err: any) {
-    return NextResponse.json({ error: `SERVER_CRASH: ${err?.message || 'UNKNOWN'}` }, { status: 500 });
+  } catch (error: any) {
+    return NextResponse.json({ error: `SERVER_CRASH: ${error?.message || 'UNKNOWN'}` }, { status: 500 });
   }
 }
