@@ -89,11 +89,12 @@ export default function Home() {
     }
   };
 
-  // ОПРЕДЕЛЕНИЕ IPHONE / IOS УСТРОЙСТВ
+  // ОПРЕДЕЛЕНИЕ IPHONE / IOS УСТРОЙСТВ С ХАКОМ ДЛЯ СБРОСА КЭША SAFARI
   useEffect(() => {
     const isiPhone = /iPhone|iPad|iPod/i.test(navigator.userAgent);
     if (isiPhone) {
-      setVideoSrc("/iome.mp4");
+      // Кэш-бастер принудительно заставит iPhone скачать обновленный файл
+      setVideoSrc("/iome.mp4?v=" + new Date().getTime());
     }
   }, []);
 
@@ -151,6 +152,7 @@ export default function Home() {
       const scrollY = window.scrollY;
       const progress = Math.min(Math.max(-scene1.getBoundingClientRect().top / scene1.offsetHeight, 0), 1);
 
+      // Движение горизонтальных рядов сетки
       trackRefs.current.forEach((track, i) => {
         if (!track) return;
         const maxMove = track.scrollWidth / 2;
@@ -161,10 +163,12 @@ export default function Home() {
         }
       });
 
+      // Появление фонового видео
       const fadeStart = 0.8;
       const meOpacity = Math.max((progress - fadeStart) / (1 - fadeStart), 0);
       video.style.opacity = meOpacity.toString();
 
+      // Видео-маска умножения
       if (maskVideo && !maskTriggeredRef.current && progress >= TRIGGER_PROGRESS) {
         maskTriggeredRef.current = true;
         maskPlayingRef.current = true;
@@ -182,17 +186,20 @@ export default function Home() {
 
       const scene1End = scene1.offsetTop + scene1.offsetHeight - window.innerHeight;
 
+      // СИНХРОННЫЙ СКРОЛЛ ТЕКСТА С СЕТКОЙ ИЗ ПЕРВОЙ СЦЕНЫ
       if (textEl) {
         if (scrollY < scene1End) {
-          textEl.style.transform = "translateY(120vh)";
-          textEl.style.opacity = "0";
-        } else {
-          const scene2ScrollY = scrollY - scene1End;
-          const textProgress = Math.min(scene2ScrollY / (window.innerHeight * 3.5), 1);
-          const translateY = Math.max(0, (1 - textProgress) * 120);
-          const textOpacity = Math.min(textProgress * 2, 1);
+          // Пока мы внутри первой сцены (крутится сетка), текст поднимается с такой же скоростью.
+          // Он вылетает снизу (120vh) до стандартного положения (0vh) строго пропорционально прогрессу сетки.
+          const translateY = Math.max(0, (1 - progress) * 120);
+          const textOpacity = Math.min(progress * 2.5, 1); // Проявление прозрачности чуть опережает подъем
+
           textEl.style.transform = `translateY(${translateY}vh)`;
           textEl.style.opacity = textOpacity.toString();
+        } else {
+          // Когда сетка полностью прокручена и мы зашли в Scene 2, текст жестко фиксируется на месте.
+          textEl.style.transform = "translateY(0vh)";
+          textEl.style.opacity = "1";
         }
       }
     };
@@ -426,14 +433,15 @@ export default function Home() {
 
         {/* SCENE 1 */}
         <section ref={scene1Ref} style={{ height: "250vh", position: "relative", zIndex: 2 }}>
-          {/* ФОНОВОЕ ВИДЕО С ПОДДЕРЖКОЙ ДИНАМИЧЕСКОГО СТАТУСА КАНАЛА */}
+          {/* ФОНОВОЕ ВИДЕО С КЭШ-БАСТЕРОМ И ПРИНУДИТЕЛЬНЫМ HTML5 АВТОПЛЕЕМ ДЛЯ IOS */}
           <video
             ref={videoRef}
-            src={videoSrc} // Используем переменную со ссылкой на видео
+            src={videoSrc}
             muted
             loop
             autoPlay
             playsInline
+            controls={false}
             style={{
               position: "fixed", top: 0, left: 0,
               width: "100vw", height: "100vh",
