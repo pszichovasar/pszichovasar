@@ -70,16 +70,19 @@ export default function Home() {
         body: JSON.stringify(form),
       });
 
-      if (response.ok) {
+      const data = await response.json();
+
+      if (response.ok && data.success) {
         alert("MESSAGE SENT SUCCESSFULLY!");
         setForm({ name: "", email: "", message: "" });
         closeContact();
       } else {
-        alert("FAILED TO SEND. PLEASE TRY AGAIN.");
+        // ТЕПЕРЬ ТУТ БУДЕТ ВЫВОДИТЬСЯ НАСТОЯЩАЯ ПРИЧИНА
+        alert(`ERROR: ${data.error || 'UNKNOWN_ERROR'}`);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      alert("AN ERROR OCCURRED. PLEASE TRY AGAIN.");
+      alert(`FETCH_FAILED: ${error?.message || 'SERVER_UNREACHABLE'}`);
     } finally {
       setIsSending(false);
     }
