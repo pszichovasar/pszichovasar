@@ -24,7 +24,6 @@ export default function Home() {
   const [form, setForm] = useState({ name: "", email: "", message: "" });
   const [isSending, setIsSending] = useState(false);
 
-  // Стейт для динамической смены видео (по умолчанию для ПК идет /me.mp4)
   const [videoSrc, setVideoSrc] = useState("/me.mp4");
 
   const row0 = ["/1.jpg", "/2.jpg", "/3.jpg", "/4.jpg", "/5.jpg", "/6.jpg", "/7.jpg", "/8.jpg", "/9.jpg", "/10.jpg"];
@@ -89,7 +88,6 @@ export default function Home() {
     }
   };
 
-  // ОПРЕДЕЛЕНИЕ IPHONE / IOS УСТРОЙСТВ С ХАКОМ ДЛЯ СБРОСА КЭША SAFARI
   useEffect(() => {
     const isiPhone = /iPhone|iPad|iPod/i.test(navigator.userAgent);
     if (isiPhone) {
@@ -144,11 +142,13 @@ export default function Home() {
       const scene1 = scene1Ref.current;
       const video = videoRef.current;
       const maskVideo = maskVideoRef.current;
-      const textEl = textRef.current;
       if (!scene1 || !video) return;
 
       const scrollY = window.scrollY;
-      const progress = Math.min(Math.max(-scene1.getBoundingClientRect().top / scene1.offsetHeight, 0), 1);
+      const maxScrollScene1 = scene1.offsetHeight - window.innerHeight;
+
+      // Надежный расчет прогресса на основе абсолютного скролла страницы
+      const progress = Math.min(Math.max(scrollY / maxScrollScene1, 0), 1);
 
       trackRefs.current.forEach((track, i) => {
         if (!track) return;
@@ -178,27 +178,6 @@ export default function Home() {
         };
         fadeIn();
       }
-
-      const scene1End = scene1.offsetTop + scene1.offsetHeight - window.innerHeight;
-
-      // --- ИСПРАВЛЕННАЯ ЛОГИКА ДЛЯ ПЛАВНОГО СКРОЛЛА ТЕКСТА БЕЗ ЗАСТРЕВАНИЯ ---
-      if (textEl) {
-        if (scrollY < scene1End) {
-          const translateY = 65 + (1 - progress) * 195;
-          const textOpacity = Math.min(progress * 2.5, 1);
-
-          textEl.style.position = "fixed";
-          textEl.style.top = "0px";
-          textEl.style.transform = `translateY(${translateY}vh)`;
-          textEl.style.opacity = textOpacity.toString();
-        } else {
-          const relativeScroll = scrollY - scene1End;
-          textEl.style.position = "absolute";
-          textEl.style.top = "0px";
-          textEl.style.transform = `translateY(calc(65vh + ${relativeScroll * -1}px))`;
-          textEl.style.opacity = "1";
-        }
-      }
     };
 
     window.addEventListener("scroll", handleScroll);
@@ -216,9 +195,6 @@ export default function Home() {
       textEl.style.transition = "opacity 0.4s ease, filter 0.4s ease";
       textEl.style.opacity = "";
       textEl.style.filter = "blur(0px)";
-      setTimeout(() => {
-        if (textEl) textEl.style.transition = "";
-      }, 450);
     }
   }, [contactVisible]);
 
@@ -313,13 +289,12 @@ export default function Home() {
             margin-top: 1.2em !important;
           }
 
-          /* --- ИСПРАВЛЕНИЕ: ДЕЛАЕМ МОДАЛКУ ИДЕАЛЬНЫМ КВАДРАТОМ 1:1 НА МОБИЛКАХ --- */
           .contact-modal-content {
             border-radius: 0px !important;
-            aspect-ratio: 1 / 1 !important; /* Пропорции куба */
-            width: 92vw !important; /* Занимает почти всю ширину экрана смартфона */
-            height: 92vw !important; /* Высота равна ширине */
-            padding: 24px !important; /* Чуть уменьшаем внутренние отступы, чтобы всё влезло */
+            aspect-ratio: 1 / 1 !important;
+            width: 92vw !important;
+            height: 92vw !important;
+            padding: 24px !important;
             display: flex !important;
             flex-direction: column !important;
             justify-content: center !important;
@@ -486,27 +461,21 @@ export default function Home() {
           </div>
         </section>
 
-        {/* SCENE 2 */}
-        <section style={{ height: "150vh", position: "relative", zIndex: 3, background: "transparent" }}>
+        {/* SCENE 2 - ТЕПЕРЬ ОН ОСТАЛСЯ В ЕСТЕСТВЕННОМ ПОТОКЕ И СКРОЛЛИТСЯ ОБЫЧНО */}
+        <section style={{ position: "relative", zIndex: 3, background: "black" }}>
           <div
             ref={textRef}
             style={{
-              position: "fixed",
-              top: "0px",
-              left: "0px",
               width: "100vw",
-              height: "100vh",
+              minHeight: "100vh",
               display: "flex",
               flexDirection: "column",
-              justifyContent: "flex-start",
-              padding: "0 clamp(20px, 6vw, 80px)",
-              transform: "translateY(120vh)",
-              opacity: 0,
-              willChange: "transform, opacity",
-              pointerEvents: "none",
+              justifyContent: "center",
+              padding: "80px clamp(20px, 6vw, 80px)",
+              willChange: "opacity, filter",
             }}
           >
-            <div style={{ pointerEvents: "auto", display: "flex", flexDirection: "column" }}>
+            <div style={{ display: "flex", flexDirection: "column" }}>
               <div className="text-line" style={{ fontSize: "clamp(32px, 6.5vw, 88px)" }}>
                 MY NAME <span className="mobile-br" />IS ARTEM
               </div>
@@ -535,7 +504,7 @@ export default function Home() {
           </div>
         </section>
 
-        <section style={{ height: "40vh", background: "#000", position: "relative", zIndex: 4 }} />
+        <section style={{ height: "10vh", background: "#000", position: "relative", zIndex: 4 }} />
       </main>
     </>
   );
