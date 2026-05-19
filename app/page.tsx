@@ -24,7 +24,7 @@ export default function Home() {
   const [form, setForm] = useState({ name: "", email: "", message: "" });
 
   const row0 = ["/1.jpg", "/2.jpg", "/3.jpg", "/4.jpg", "/5.jpg", "/6.jpg", "/7.jpg", "/8.jpg", "/9.jpg", "/10.jpg"];
-  const row1 = ["/11.jpg", "/12.jpg", "/13.jpg", "/14.jpg", "/15.jpg", "/16.jpg", "/17.jpg", "/18.jpg", "/19.jpg", "/20.jpg"];
+  const row1 = ["/11.jpg", "/13.jpg", "/15.jpg", "/17.jpg", "/19.jpg", "/12.jpg", "/14.jpg", "/16.jpg", "/18.jpg", "/20.jpg"];
   const row2 = ["/1.jpg", "/3.jpg", "/5.jpg", "/7.jpg", "/9.jpg", "/2.jpg", "/4.jpg", "/6.jpg", "/8.jpg", "/10.jpg"];
   const row3 = ["/11.jpg", "/13.jpg", "/15.jpg", "/17.jpg", "/19.jpg", "/12.jpg", "/14.jpg", "/16.jpg", "/18.jpg", "/20.jpg"];
   const row4 = ["/2.jpg", "/4.jpg", "/6.jpg", "/8.jpg", "/10.jpg", "/1.jpg", "/3.jpg", "/5.jpg", "/7.jpg", "/9.jpg"];
@@ -45,7 +45,8 @@ export default function Home() {
   };
 
   const handleMessageChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setForm({ ...form, message: e.target.value });
+    // Принудительный перевод в Капс при вводе сообщения
+    setForm({ ...form, message: e.target.value.toUpperCase() });
     const ta = textareaRef.current;
     if (ta) {
       ta.style.height = "auto";
@@ -133,12 +134,12 @@ export default function Home() {
 
       if (textEl) {
         if (scrollY < scene1End) {
-          textEl.style.transform = "translateY(150vh)";
+          textEl.style.transform = "translateY(120vh)";
           textEl.style.opacity = "0";
         } else {
           const scene2ScrollY = scrollY - scene1End;
           const textProgress = Math.min(scene2ScrollY / (window.innerHeight * 3.5), 1);
-          const translateY = Math.max(0, (1 - textProgress) * 150);
+          const translateY = Math.max(0, (1 - textProgress) * 120);
           const textOpacity = Math.min(textProgress * 2, 1);
           textEl.style.transform = `translateY(${translateY}vh)`;
           textEl.style.opacity = textOpacity.toString();
@@ -184,7 +185,8 @@ export default function Home() {
     fontSize: "clamp(14px, 1.8vw, 17px)",
     padding: "10px 0",
     outline: "none",
-    fontFamily: "'Arial Black', Arial, sans-serif",
+    fontFamily: "'Arial Black', Gadget, sans-serif",
+    textTransform: "uppercase",
     width: "100%",
   };
 
@@ -193,12 +195,18 @@ export default function Home() {
     letterSpacing: "0.2em",
     color: "#000",
     textTransform: "uppercase",
-    fontFamily: "'Arial Black', Arial, sans-serif",
+    fontFamily: "'Arial Black', Gadget, sans-serif",
   };
 
   return (
     <>
       <style>{`
+        /* Установка глобального шрифта Arial Black и Капса для всего сайта */
+        * {
+          font-family: 'Arial Black', Gadget, sans-serif !important;
+          text-transform: uppercase !important;
+        }
+
         @keyframes shakeY {
           0%   { transform: translateY(0); }
           15%  { transform: translateY(-8px); }
@@ -230,17 +238,13 @@ export default function Home() {
           will-change: opacity;
         }
 
-        /* АДАПТИВНЫЕ СТИЛИ ДЛЯ ТЕКСТА */
         .text-line {
-          font-family: "'Arial Black', Arial, sans-serif";
           font-weight: 900;
           letter-spacing: -0.01em;
           line-height: 1.0;
           color: white;
-          text-transform: uppercase;
         }
         
-        /* Разделение текста по строкам по умолчанию (ПК) */
         .desktop-br { display: block; }
         .mobile-br { display: none; }
         .designer-text { display: none; }
@@ -250,11 +254,9 @@ export default function Home() {
           .desktop-br { display: none; }
           .mobile-br { display: block; }
           
-          /* На телефоне меняем ILLUSTRATOR на DESIGNER */
           .illustrator-text { display: none; }
           .designer-text { display: inline; }
           
-          /* Увеличиваем размер текста, чтобы занял почти всю ширину экрана */
           .text-line {
             font-size: 8.5vw !important; 
           }
@@ -291,17 +293,16 @@ export default function Home() {
             color: "#000",
             width: "min(520px, 90vw)",
             padding: "48px",
-            fontFamily: "'Arial Black', Arial, sans-serif",
             transform: contactVisible ? "translateY(0)" : "translateY(60px)",
             opacity: contactVisible ? 1 : 0,
             transition: "transform 0.5s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.5s ease",
             boxSizing: "border-box",
           }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "40px" }}>
-              <div style={{ fontSize: "clamp(20px, 3.5vw, 32px)", fontWeight: 900, letterSpacing: "-0.01em", lineHeight: 1, textTransform: "uppercase", color: "#000" }}>
+              <div style={{ fontSize: "clamp(20px, 3.5vw, 32px)", fontWeight: 900, letterSpacing: "-0.01em", lineHeight: 1, color: "#000" }}>
                 LET'S WORK
               </div>
-              <button onClick={closeContact} style={{ background: "none", border: "none", color: "#000", fontSize: "26px", cursor: "pointer", lineHeight: 1, padding: 0, fontFamily: "inherit", marginTop: "-2px" }}>×</button>
+              <button onClick={closeContact} style={{ background: "none", border: "none", color: "#000", fontSize: "26px", cursor: "pointer", lineHeight: 1, padding: 0, marginTop: "-2px" }}>×</button>
             </div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: "28px" }}>
@@ -311,7 +312,12 @@ export default function Home() {
               ].map(({ label, key, type }) => (
                 <div key={key} style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                   <label style={labelStyle}>{label}</label>
-                  <input type={type} value={form[key]} onChange={(e) => setForm({ ...form, [key]: e.target.value })} style={inputStyle} />
+                  <input
+                    type={type}
+                    value={form[key]}
+                    onChange={(e) => setForm({ ...form, [key]: e.target.value.toUpperCase() })}
+                    style={inputStyle}
+                  />
                 </div>
               ))}
 
@@ -320,7 +326,7 @@ export default function Home() {
                 <textarea ref={textareaRef} value={form.message} onChange={handleMessageChange} rows={1} style={{ ...inputStyle, resize: "none", overflow: "hidden", lineHeight: "1.5", transition: "height 0.25s ease", display: "block", verticalAlign: "bottom" }} />
               </div>
 
-              <button onClick={closeContact} style={{ marginTop: "12px", background: "#000", color: "#fff", border: "none", padding: "16px 36px", fontSize: "11px", letterSpacing: "0.2em", fontFamily: "'Arial Black', Arial, sans-serif", fontWeight: 900, cursor: "pointer", alignSelf: "flex-start", textTransform: "uppercase" }}>SEND</button>
+              <button onClick={closeContact} style={{ marginTop: "12px", background: "#000", color: "#fff", border: "none", padding: "16px 36px", fontSize: "11px", letterSpacing: "0.2em", fontWeight: 900, cursor: "pointer", alignSelf: "flex-start" }}>SEND</button>
             </div>
           </div>
         </div>
@@ -390,19 +396,19 @@ export default function Home() {
           </div>
         </section>
 
-        {/* SCENE 2 — ТЕКСТ С КОРРЕКТНЫМИ ПЕРЕНОСАМИ ДЛЯ МОБИЛЫ */}
+        {/* SCENE 2 — ТЕКСТ ПОДНЯТ ВЫШЕ ЧЕРЕЗ TOP: 10VH */}
         <section style={{ height: "600vh", position: "relative", zIndex: 3, background: "transparent" }}>
           <div
             ref={textRef}
             style={{
               position: "sticky",
-              top: 0,
-              height: "85vh", // Чуть уменьшили контейнер, чтобы поднять текст визуально повыше
+              top: "10vh", // Сместили блок сильно выше к верхней кромке экрана
+              height: "75vh",
               display: "flex",
               flexDirection: "column",
-              justifyContent: "center",
+              justifyContent: "flex-start", // Текст выравнивается от верхнего края контейнера
               padding: "0 clamp(20px, 6vw, 80px)",
-              transform: "translateY(150vh)",
+              transform: "translateY(120vh)",
               opacity: 0,
               willChange: "transform, opacity",
             }}
