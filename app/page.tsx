@@ -143,14 +143,14 @@ export default function Home() {
       const scene1 = scene1Ref.current;
       const video = videoRef.current;
       const maskVideo = maskVideoRef.current;
-      const textEl = textRef.current;
       if (!scene1 || !video) return;
 
       const scrollY = window.pageYOffset || document.documentElement.scrollTop;
       const scene1Top = scene1.offsetTop;
       const scene1Height = scene1.offsetHeight;
 
-      let progress = (scrollY - scene1Top) / scene1Height;
+      // Рассчитываем прогресс только для движения сетки внутри Scene 1
+      let progress = (scrollY - scene1Top) / (scene1Height - window.innerHeight);
       progress = Math.min(Math.max(progress, 0), 1);
 
       trackRefs.current.forEach((track, i) => {
@@ -163,7 +163,7 @@ export default function Home() {
         }
       });
 
-      const fadeStart = 0.8;
+      const fadeStart = 0.6;
       const meOpacity = Math.max((progress - fadeStart) / (1 - fadeStart), 0);
       video.style.opacity = meOpacity.toString();
 
@@ -181,10 +181,6 @@ export default function Home() {
         };
         fadeIn();
       }
-
-      const scene1End = scene1Top + scene1Height - window.innerHeight;
-
-      
     };
 
     const onScroll = () => {
@@ -430,25 +426,26 @@ export default function Home() {
 
       <main style={{ background: "black", color: "white" }}>
 
-        {/* SCENE 1 */}
-        <section ref={scene1Ref} style={{ height: "200vh", position: "relative", zIndex: 2 }}>
-          <video
-            ref={videoRef}
-            src={videoSrc}
-            muted
-            loop
-            autoPlay
-            playsInline
-            style={{
-              position: "fixed", top: 0, left: 0,
-              width: "100vw", height: "100vh",
-              objectFit: "cover", zIndex: 0,
-              opacity: 0, transition: "opacity 0.3s ease",
-            }}
-          />
-          <div style={{ position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh", background: "rgba(0,0,0,0.3)", zIndex: 1, pointerEvents: "none" }} />
+        {/* SCENE 1 - Зафиксированное видео заднего плана */}
+        <video
+          ref={videoRef}
+          src={videoSrc}
+          muted
+          loop
+          autoPlay
+          playsInline
+          style={{
+            position: "fixed", top: 0, left: 0,
+            width: "100vw", height: "100vh",
+            objectFit: "cover", zIndex: 0,
+            opacity: 0, transition: "opacity 0.3s ease",
+          }}
+        />
+        <div style={{ position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh", background: "rgba(0,0,0,0.3)", zIndex: 1, pointerEvents: "none" }} />
 
-          <div style={{ position: "sticky", top: 0, height: "100vh", overflow: "hidden", display: "flex", alignItems: "center", zIndex: 2 }}>
+        {/* Трэк с горизонтальной сеткой картинок */}
+        <section ref={scene1Ref} style={{ height: "180vh", position: "relative", zIndex: 2 }}>
+          <div style={{ position: "sticky", top: 0, height: "100vh", overflow: "hidden", display: "flex", alignItems: "center" }}>
             <div ref={gridRef} className="masked-grid" style={{ gap: `${GAP}px`, paddingTop: `${GAP}px`, paddingBottom: `${GAP}px` }}>
               {rows.map((images, rowIndex) => {
                 const looped = [...images, ...images];
@@ -470,18 +467,17 @@ export default function Home() {
           </div>
         </section>
 
-        {/* SCENE 2 */}
-        {/* height: auto или fixed padding, чтобы задать пространство вокруг текста */}
-        <section style={{ minHeight: "100vh", position: "relative", zIndex: 3, background: "transparent", display: "flex", alignItems: "center" }}>
+        {/* SCENE 2 - Текст. Теперь он идет сразу за сеткой в нормальном потоке документа */}
+        <section style={{ minHeight: "100vh", position: "relative", zIndex: 3, background: "black", display: "flex", alignItems: "center" }}>
           <div
             ref={textRef}
             style={{
               width: "100%",
-              padding: "10vh clamp(20px, 6vw, 80px)", /* Сделали хорошие отступы сверху и снизу */
+              padding: "12vh clamp(20px, 6vw, 80px)",
               display: "flex",
               flexDirection: "column",
               justifyContent: "flex-start",
-              opacity: 1, /* Теперь текст всегда виден и просто ждет скролла */
+              opacity: 1,
             }}
           >
             <div className="text-line" style={{ fontSize: "clamp(32px, 6.5vw, 88px)" }}>
@@ -510,7 +506,7 @@ export default function Home() {
           </div>
         </section>
 
-        <section style={{ height: "40vh", background: "#000" }} />
+        <section style={{ height: "10vh", background: "#000" }} />
       </main>
     </>
   );
