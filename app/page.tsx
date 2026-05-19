@@ -46,7 +46,6 @@ export default function Home() {
     setTimeout(() => setShowContact(false), 500);
   };
 
-  // Авто-высота textarea
   const handleMessageChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setForm({ ...form, message: e.target.value });
     const ta = textareaRef.current;
@@ -56,27 +55,44 @@ export default function Home() {
     }
   };
 
+  // ХАК ДЛЯ ПРИНУДИТЕЛЬНОГО ОТОБРАЖЕНИЯ КАК НА ПК (ОТМЕНА ПРИБЛИЖЕНИЯ)
   useEffect(() => {
-    let lastWidth = typeof window !== "undefined" ? window.innerWidth : 0;
+    if (typeof window === "undefined") return;
 
-    const calcSize = () => {
-      // Игнорируем мелкий resize по высоте на мобилках из-за скрытия адресной строки
-      if (window.innerWidth === lastWidth) return;
-      lastWidth = window.innerWidth;
+    // Находим или создаем тег viewport
+    let viewport = document.querySelector('meta[name="viewport"]');
+    if (!viewport) {
+      viewport = document.createElement('meta');
+      viewport.setAttribute('name', 'viewport');
+      document.head.appendChild(viewport);
+    }
 
-      const vh = window.innerHeight;
-      const vw = window.innerWidth;
-
-      // Если экран узкий (мобильный), размер картинок завязываем на ширину, а не на высоту
-      if (vw < 768) {
-        setImgSize(Math.floor((vw - GAP * 3) / 2.5));
+    const fixViewport = () => {
+      // Если это мобилка (ширина экрана меньше 1024px)
+      if (window.screen.width < 1024) {
+        // Заставляем телефон думать, что ширина экрана всегда десктопная (например, 1280px)
+        // и автоматически масштабируем страницу вниз, чтобы она влезла целиком
+        viewport.setAttribute('content', 'width=1280, initial-scale=' + (window.screen.width / 1280));
       } else {
-        setImgSize(Math.floor((vh - GAP * 6) / 5));
+        // На ПК оставляем стандартное поведение
+        viewport.setAttribute('content', 'width=device-width, initial-scale=1');
       }
     };
+
+    fixViewport();
+    window.addEventListener("resize", fixViewport);
+
+    // Расчет размера картинок строго по десктопной логике
+    const calcSize = () => {
+      const vh = window.innerHeight;
+      setImgSize(Math.floor((vh - GAP * 6) / 5));
+    };
     calcSize();
-    window.addEventListener("resize", calcSize);
-    return () => window.removeEventListener("resize", calcSize);
+
+    return () => {
+      window.removeEventListener("resize", fixViewport);
+      viewport.setAttribute('content', 'width=device-width, initial-scale=1');
+    };
   }, []);
 
   useEffect(() => {
@@ -108,7 +124,7 @@ export default function Home() {
         if (!ctx) return;
         const rect = canvas.getBoundingClientRect();
 
-        // Оптимизация производительности: не рендерим канвасы, которые ушли за экран
+        // Оптимизация: не считаем скрытые за экраном канвасы
         if (rect.bottom < 0 || rect.top > screenH) return;
 
         const srcX = (rect.left + screenOffsetX) / scale;
@@ -179,7 +195,7 @@ export default function Home() {
         maskTriggeredRef.current = true;
         maskPlayingRef.current = true;
         maskVideo.currentTime = 0;
-        maskVideo.play().catch(() => { }); // Предотвращаем ошибку автоплея на мобилках
+        maskVideo.play().catch(() => { });
         const fadeIn = () => {
           if (maskOpacityRef.current >= 1) { maskOpacityRef.current = 1; return; }
           maskOpacityRef.current = Math.min(1, maskOpacityRef.current + 0.03);
@@ -198,7 +214,7 @@ export default function Home() {
         } else {
           const scene2ScrollY = scrollY - scene1End;
           const textProgress = Math.min(scene2ScrollY / (window.innerHeight * 3.5), 1);
-          const translateY = Math.max(0, (1 - textProgress) * 120); // Немного уменьшили для мобилок
+          const translateY = Math.max(0, (1 - textProgress) * 200);
           const textOpacity = Math.min(textProgress * 2, 1);
           textEl.style.transform = `translateY(${translateY}vh)`;
           textEl.style.opacity = textOpacity.toString();
@@ -211,7 +227,6 @@ export default function Home() {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  // Блюр текста когда открыта карточка
   useEffect(() => {
     const textEl = textRef.current;
     if (!textEl) return;
@@ -245,7 +260,7 @@ export default function Home() {
     border: "none",
     borderBottom: "1.5px solid #000",
     color: "#000",
-    fontSize: "clamp(14px, 1.8vw, 17px)",
+    fontSize: "16px",
     padding: "10px 0",
     outline: "none",
     fontFamily: "'Arial Black', Arial, sans-serif",
@@ -279,7 +294,6 @@ export default function Home() {
 
       <video ref={maskVideoRef} src="/mask.mp4" muted playsInline preload="auto" style={{ display: "none" }} />
 
-      {/* Contact modal — центр экрана, квадрат */}
       {showContact && (
         <div
           onClick={(e) => e.target === e.currentTarget && closeContact()}
@@ -293,7 +307,7 @@ export default function Home() {
           <div style={{
             background: "#fff",
             color: "#000",
-            width: "min(520px, 90vw)",
+            width: "520px",
             padding: "48px",
             fontFamily: "'Arial Black', Arial, sans-serif",
             transform: contactVisible ? "translateY(0)" : "translateY(60px)",
@@ -301,11 +315,9 @@ export default function Home() {
             transition: "transform 0.5s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.5s ease",
             boxSizing: "border-box",
           }}>
-
-            {/* Шапка */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "40px" }}>
               <div style={{
-                fontSize: "clamp(20px, 3.5vw, 32px)",
+                fontSize: "32px",
                 fontWeight: 900, letterSpacing: "-0.01em",
                 lineHeight: 1, textTransform: "uppercase", color: "#000",
               }}>
@@ -337,7 +349,6 @@ export default function Home() {
                 </div>
               ))}
 
-              {/* Message — растёт по контенту */}
               <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                 <label style={labelStyle}>MESSAGE</label>
                 <textarea
@@ -395,8 +406,7 @@ export default function Home() {
         />
       )}
 
-      <main style={{ background: "black", color: "white", width: "100%", overflowX: "hidden" }}>
-
+      <main style={{ background: "black", color: "white", width: "100%" }}>
         {/* SCENE 1 */}
         <section ref={scene1Ref} style={{ height: "250vh", position: "relative", zIndex: 2 }}>
           <video
@@ -471,7 +481,7 @@ export default function Home() {
               position: "sticky", top: 0, height: "100vh",
               display: "flex", flexDirection: "column",
               justifyContent: "center",
-              padding: "0 clamp(16px, 6vw, 80px)",
+              padding: "0 80px",
               transform: "translateY(200vh)",
               opacity: 0,
               willChange: "transform, opacity",
@@ -481,14 +491,14 @@ export default function Home() {
           >
             <div style={{
               fontFamily: "'Arial Black', Arial, sans-serif",
-              fontSize: "clamp(24px, 6.5vw, 88px)",
+              fontSize: "88px",
               fontWeight: 900, letterSpacing: "-0.01em",
               lineHeight: 1.0, color: "white", textTransform: "uppercase",
             }}>MY NAME IS ARTEM</div>
 
             <div style={{
               fontFamily: "'Arial Black', Arial, sans-serif",
-              fontSize: "clamp(24px, 6.5vw, 88px)",
+              fontSize: "88px",
               fontWeight: 900, letterSpacing: "-0.01em",
               lineHeight: 1.0, color: "white", textTransform: "uppercase",
               marginTop: "0.05em",
@@ -501,12 +511,11 @@ export default function Home() {
               onClick={openContact}
               style={{
                 fontFamily: "'Arial Black', Arial, sans-serif",
-                fontSize: "clamp(24px, 6.5vw, 88px)",
+                fontSize: "88px",
                 fontWeight: 900, letterSpacing: "-0.01em",
                 lineHeight: 1.0, color: "white", textTransform: "uppercase",
-                marginTop: "1.5em", cursor: "pointer",
+                marginTop: "2em", cursor: "pointer",
                 display: "inline-block", userSelect: "none",
-                wordBreak: "break-word"
               }}
             >
               {contactHovered ? "GET YOUR BEST DESIGN EVER" : "CONTACT ME"}
