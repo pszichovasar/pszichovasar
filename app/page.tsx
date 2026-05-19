@@ -187,18 +187,19 @@ export default function Home() {
       const scene1End = scene1.offsetTop + scene1.offsetHeight - window.innerHeight;
 
       // СИНХРОННЫЙ СКРОЛЛ ТЕКСТА С СЕТКОЙ ИЗ ПЕРВОЙ СЦЕНЫ
+      // СИНХРОННЫЙ СКРОЛЛ ТЕКСТА С СЕТКОЙ ИЗ ПЕРВОЙ СЦЕНЫ
       if (textEl) {
         if (scrollY < scene1End) {
-          // Пока мы внутри первой сцены (крутится сетка), текст поднимается с такой же скоростью.
-          // Он вылетает снизу (120vh) до стандартного положения (0vh) строго пропорционально прогрессу сетки.
-          const translateY = Math.max(0, (1 - progress) * 120);
-          const textOpacity = Math.min(progress * 2.5, 1); // Проявление прозрачности чуть опережает подъем
+          // Текст начинает движение глубоко внизу (220vh) и плавно поднимается.
+          // В самом конце анимации сетки он остановится на отметке 35vh от верха экрана (значительно ниже, чем было).
+          const translateY = 35 + (1 - progress) * 185;
+          const textOpacity = Math.min(progress * 2.5, 1);
 
           textEl.style.transform = `translateY(${translateY}vh)`;
           textEl.style.opacity = textOpacity.toString();
         } else {
-          // Когда сетка полностью прокручена и мы зашли в Scene 2, текст жестко фиксируется на месте.
-          textEl.style.transform = "translateY(0vh)";
+          // Фиксируем текст на заниженной позиции во второй сцене
+          textEl.style.transform = "translateY(35vh)";
           textEl.style.opacity = "1";
         }
       }
