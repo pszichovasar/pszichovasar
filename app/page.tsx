@@ -57,9 +57,22 @@ export default function Home() {
   };
 
   useEffect(() => {
+    let lastWidth = typeof window !== "undefined" ? window.innerWidth : 0;
+
     const calcSize = () => {
+      // Игнорируем мелкий resize по высоте на мобилках из-за скрытия адресной строки
+      if (window.innerWidth === lastWidth) return;
+      lastWidth = window.innerWidth;
+
       const vh = window.innerHeight;
-      setImgSize(Math.floor((vh - GAP * 6) / 5));
+      const vw = window.innerWidth;
+
+      // Если экран узкий (мобильный), размер картинок завязываем на ширину, а не на высоту
+      if (vw < 768) {
+        setImgSize(Math.floor((vw - GAP * 3) / 2.5));
+      } else {
+        setImgSize(Math.floor((vh - GAP * 6) / 5));
+      }
     };
     calcSize();
     window.addEventListener("resize", calcSize);
@@ -94,6 +107,10 @@ export default function Home() {
         const ctx = canvas.getContext("2d");
         if (!ctx) return;
         const rect = canvas.getBoundingClientRect();
+
+        // Оптимизация производительности: не рендерим канвасы, которые ушли за экран
+        if (rect.bottom < 0 || rect.top > screenH) return;
+
         const srcX = (rect.left + screenOffsetX) / scale;
         const srcY = (rect.top + screenOffsetY) / scale;
         const srcW = rect.width / scale;
@@ -162,7 +179,7 @@ export default function Home() {
         maskTriggeredRef.current = true;
         maskPlayingRef.current = true;
         maskVideo.currentTime = 0;
-        maskVideo.play();
+        maskVideo.play().catch(() => { }); // Предотвращаем ошибку автоплея на мобилках
         const fadeIn = () => {
           if (maskOpacityRef.current >= 1) { maskOpacityRef.current = 1; return; }
           maskOpacityRef.current = Math.min(1, maskOpacityRef.current + 0.03);
@@ -181,7 +198,7 @@ export default function Home() {
         } else {
           const scene2ScrollY = scrollY - scene1End;
           const textProgress = Math.min(scene2ScrollY / (window.innerHeight * 3.5), 1);
-          const translateY = Math.max(0, (1 - textProgress) * 200);
+          const translateY = Math.max(0, (1 - textProgress) * 120); // Немного уменьшили для мобилок
           const textOpacity = Math.min(textProgress * 2, 1);
           textEl.style.transform = `translateY(${translateY}vh)`;
           textEl.style.opacity = textOpacity.toString();
@@ -206,7 +223,6 @@ export default function Home() {
       textEl.style.transition = "opacity 0.4s ease, filter 0.4s ease";
       textEl.style.opacity = "";
       textEl.style.filter = "blur(0px)";
-      // Убираем transition после завершения чтобы не мешал scroll-анимации
       setTimeout(() => {
         if (textEl) textEl.style.transition = "";
       }, 450);
@@ -283,7 +299,6 @@ export default function Home() {
             transform: contactVisible ? "translateY(0)" : "translateY(60px)",
             opacity: contactVisible ? 1 : 0,
             transition: "transform 0.5s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.5s ease",
-            // Высота адаптируется через padding + auto
             boxSizing: "border-box",
           }}>
 
@@ -380,7 +395,7 @@ export default function Home() {
         />
       )}
 
-      <main style={{ background: "black", color: "white" }}>
+      <main style={{ background: "black", color: "white", width: "100%", overflowX: "hidden" }}>
 
         {/* SCENE 1 */}
         <section ref={scene1Ref} style={{ height: "250vh", position: "relative", zIndex: 2 }}>
@@ -404,11 +419,13 @@ export default function Home() {
             position: "sticky", top: 0, height: "100vh",
             overflow: "hidden", display: "flex",
             alignItems: "center", zIndex: 2,
+            width: "100vw"
           }}>
             <div ref={gridRef} style={{
               display: "flex", flexDirection: "column",
               gap: `${GAP}px`, paddingTop: `${GAP}px`,
               paddingBottom: `${GAP}px`, position: "relative",
+              width: "100%"
             }}>
               {rows.map((images, rowIndex) => {
                 const looped = [...images, ...images];
@@ -454,22 +471,24 @@ export default function Home() {
               position: "sticky", top: 0, height: "100vh",
               display: "flex", flexDirection: "column",
               justifyContent: "center",
-              padding: "0 clamp(24px, 6vw, 80px)",
+              padding: "0 clamp(16px, 6vw, 80px)",
               transform: "translateY(200vh)",
               opacity: 0,
               willChange: "transform, opacity",
+              width: "100vw",
+              boxSizing: "border-box"
             }}
           >
             <div style={{
               fontFamily: "'Arial Black', Arial, sans-serif",
-              fontSize: "clamp(32px, 6.5vw, 88px)",
+              fontSize: "clamp(24px, 6.5vw, 88px)",
               fontWeight: 900, letterSpacing: "-0.01em",
               lineHeight: 1.0, color: "white", textTransform: "uppercase",
             }}>MY NAME IS ARTEM</div>
 
             <div style={{
               fontFamily: "'Arial Black', Arial, sans-serif",
-              fontSize: "clamp(32px, 6.5vw, 88px)",
+              fontSize: "clamp(24px, 6.5vw, 88px)",
               fontWeight: 900, letterSpacing: "-0.01em",
               lineHeight: 1.0, color: "white", textTransform: "uppercase",
               marginTop: "0.05em",
@@ -482,11 +501,12 @@ export default function Home() {
               onClick={openContact}
               style={{
                 fontFamily: "'Arial Black', Arial, sans-serif",
-                fontSize: "clamp(32px, 6.5vw, 88px)",
+                fontSize: "clamp(24px, 6.5vw, 88px)",
                 fontWeight: 900, letterSpacing: "-0.01em",
                 lineHeight: 1.0, color: "white", textTransform: "uppercase",
-                marginTop: "2em", cursor: "pointer",
+                marginTop: "1.5em", cursor: "pointer",
                 display: "inline-block", userSelect: "none",
+                wordBreak: "break-word"
               }}
             >
               {contactHovered ? "GET YOUR BEST DESIGN EVER" : "CONTACT ME"}
