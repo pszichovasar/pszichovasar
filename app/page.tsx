@@ -185,21 +185,19 @@ export default function Home() {
       const scene1End = scene1Top + scene1Height - window.innerHeight;
 
       if (textEl) {
-        if (scrollY < scene1End) {
-          textEl.style.transform = "translate3d(0, 100vh, 0)";
-          textEl.style.opacity = "0";
-        } else {
-          const scene2ScrollY = scrollY - scene1End;
-          const maxScrollDistance = window.innerHeight;
-          const textProgress = Math.min(scene2ScrollY / maxScrollDistance, 1);
+        // Убрали ветвление if/else для скролла наверх. 
+        // Теперь расчет идет непрерывно на основе дельты расстояния, исключая прыжки.
+        const scene2ScrollY = scrollY - scene1End;
+        const maxScrollDistance = window.innerHeight;
 
-          // Линейный подъем без "догона" предыдущей сцены
-          const translateY = Math.max(0, (1 - textProgress) * 100);
-          const textOpacity = Math.min(textProgress * 4, 1);
+        // Нормализуем прогресс строго от 0 до 1 в зависимости от направления скролла
+        const textProgress = Math.min(Math.max(scene2ScrollY / maxScrollDistance, 0), 1);
 
-          textEl.style.transform = `translate3d(0, ${translateY}vh, 0)`;
-          textEl.style.opacity = textOpacity.toString();
-        }
+        const translateY = (1 - textProgress) * 100;
+        const textOpacity = Math.min(textProgress * 4, 1);
+
+        textEl.style.transform = `translate3d(0, ${translateY}vh, 0)`;
+        textEl.style.opacity = textOpacity.toString();
       }
     };
 
@@ -446,7 +444,7 @@ export default function Home() {
 
       <main style={{ background: "black", color: "white" }}>
 
-        {/* SCENE 1 - Сбалансированная высота, чтобы сетка уходила раньше */}
+        {/* SCENE 1 */}
         <section ref={scene1Ref} style={{ height: "200vh", position: "relative", zIndex: 2 }}>
           <video
             ref={videoRef}
@@ -486,13 +484,13 @@ export default function Home() {
           </div>
         </section>
 
-        {/* SCENE 2 - Текст */}
+        {/* SCENE 2 */}
         <section style={{ height: "300vh", position: "relative", zIndex: 3, background: "transparent" }}>
           <div
             ref={textRef}
             style={{
               position: "sticky",
-              top: "20vh", // Зафиксировали комфортный отступ от верха экрана
+              top: "20vh",
               height: "70vh",
               display: "flex",
               flexDirection: "column",
