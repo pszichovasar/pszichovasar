@@ -184,21 +184,7 @@ export default function Home() {
 
       const scene1End = scene1Top + scene1Height - window.innerHeight;
 
-      if (textEl) {
-        // Убрали ветвление if/else для скролла наверх. 
-        // Теперь расчет идет непрерывно на основе дельты расстояния, исключая прыжки.
-        const scene2ScrollY = scrollY - scene1End;
-        const maxScrollDistance = window.innerHeight;
-
-        // Нормализуем прогресс строго от 0 до 1 в зависимости от направления скролла
-        const textProgress = Math.min(Math.max(scene2ScrollY / maxScrollDistance, 0), 1);
-
-        const translateY = (1 - textProgress) * 100;
-        const textOpacity = Math.min(textProgress * 4, 1);
-
-        textEl.style.transform = `translate3d(0, ${translateY}vh, 0)`;
-        textEl.style.opacity = textOpacity.toString();
-      }
+      
     };
 
     const onScroll = () => {
@@ -485,20 +471,17 @@ export default function Home() {
         </section>
 
         {/* SCENE 2 */}
-        <section style={{ height: "300vh", position: "relative", zIndex: 3, background: "transparent" }}>
+        {/* height: auto или fixed padding, чтобы задать пространство вокруг текста */}
+        <section style={{ minHeight: "100vh", position: "relative", zIndex: 3, background: "transparent", display: "flex", alignItems: "center" }}>
           <div
             ref={textRef}
             style={{
-              position: "sticky",
-              top: "20vh",
-              height: "70vh",
+              width: "100%",
+              padding: "10vh clamp(20px, 6vw, 80px)", /* Сделали хорошие отступы сверху и снизу */
               display: "flex",
               flexDirection: "column",
               justifyContent: "flex-start",
-              padding: "0 clamp(20px, 6vw, 80px)",
-              transform: "translate3d(0, 100vh, 0)",
-              opacity: 0,
-              willChange: "transform, opacity",
+              opacity: 1, /* Теперь текст всегда виден и просто ждет скролла */
             }}
           >
             <div className="text-line" style={{ fontSize: "clamp(32px, 6.5vw, 88px)" }}>
