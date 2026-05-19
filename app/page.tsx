@@ -3,20 +3,23 @@
 import React, { useEffect, useRef, useState } from "react";
 
 export default function Home() {
-  const scene1Ref = useRef<HTMLDivElement>(null);
+  const [progress, setProgress] = useState(0); // Общий прогресс сайта от 0 до 1
+  const [videoSrc, setVideoSrc] = useState("/me.mp4");
+  const [imgSize, setImgSize] = useState(140);
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const maskVideoRef = useRef<HTMLVideoElement>(null);
   const overlayRef = useRef<HTMLVideoElement>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const textRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
   const [opacity, setOpacity] = useState(1);
   const [blur, setBlur] = useState(0);
   const [playCount, setPlayCount] = useState(0);
-  const [imgSize, setImgSize] = useState(140);
-  const gridRef = useRef<HTMLDivElement>(null);
   const [maskOpacity, setMaskOpacity] = useState(0);
   const maskTriggeredRef = useRef(false);
   const maskPlayingRef = useRef(false);
-  const textRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [contactHovered, setContactHovered] = useState(false);
   const [shaking, setShaking] = useState(false);
   const [showContact, setShowContact] = useState(false);
@@ -24,7 +27,9 @@ export default function Home() {
   const [form, setForm] = useState({ name: "", email: "", message: "" });
   const [isSending, setIsSending] = useState(false);
 
-  const [videoSrc, setVideoSrc] = useState("/me.mp4");
+  // Ссылки для тач-событий на мобильных
+  const touchStartRef = useRef(0);
+  const currentProgressRef = useRef(0);
 
   const row0 = ["/1.jpg", "/2.jpg", "/3.jpg", "/4.jpg", "/5.jpg", "/6.jpg", "/7.jpg", "/8.jpg", "/9.jpg", "/10.jpg"];
   const row1 = ["/11.jpg", "/12.jpg", "/13.jpg", "/14.jpg", "/15.jpg", "/16.jpg", "/17.jpg", "/18.jpg", "/19.jpg", "/20.jpg"];
@@ -61,18 +66,14 @@ export default function Home() {
       alert("PLEASE FILL IN ALL FIELDS");
       return;
     }
-
     setIsSending(true);
-
     try {
       const response = await fetch('/api/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
       });
-
       const data = await response.json();
-
       if (response.ok && data.success) {
         alert("MESSAGE SENT SUCCESSFULLY!");
         setForm({ name: "", email: "", message: "" });
@@ -88,6 +89,7 @@ export default function Home() {
     }
   };
 
+  // Проверка на iOS устройства
   useEffect(() => {
     const isiPhone = /iPhone|iPad|iPod/i.test(navigator.userAgent);
     if (isiPhone) {
@@ -96,11 +98,10 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (videoRef.current) {
-      videoRef.current.load();
-    }
+    if (videoRef.current) videoRef.current.load();
   }, [videoSrc]);
 
+  // Расчет размеров плиток
   useEffect(() => {
     const calcSize = () => {
       const vh = window.innerHeight;
@@ -111,6 +112,7 @@ export default function Home() {
     return () => window.removeEventListener("resize", calcSize);
   }, []);
 
+  // Маска видео
   useEffect(() => {
     const video = maskVideoRef.current;
     if (!video) return;
@@ -135,72 +137,114 @@ export default function Home() {
     return () => video.removeEventListener("timeupdate", handleTimeUpdate);
   }, []);
 
+  // ВИРТУАЛЬНЫЙ СКРОЛЛ: Перехватываем дельту движения и преобразуем в прогресс сайта
   useEffect(() => {
-    const TRIGGER_PROGRESS = 0.28;
-    let rId: number | null = null;
+    const handleWheel = (e: WheelEvent) => {
+      // Игнорируем скролл, если открыта форма контактов
+      if (showContact) return;
 
-    const updateScrollMetrics = () => {
-      const scene1 = scene1Ref.current;
-      const video = videoRef.current;
-      const maskVideo = maskVideoRef.current;
-      if (!scene1 || !video) return;
+      e.preventDefault();
+      // Чувствительность скролла (можно подкрутить)
+      const speed = 0.0015;
+      let next = currentProgressRef.current + e.deltaY * speed;
+      next = Math.min(Math.max(next, 0), 1);
 
-      const scrollY = window.pageYOffset || document.documentElement.scrollTop;
-      const scene1Top = scene1.offsetTop;
-      const scene1Height = scene1.offsetHeight;
-
-      // Рассчитываем прогресс только для движения сетки внутри Scene 1
-      let progress = (scrollY - scene1Top) / (scene1Height - window.innerHeight);
-      progress = Math.min(Math.max(progress, 0), 1);
-
-      trackRefs.current.forEach((track, i) => {
-        if (!track) return;
-        const maxMove = track.scrollWidth / 2;
-        if (directions[i]) {
-          track.style.transform = `translate3d(${-progress * maxMove}px, 0, 0)`;
-        } else {
-          track.style.transform = `translate3d(${-maxMove + progress * maxMove}px, 0, 0)`;
-        }
-      });
-
-      const fadeStart = 0.6;
-      const meOpacity = Math.max((progress - fadeStart) / (1 - fadeStart), 0);
-      video.style.opacity = meOpacity.toString();
-
-      if (maskVideo && !maskTriggeredRef.current && progress >= TRIGGER_PROGRESS) {
-        maskTriggeredRef.current = true;
-        maskPlayingRef.current = true;
-        maskVideo.currentTime = 0;
-        maskVideo.play().catch(() => { });
-        const fadeIn = () => {
-          setMaskOpacity((prev) => {
-            if (prev >= 1) return 1;
-            requestAnimationFrame(fadeIn);
-            return Math.min(1, prev + 0.03);
-          });
-        };
-        fadeIn();
-      }
+      currentProgressRef.current = next;
+      setProgress(next);
     };
 
-    const onScroll = () => {
-      if (rId === null) {
-        rId = requestAnimationFrame(() => {
-          updateScrollMetrics();
-          rId = null;
-        });
-      }
+    const handleTouchStart = (e: TouchEvent) => {
+      if (showContact) return;
+      touchStartRef.current = e.touches[0].clientY;
     };
 
-    window.addEventListener("scroll", onScroll, { passive: true });
-    updateScrollMetrics();
+    const handleTouchMove = (e: TouchEvent) => {
+      if (showContact) return;
+      e.preventDefault(); // Запрещаем стандартный прыгающий скролл браузера
+
+      const currentY = e.touches[0].clientY;
+      const deltaY = touchStartRef.current - currentY; // Инверсия, чтобы тянуть вверх = листать вниз
+      touchStartRef.current = currentY;
+
+      const speed = 0.003; // Чувствительность для пальцев
+      let next = currentProgressRef.current + deltaY * speed;
+      next = Math.min(Math.max(next, 0), 1);
+
+      currentProgressRef.current = next;
+      setProgress(next);
+    };
+
+    window.addEventListener("wheel", handleWheel, { passive: false });
+    window.addEventListener("touchstart", handleTouchStart, { passive: true });
+    window.addEventListener("touchmove", handleTouchMove, { passive: false });
 
     return () => {
-      window.removeEventListener("scroll", onScroll);
-      if (rId !== null) cancelAnimationFrame(rId);
+      window.removeEventListener("wheel", handleWheel);
+      window.removeEventListener("touchstart", handleTouchStart);
+      window.removeEventListener("touchmove", handleTouchMove);
     };
-  }, []);
+  }, [showContact]);
 
+  // Реализация анимаций на основе виртуального прогресса
+  useEffect(() => {
+    // 1. Анимация движения сетки (работает от 0% до 65% прогресса)
+    const gridProgress = Math.min(progress / 0.65, 1);
+    trackRefs.current.forEach((track, i) => {
+      if (!track) return;
+      const maxMove = track.scrollWidth / 2;
+      if (directions[i]) {
+        track.style.transform = `translate3d(${-gridProgress * maxMove}px, 0, 0)`;
+      } else {
+        track.style.transform = `translate3d(${-maxMove + gridProgress * maxMove}px, 0, 0)`;
+      }
+    });
+
+    // Уменьшаем масштаб всей сетки к концу ее анимации
+    if (gridRef.current) {
+      const scale = 1 - gridProgress * 0.05;
+      gridRef.current.style.transform = `scale(${scale})`;
+      // Плавно гасим сетку в самом конце
+      gridRef.current.style.opacity = progress > 0.6 ? Math.max(0, 1 - (progress - 0.6) * 10).toString() : "1";
+    }
+
+    // 2. Появление фонового видео заднего плана (плавно с 40% прогресса)
+    if (videoRef.current) {
+      const videoProgress = progress < 0.4 ? 0 : Math.min((progress - 0.4) / 0.2, 1);
+      videoRef.current.style.opacity = videoProgress.toString();
+    }
+
+    // 3. Запуск триггера видео-маски
+    if (maskVideoRef.current && !maskTriggeredRef.current && progress >= 0.25) {
+      maskTriggeredRef.current = true;
+      maskPlayingRef.current = true;
+      maskVideoRef.current.currentTime = 0;
+      maskVideoRef.current.play().catch(() => { });
+      const fadeIn = () => {
+        setMaskOpacity((prev) => {
+          if (prev >= 1) return 1;
+          requestAnimationFrame(fadeIn);
+          return Math.min(1, prev + 0.03);
+        });
+      };
+      fadeIn();
+    }
+
+    // 4. Появление текста (начинается с 60% и полностью раскрывается к 85%)
+    if (textRef.current) {
+      if (progress > 0.55) {
+        const textProgress = Math.min((progress - 0.55) / 0.25, 1);
+        textRef.current.style.opacity = textProgress.toString();
+        textRef.current.style.transform = `translate3d(0, ${(1 - textProgress) * 30}px, 0)`;
+        textRef.current.style.pointerEvents = "auto";
+      } else {
+        textRef.current.style.opacity = "0";
+        textRef.current.style.transform = "translate3d(0, 30px, 0)";
+        textRef.current.style.pointerEvents = "none";
+      }
+    }
+  }, [progress]);
+
+  // Логика блюра при открытии контактов
   useEffect(() => {
     const textEl = textRef.current;
     if (!textEl) return;
@@ -208,13 +252,11 @@ export default function Home() {
       textEl.style.transition = "opacity 0.4s ease, filter 0.4s ease";
       textEl.style.opacity = "0";
       textEl.style.filter = "blur(12px)";
-    } else {
+    } else if (progress > 0.55) {
       textEl.style.transition = "opacity 0.4s ease, filter 0.4s ease";
-      textEl.style.opacity = "";
+      textEl.style.opacity = "1";
       textEl.style.filter = "blur(0px)";
-      setTimeout(() => {
-        if (textEl) textEl.style.transition = "";
-      }, 450);
+      setTimeout(() => { if (textEl) textEl.style.transition = ""; }, 450);
     }
   }, [contactVisible]);
 
@@ -251,9 +293,20 @@ export default function Home() {
   return (
     <>
       <style>{`
+        html, body {
+          margin: 0;
+          padding: 0;
+          width: 100vw;
+          height: 100vh;
+          overflow: hidden; /* Важнейшая строка: запрещаем дефолтный скролл */
+          background: black;
+          position: fixed;
+        }
+
         * {
           font-family: 'Arial Black', Gadget, sans-serif !important;
           text-transform: uppercase !important;
+          box-sizing: border-box;
         }
 
         @keyframes shakeY {
@@ -273,7 +326,9 @@ export default function Home() {
           display: flex;
           flex-direction: column;
           position: relative;
+          transition: transform 0.1s ease-out;
         }
+        
         .mask-video-element {
           position: fixed;
           top: 0;
@@ -311,6 +366,7 @@ export default function Home() {
         }
       `}</style>
 
+      {/* Маска */}
       <video
         ref={maskVideoRef}
         src="/mask.mp4"
@@ -321,6 +377,7 @@ export default function Home() {
         style={{ opacity: maskOpacity, display: maskOpacity > 0 ? "block" : "none" }}
       />
 
+      {/* Модальное окно контактов */}
       {showContact && (
         <div
           onClick={(e) => e.target === e.currentTarget && !isSending && closeContact()}
@@ -340,7 +397,6 @@ export default function Home() {
             transform: contactVisible ? "translate3d(0, 0, 0)" : "translate3d(0, 60px, 0)",
             opacity: contactVisible ? 1 : 0,
             transition: "transform 0.5s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.5s ease",
-            boxSizing: "border-box",
             display: "flex",
             flexDirection: "column",
             justifyContent: "space-between"
@@ -397,6 +453,7 @@ export default function Home() {
         </div>
       )}
 
+      {/* Оверлей */}
       {playCount < 3 && (
         <video
           ref={overlayRef}
@@ -424,9 +481,10 @@ export default function Home() {
         </video>
       )}
 
-      <main style={{ background: "black", color: "white" }}>
+      {/* ОСНОВНОЙ ФИКСИРОВАННЫЙ КОНТЕЙНЕР СУПЕР-САЙТА */}
+      <main style={{ position: "fixed", width: "100vw", height: "100vh", top: 0, left: 0, overflow: "hidden", background: "black" }}>
 
-        {/* SCENE 1 - Зафиксированное видео заднего плана */}
+        {/* Видео заднего плана */}
         <video
           ref={videoRef}
           src={videoSrc}
@@ -435,51 +493,52 @@ export default function Home() {
           autoPlay
           playsInline
           style={{
-            position: "fixed", top: 0, left: 0,
+            position: "absolute", top: 0, left: 0,
             width: "100vw", height: "100vh",
             objectFit: "cover", zIndex: 0,
-            opacity: 0, transition: "opacity 0.3s ease",
+            opacity: 0,
           }}
         />
-        <div style={{ position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh", background: "rgba(0,0,0,0.3)", zIndex: 1, pointerEvents: "none" }} />
+        <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.3)", zIndex: 1, pointerEvents: "none" }} />
 
-        {/* Трэк с горизонтальной сеткой картинок */}
-        <section ref={scene1Ref} style={{ height: "180vh", position: "relative", zIndex: 2 }}>
-          <div style={{ position: "sticky", top: 0, height: "100vh", overflow: "hidden", display: "flex", alignItems: "center" }}>
-            <div ref={gridRef} className="masked-grid" style={{ gap: `${GAP}px`, paddingTop: `${GAP}px`, paddingBottom: `${GAP}px` }}>
-              {rows.map((images, rowIndex) => {
-                const looped = [...images, ...images];
-                return (
-                  <div
-                    key={rowIndex}
-                    ref={(el) => { trackRefs.current[rowIndex] = el; }}
-                    style={{ display: "flex", gap: `${GAP}px`, width: "max-content", paddingLeft: `${GAP}px`, paddingRight: `${GAP}px` }}
-                  >
-                    {looped.map((img, i) => (
-                      <div key={rowIndex + "-" + i} style={{ width: `${imgSize}px`, height: `${imgSize}px`, borderRadius: "12px", flexShrink: 0, position: "relative", overflow: "hidden" }}>
-                        <img src={img} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-                      </div>
-                    ))}
-                  </div>
-                );
-              })}
-            </div>
+        {/* Контейнер Сетки (Scene 1) */}
+        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", zIndex: 2, overflow: "hidden" }}>
+          <div ref={gridRef} className="masked-grid" style={{ gap: `${GAP}px`, willChange: "transform, opacity" }}>
+            {rows.map((images, rowIndex) => {
+              const looped = [...images, ...images];
+              return (
+                <div
+                  key={rowIndex}
+                  ref={(el) => { trackRefs.current[rowIndex] = el; }}
+                  style={{ display: "flex", gap: `${GAP}px`, width: "max-content", paddingLeft: `${GAP}px`, paddingRight: `${GAP}px`, willChange: "transform" }}
+                >
+                  {looped.map((img, i) => (
+                    <div key={rowIndex + "-" + i} style={{ width: `${imgSize}px`, height: `${imgSize}px`, borderRadius: "12px", flexShrink: 0, position: "relative", overflow: "hidden" }}>
+                      <img src={img} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
           </div>
-        </section>
+        </div>
 
-        {/* SCENE 2 - Текст. Теперь он идет сразу за сеткой в нормальном потоке документа */}
-        <section style={{ minHeight: "100vh", position: "relative", zIndex: 3, background: "black", display: "flex", alignItems: "center" }}>
-          <div
-            ref={textRef}
-            style={{
-              width: "100%",
-              padding: "12vh clamp(20px, 6vw, 80px)",
-              display: "flex",
-              flexDirection: "column",
-              justifyContent: "flex-start",
-              opacity: 1,
-            }}
-          >
+        {/* Сцена Текста (Scene 2). Лежит поверх сетки, проявляется плавно по коду */}
+        <div
+          ref={textRef}
+          style={{
+            position: "absolute",
+            inset: 0,
+            zIndex: 10,
+            display: "flex",
+            alignItems: "center",
+            padding: "0 clamp(20px, 6vw, 80px)",
+            opacity: 0,
+            willChange: "transform, opacity",
+            pointerEvents: "none"
+          }}
+        >
+          <div style={{ display: "flex", flexDirection: "column", justifyContent: "flex-start", width: "100%" }}>
             <div className="text-line" style={{ fontSize: "clamp(32px, 6.5vw, 88px)" }}>
               MY NAME <span className="mobile-br" />IS ARTEM
             </div>
@@ -504,9 +563,8 @@ export default function Home() {
               {contactHovered ? "GET YOUR BEST DESIGN EVER" : "CONTACT ME"}
             </div>
           </div>
-        </section>
+        </div>
 
-        <section style={{ height: "10vh", background: "#000" }} />
       </main>
     </>
   );
