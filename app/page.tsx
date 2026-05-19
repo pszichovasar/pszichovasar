@@ -185,9 +185,9 @@ export default function Home() {
     };
   }, [showContact]);
 
-  // Реализация анимаций на основе виртуального прогресса
+  // Режиссируем последовательную анимацию элементов сайта
   useEffect(() => {
-    // 1. Анимация движения сетки (работает от 0% до 65% прогресса)
+    // === ФАЗА 1: ДВИЖЕНИЕ СЕТКИ (работает линейно на протяжении всей своей жизни до 65%) ===
     const gridProgress = Math.min(progress / 0.65, 1);
     trackRefs.current.forEach((track, i) => {
       if (!track) return;
@@ -199,32 +199,54 @@ export default function Home() {
       }
     });
 
-    // Изменение масштаба и плавное исчезновение сетки В ДВИЖЕНИИ
     if (gridRef.current) {
       const scale = 1 - gridProgress * 0.05;
       gridRef.current.style.transform = `scale(${scale})`;
+    }
 
-      // НАСТРОЙКА ИСЧЕЗНОВЕНИЯ:
-      // Сетка начинает таять на 35% скролла и полностью исчезает на 55%
-      if (progress < 0.35) {
+    // === ФАЗА 2: СНАЧАЛА ПРОЯВЛЯЕТСЯ ВИДЕО ЧЕРЕЗ БЛЮР (от 0% до 30%) ===
+    if (videoRef.current) {
+      if (progress <= 0.3) {
+        const videoFade = progress / 0.3; // Проявление от 0 до 1
+        const currentBlur = (1 - videoFade) * 20; // Размытие уменьшается с 20px до 0px
+
+        videoRef.current.style.opacity = videoFade.toString();
+        videoRef.current.style.filter = `blur(${currentBlur}px)`;
+      } else {
+        // После 30% видео всегда на 100% четкое и видимое
+        videoRef.current.style.opacity = "1";
+        videoRef.current.style.filter = "blur(0px)";
+      }
+    }
+
+    // === ФАЗА 3: ЗАТЕМ ИСЧЕЗАЕТ СЕТКА (от 30% до 55%) ===
+    if (gridRef.current) {
+      if (progress < 0.3) {
         gridRef.current.style.opacity = "1";
       } else if (progress > 0.55) {
         gridRef.current.style.opacity = "0";
       } else {
-        // Вычисляем затухание в диапазоне от 0.35 до 0.55
-        const fadeProgress = (progress - 0.35) / (0.55 - 0.35);
-        gridRef.current.style.opacity = (1 - fadeProgress).toString();
+        const gridFade = (progress - 0.3) / (0.55 - 0.3); // Прогресс исчезновения сетки
+        gridRef.current.style.opacity = (1 - gridFade).toString();
       }
     }
 
-    // 2. Появление фонового видео заднего плана (плавно с 35% прогресса, синхронно с исчезновением сетки)
-    if (videoRef.current) {
-      const videoProgress = progress < 0.35 ? 0 : Math.min((progress - 0.35) / 0.2, 1);
-      videoRef.current.style.opacity = videoProgress.toString();
+    // === ФАЗА 4: ПОЯВЛЯЕТСЯ ТЕКСТ (строго после исчезновения сетки — от 55% до 80%) ===
+    if (textRef.current) {
+      if (progress > 0.55) {
+        const textProgress = Math.min((progress - 0.55) / 0.25, 1);
+        textRef.current.style.opacity = textProgress.toString();
+        textRef.current.style.transform = `translate3d(0, ${(1 - textProgress) * 30}px, 0)`;
+        textRef.current.style.pointerEvents = "auto";
+      } else {
+        textRef.current.style.opacity = "0";
+        textRef.current.style.transform = "translate3d(0, 30px, 0)";
+        textRef.current.style.pointerEvents = "none";
+      }
     }
 
-    // 3. Запуск триггера видео-маски
-    if (maskVideoRef.current && !maskTriggeredRef.current && progress >= 0.2) {
+    // === ВСПОМОГАТЕЛЬНОЕ: Триггер видео-маски (запуск на стыке фаз) ===
+    if (maskVideoRef.current && !maskTriggeredRef.current && progress >= 0.25) {
       maskTriggeredRef.current = true;
       maskPlayingRef.current = true;
       maskVideoRef.current.currentTime = 0;
@@ -237,20 +259,6 @@ export default function Home() {
         });
       };
       fadeIn();
-    }
-
-    // 4. Появление текста (начинается с 50% и полностью раскрывается к 75%)
-    if (textRef.current) {
-      if (progress > 0.5) {
-        const textProgress = Math.min((progress - 0.5) / 0.25, 1);
-        textRef.current.style.opacity = textProgress.toString();
-        textRef.current.style.transform = `translate3d(0, ${(1 - textProgress) * 30}px, 0)`;
-        textRef.current.style.pointerEvents = "auto";
-      } else {
-        textRef.current.style.opacity = "0";
-        textRef.current.style.transform = "translate3d(0, 30px, 0)";
-        textRef.current.style.pointerEvents = "none";
-      }
     }
   }, [progress]);
 
