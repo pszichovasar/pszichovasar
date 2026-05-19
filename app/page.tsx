@@ -147,7 +147,6 @@ export default function Home() {
       const scrollY = window.scrollY;
       const maxScrollScene1 = scene1.offsetHeight - window.innerHeight;
 
-      // Надежный расчет прогресса на основе абсолютного скролла страницы
       const progress = Math.min(Math.max(scrollY / maxScrollScene1, 0), 1);
 
       trackRefs.current.forEach((track, i) => {
@@ -433,11 +432,11 @@ export default function Home() {
             style={{
               position: "fixed", top: 0, left: 0,
               width: "100vw", height: "100vh",
-              objectFit: "cover", zIndex: 0,
+              objectFit: "cover", zIndex: 3, // Подняли до 3, чтобы оно перекрывало .masked-grid (у которого zIndex 2)
               opacity: 0, transition: "opacity 0.3s ease",
             }}
           />
-          <div style={{ position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh", background: "rgba(0,0,0,0.3)", zIndex: 1, pointerEvents: "none" }} />
+          <div style={{ position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh", background: "rgba(0,0,0,0.3)", zIndex: 4, pointerEvents: "none" }} />
 
           <div style={{ position: "sticky", top: 0, height: "100vh", overflow: "hidden", display: "flex", alignItems: "center", zIndex: 2 }}>
             <div ref={gridRef} className="masked-grid" style={{ gap: `${GAP}px`, paddingTop: `${GAP}px`, paddingBottom: `${GAP}px` }}>
@@ -461,8 +460,8 @@ export default function Home() {
           </div>
         </section>
 
-        {/* SCENE 2 - ТЕПЕРЬ ОН ОСТАЛСЯ В ЕСТЕСТВЕННОМ ПОТОКЕ И СКРОЛЛИТСЯ ОБЫЧНО */}
-        <section style={{ position: "relative", zIndex: 3, background: "black" }}>
+        {/* SCENE 2 */}
+        <section style={{ position: "relative", zIndex: 5, background: "black" }}>
           <div
             ref={textRef}
             style={{
@@ -504,7 +503,7 @@ export default function Home() {
           </div>
         </section>
 
-        <section style={{ height: "10vh", background: "#000", position: "relative", zIndex: 4 }} />
+        <section style={{ height: "10vh", background: "#000", position: "relative", zIndex: 6 }} />
       </main>
     </>
   );
