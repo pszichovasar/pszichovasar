@@ -93,12 +93,10 @@ export default function Home() {
   useEffect(() => {
     const isiPhone = /iPhone|iPad|iPod/i.test(navigator.userAgent);
     if (isiPhone) {
-      // Кэш-бастер принудительно заставит iPhone скачать обновленный файл
       setVideoSrc("/iome.mp4?v=" + new Date().getTime());
     }
   }, []);
 
-  // Перезагрузка видеоплеера при смене источника (Обязательно для корректной работы Safari)
   useEffect(() => {
     if (videoRef.current) {
       videoRef.current.load();
@@ -152,7 +150,6 @@ export default function Home() {
       const scrollY = window.scrollY;
       const progress = Math.min(Math.max(-scene1.getBoundingClientRect().top / scene1.offsetHeight, 0), 1);
 
-      // Движение горизонтальных рядов сетки
       trackRefs.current.forEach((track, i) => {
         if (!track) return;
         const maxMove = track.scrollWidth / 2;
@@ -163,12 +160,10 @@ export default function Home() {
         }
       });
 
-      // Появление фонового видео
       const fadeStart = 0.8;
       const meOpacity = Math.max((progress - fadeStart) / (1 - fadeStart), 0);
       video.style.opacity = meOpacity.toString();
 
-      // Видео-маска умножения
       if (maskVideo && !maskTriggeredRef.current && progress >= TRIGGER_PROGRESS) {
         maskTriggeredRef.current = true;
         maskPlayingRef.current = true;
@@ -186,20 +181,21 @@ export default function Home() {
 
       const scene1End = scene1.offsetTop + scene1.offsetHeight - window.innerHeight;
 
-      // СИНХРОННЫЙ СКРОЛЛ ТЕКСТА С СЕТКОЙ ИЗ ПЕРВОЙ СЦЕНЫ
-      // СИНХРОННЫЙ СКРОЛЛ ТЕКСТА С СЕТКОЙ ИЗ ПЕРВОЙ СЦЕНЫ
+      // --- ИСПРАВЛЕНИЕ 1: ОПУСКАЕМ ТЕКСТ ЕЩЕ НИЖЕ ---
       if (textEl) {
         if (scrollY < scene1End) {
-          // Текст начинает движение глубоко внизу (220vh) и плавно поднимается.
-          // В самом конце анимации сетки он остановится на отметке 35vh от верха экрана (значительно ниже, чем было).
-          const translateY = 35 + (1 - progress) * 185;
+          // Текст начинает движение очень глубоко (260vh) и плавно поднимается.
+          // Финальная точка теперь 65vh от верха экрана (нижняя треть).
+          // Формула: Финал + (1 - прогресс) * (Старт - Финал)
+          // 65 + (1 - progress) * (260 - 65) = 65 + (1 - progress) * 195
+          const translateY = 65 + (1 - progress) * 195;
           const textOpacity = Math.min(progress * 2.5, 1);
 
           textEl.style.transform = `translateY(${translateY}vh)`;
           textEl.style.opacity = textOpacity.toString();
         } else {
-          // Фиксируем текст на заниженной позиции во второй сцене
-          textEl.style.transform = "translateY(35vh)";
+          // Фиксируем текст на значительно заниженной позиции (65vh)
+          textEl.style.transform = "translateY(65vh)";
           textEl.style.opacity = "1";
         }
       }
@@ -316,6 +312,11 @@ export default function Home() {
             font-size: 8.5vw !important;
             margin-top: 1.2em !important;
           }
+
+          /* --- ИСПРАВЛЕНИЕ 3: ДЕЛАЕМ КАРТОЧКУ КВАДРАТНОЙ НА МОБИЛЬНЫХ --- */
+          .contact-modal-content {
+            border-radius: 0px !important; /* Убираем скругление углов */
+          }
         }
       `}</style>
 
@@ -340,16 +341,20 @@ export default function Home() {
             display: "flex", alignItems: "center", justifyContent: "center",
           }}
         >
-          <div style={{
-            background: "#fff",
-            color: "#000",
-            width: "min(520px, 90vw)",
-            padding: "48px",
-            transform: contactVisible ? "translateY(0)" : "translateY(60px)",
-            opacity: contactVisible ? 1 : 0,
-            transition: "transform 0.5s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.5s ease",
-            boxSizing: "border-box",
-          }}>
+          <div
+            className="contact-modal-content" // Добавили класс для стилизации в медиа-запросе
+            style={{
+              background: "#fff",
+              color: "#000",
+              width: "min(520px, 90vw)",
+              padding: "48px",
+              transform: contactVisible ? "translateY(0)" : "translateY(60px)",
+              opacity: contactVisible ? 1 : 0,
+              transition: "transform 0.5s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.5s ease",
+              boxSizing: "border-box",
+              borderRight: "1px solid #000", // Четкие границы брутализма
+              borderBottom: "1px solid #000",
+            }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "40px" }}>
               <div style={{ fontSize: "clamp(20px, 3.5vw, 32px)", fontWeight: 900, letterSpacing: "-0.01em", lineHeight: 1, color: "#000" }}>
                 LET'S WORK
@@ -434,7 +439,6 @@ export default function Home() {
 
         {/* SCENE 1 */}
         <section ref={scene1Ref} style={{ height: "250vh", position: "relative", zIndex: 2 }}>
-          {/* ФОНОВОЕ ВИДЕО С КЭШ-БАСТЕРОМ И ПРИНУДИТЕЛЬНЫМ HTML5 АВТОПЛЕЕМ ДЛЯ IOS */}
           <video
             ref={videoRef}
             src={videoSrc}
@@ -474,8 +478,9 @@ export default function Home() {
           </div>
         </section>
 
+        {/* --- ИСПРАВЛЕНИЕ 2: СОКРАЩАЕМ ДЛИНУ САЙТА ДО 150VH --- */}
         {/* SCENE 2 */}
-        <section style={{ height: "600vh", position: "relative", zIndex: 3, background: "transparent" }}>
+        <section style={{ height: "150vh", position: "relative", zIndex: 3, background: "transparent" }}>
           <div
             ref={textRef}
             style={{
