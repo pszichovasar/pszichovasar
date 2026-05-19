@@ -17,7 +17,7 @@ export async function POST(req: Request) {
     // 1. УВЕДОМЛЕНИЕ ТЕБЕ
     await resend.emails.send({
       from: 'Portfolio Form <onboarding@resend.dev>',
-      to: 'твоя_личная_почта@gmail.com', // Убедись, что тут твой реальный email
+      to: 'obolongueuil@gmail.com', // Убедись, что тут твой реальный email
       subject: `🔥 NEW ORDER FROM ${name.toUpperCase()}`,
       html: `
         <div style="font-family: 'Arial Black', sans-serif; background: #000; color: #fff; padding: 30px; text-transform: uppercase;">
