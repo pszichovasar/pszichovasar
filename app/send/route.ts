@@ -12,7 +12,7 @@ export async function POST(req: Request) {
     const resend = new Resend(process.env.RESEND_API_KEY);
 
     // ВНИМАНИЕ: Замени этот email на ТОТ, на который ты регистрировал аккаунт Resend!
-    const MY_RESEND_EMAIL = 'твой-email-регистрации-в-resend@gmail.com';
+    const MY_RESEND_EMAIL = 'obolongueuil@gmail.com';
 
     // 1. ОТПРАВЛЯЕМ УВЕДОМЛЕНИЕ ТЕБЕ
     await resend.emails.send({
