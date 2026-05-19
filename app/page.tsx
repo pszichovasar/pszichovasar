@@ -1,24 +1,24 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 export default function Home() {
-  const scene1Ref = useRef(null);
-  const videoRef = useRef(null);
-  const maskVideoRef = useRef(null);
-  const overlayRef = useRef(null);
+  const scene1Ref = useRef<HTMLDivElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const maskVideoRef = useRef<HTMLVideoElement>(null);
+  const overlayRef = useRef<HTMLVideoElement>(null);
   const [opacity, setOpacity] = useState(1);
   const [blur, setBlur] = useState(0);
   const [playCount, setPlayCount] = useState(0);
   const [imgSize, setImgSize] = useState(140);
-  const canvasRefs = useRef([]);
-  const animFrameRef = useRef(null);
-  const gridRef = useRef(null);
+  const canvasRefs = useRef<(HTMLCanvasElement | null)[]>([]);
+  const animFrameRef = useRef<number | null>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
   const maskOpacityRef = useRef(0);
   const maskTriggeredRef = useRef(false);
   const maskPlayingRef = useRef(false);
-  const textRef = useRef(null);
-  const textareaRef = useRef(null);
+  const textRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [contactHovered, setContactHovered] = useState(false);
   const [shaking, setShaking] = useState(false);
   const [showContact, setShowContact] = useState(false);
@@ -33,7 +33,7 @@ export default function Home() {
 
   const rows = [row0, row1, row2, row3, row4];
   const directions = [true, false, true, false, true];
-  const trackRefs = useRef([null, null, null, null, null]);
+  const trackRefs = useRef<(HTMLDivElement | null)[]>([null, null, null, null, null]);
   const GAP = 20;
 
   const openContact = () => {
@@ -47,7 +47,7 @@ export default function Home() {
   };
 
   // Авто-высота textarea
-  const handleMessageChange = (e) => {
+  const handleMessageChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setForm({ ...form, message: e.target.value });
     const ta = textareaRef.current;
     if (ta) {
@@ -92,6 +92,7 @@ export default function Home() {
       canvasRefs.current.forEach((canvas) => {
         if (!canvas) return;
         const ctx = canvas.getContext("2d");
+        if (!ctx) return;
         const rect = canvas.getBoundingClientRect();
         const srcX = (rect.left + screenOffsetX) / scale;
         const srcY = (rect.top + screenOffsetY) / scale;
@@ -125,7 +126,7 @@ export default function Home() {
     video.addEventListener("timeupdate", handleTimeUpdate);
     animFrameRef.current = requestAnimationFrame(draw);
     return () => {
-      cancelAnimationFrame(animFrameRef.current);
+      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
       video.removeEventListener("timeupdate", handleTimeUpdate);
     };
   }, [imgSize]);
@@ -155,7 +156,7 @@ export default function Home() {
 
       const fadeStart = 0.8;
       const meOpacity = Math.max((progress - fadeStart) / (1 - fadeStart), 0);
-      video.style.opacity = meOpacity;
+      video.style.opacity = meOpacity.toString();
 
       if (maskVideo && !maskTriggeredRef.current && progress >= TRIGGER_PROGRESS) {
         maskTriggeredRef.current = true;
@@ -183,7 +184,7 @@ export default function Home() {
           const translateY = Math.max(0, (1 - textProgress) * 200);
           const textOpacity = Math.min(textProgress * 2, 1);
           textEl.style.transform = `translateY(${translateY}vh)`;
-          textEl.style.opacity = textOpacity;
+          textEl.style.opacity = textOpacity.toString();
           textEl.style.filter = "blur(0px)";
         }
       }
@@ -223,7 +224,7 @@ export default function Home() {
 
   let canvasIndex = 0;
 
-  const inputStyle = {
+  const inputStyle: React.CSSProperties = {
     background: "transparent",
     border: "none",
     borderBottom: "1.5px solid #000",
@@ -235,7 +236,7 @@ export default function Home() {
     width: "100%",
   };
 
-  const labelStyle = {
+  const labelStyle: React.CSSProperties = {
     fontSize: "10px",
     letterSpacing: "0.2em",
     color: "#000",
@@ -307,8 +308,8 @@ export default function Home() {
 
             <div style={{ display: "flex", flexDirection: "column", gap: "28px" }}>
               {[
-                { label: "YOUR NAME", key: "name", type: "text" },
-                { label: "EMAIL", key: "email", type: "email" },
+                { label: "YOUR NAME", key: "name" as const, type: "text" },
+                { label: "EMAIL", key: "email" as const, type: "email" },
               ].map(({ label, key, type }) => (
                 <div key={key} style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                   <label style={labelStyle}>{label}</label>
