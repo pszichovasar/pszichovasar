@@ -45,7 +45,6 @@ export default function Home() {
   };
 
   const handleMessageChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    // Принудительный перевод в Капс при вводе сообщения
     setForm({ ...form, message: e.target.value.toUpperCase() });
     const ta = textareaRef.current;
     if (ta) {
@@ -201,7 +200,6 @@ export default function Home() {
   return (
     <>
       <style>{`
-        /* Установка глобального шрифта Arial Black и Капса для всего сайта */
         * {
           font-family: 'Arial Black', Gadget, sans-serif !important;
           text-transform: uppercase !important;
@@ -245,17 +243,12 @@ export default function Home() {
           color: white;
         }
         
-        .desktop-br { display: block; }
+        .desktop-br { display: inline; }
         .mobile-br { display: none; }
-        .designer-text { display: none; }
-        .illustrator-text { display: inline; }
 
         @media (max-width: 768px) {
           .desktop-br { display: none; }
           .mobile-br { display: block; }
-          
-          .illustrator-text { display: none; }
-          .designer-text { display: inline; }
           
           .text-line {
             font-size: 8.5vw !important; 
@@ -396,17 +389,17 @@ export default function Home() {
           </div>
         </section>
 
-        {/* SCENE 2 — ТЕКСТ ПОДНЯТ ВЫШЕ ЧЕРЕЗ TOP: 10VH */}
+        {/* SCENE 2 — ТЕКСТ ТЕПЕРЬ С "I'M A DESIGNER" НА ВСЕХ УСТРОЙСТВАХ */}
         <section style={{ height: "600vh", position: "relative", zIndex: 3, background: "transparent" }}>
           <div
             ref={textRef}
             style={{
               position: "sticky",
-              top: "10vh", // Сместили блок сильно выше к верхней кромке экрана
+              top: "10vh",
               height: "75vh",
               display: "flex",
               flexDirection: "column",
-              justifyContent: "flex-start", // Текст выравнивается от верхнего края контейнера
+              justifyContent: "flex-start",
               padding: "0 clamp(20px, 6vw, 80px)",
               transform: "translateY(120vh)",
               opacity: 0,
@@ -418,9 +411,7 @@ export default function Home() {
             </div>
 
             <div className="text-line" style={{ fontSize: "clamp(32px, 6.5vw, 88px)", marginTop: "0.15em" }}>
-              I'M A<span className="desktop-br" />
-              <span className="illustrator-text">N ILLUSTRATOR</span>
-              <span className="designer-text"> DESIGNER</span>
+              I'M A <span className="mobile-br" />DESIGNER
             </div>
 
             <div
