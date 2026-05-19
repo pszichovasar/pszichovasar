@@ -24,10 +24,8 @@ export default function Home() {
   const [form, setForm] = useState({ name: "", email: "", message: "" });
   const [isSending, setIsSending] = useState(false);
 
-  // Стейт для динамической смены видео (по умолчанию для ПК идет /me.mp4)
   const [videoSrc, setVideoSrc] = useState("/me.mp4");
 
-  // Полностью перемешанные строки без идентичных повторений подряд
   const row0 = ["/1.jpg", "/2.jpg", "/3.jpg", "/4.jpg", "/5.jpg", "/6.jpg", "/7.jpg", "/8.jpg", "/9.jpg", "/10.jpg"];
   const row1 = ["/11.jpg", "/12.jpg", "/13.jpg", "/14.jpg", "/15.jpg", "/16.jpg", "/17.jpg", "/18.jpg", "/19.jpg", "/20.jpg"];
   const row2 = ["/10.jpg", "/9.jpg", "/8.jpg", "/7.jpg", "/6.jpg", "/5.jpg", "/4.jpg", "/3.jpg", "/2.jpg", "/1.jpg"];
@@ -90,7 +88,6 @@ export default function Home() {
     }
   };
 
-  // ОПРЕДЕЛЕНИЕ IPHONE / IOS УСТРОЙСТВ
   useEffect(() => {
     const isiPhone = /iPhone|iPad|iPod/i.test(navigator.userAgent);
     if (isiPhone) {
@@ -98,7 +95,6 @@ export default function Home() {
     }
   }, []);
 
-  // Перезагрузка видеоплеера при смене источника
   useEffect(() => {
     if (videoRef.current) {
       videoRef.current.load();
@@ -139,7 +135,6 @@ export default function Home() {
     return () => video.removeEventListener("timeupdate", handleTimeUpdate);
   }, []);
 
-  // Оптимизированный скролл-обработчик через requestAnimationFrame без скачков на iOS
   useEffect(() => {
     const TRIGGER_PROGRESS = 0.28;
     let rId: number | null = null;
@@ -155,7 +150,6 @@ export default function Home() {
       const scene1Top = scene1.offsetTop;
       const scene1Height = scene1.offsetHeight;
 
-      // Вычисляем прогресс на основе стабильных координат top и offsetHeight
       let progress = (scrollY - scene1Top) / scene1Height;
       progress = Math.min(Math.max(progress, 0), 1);
 
@@ -196,14 +190,12 @@ export default function Home() {
           textEl.style.opacity = "0";
         } else {
           const scene2ScrollY = scrollY - scene1End;
-
-          // Обычная скорость скролла сайта: убрали замедляющий коэффициент (3.5).
-          // Текст поднимается со скоростью 1к1 к движению страницы.
           const maxScrollDistance = window.innerHeight;
           const textProgress = Math.min(scene2ScrollY / maxScrollDistance, 1);
 
+          // Линейный подъем без "догона" предыдущей сцены
           const translateY = Math.max(0, (1 - textProgress) * 100);
-          const textOpacity = Math.min(textProgress * 4, 1); // Быстрое, аккуратное проявление
+          const textOpacity = Math.min(textProgress * 4, 1);
 
           textEl.style.transform = `translate3d(0, ${translateY}vh, 0)`;
           textEl.style.opacity = textOpacity.toString();
@@ -221,7 +213,6 @@ export default function Home() {
     };
 
     window.addEventListener("scroll", onScroll, { passive: true });
-    // Вызываем один раз сразу для инициализации начального состояния
     updateScrollMetrics();
 
     return () => {
@@ -350,7 +341,6 @@ export default function Home() {
         style={{ opacity: maskOpacity, display: maskOpacity > 0 ? "block" : "none" }}
       />
 
-      {/* Contact modal - Строгий Квадрат */}
       {showContact && (
         <div
           onClick={(e) => e.target === e.currentTarget && !isSending && closeContact()}
@@ -365,7 +355,7 @@ export default function Home() {
             background: "#fff",
             color: "#000",
             width: "min(520px, 90vw)",
-            aspectRatio: "1 / 1", // Превращает контейнер в идеальный квадрат
+            aspectRatio: "1 / 1",
             padding: "clamp(24px, 5vw, 40px)",
             transform: contactVisible ? "translate3d(0, 0, 0)" : "translate3d(0, 60px, 0)",
             opacity: contactVisible ? 1 : 0,
@@ -373,7 +363,7 @@ export default function Home() {
             boxSizing: "border-box",
             display: "flex",
             flexDirection: "column",
-            justifyContent: "space-between" // Распределяет заголовок и форму по высоте квадрата
+            justifyContent: "space-between"
           }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", width: "100%" }}>
               <div style={{ fontSize: "clamp(18px, 3.2vw, 28px)", fontWeight: 900, letterSpacing: "-0.01em", lineHeight: 1, color: "#000" }}>
@@ -456,8 +446,8 @@ export default function Home() {
 
       <main style={{ background: "black", color: "white" }}>
 
-        {/* SCENE 1 */}
-        <section ref={scene1Ref} style={{ height: "250vh", position: "relative", zIndex: 2 }}>
+        {/* SCENE 1 - Сбалансированная высота, чтобы сетка уходила раньше */}
+        <section ref={scene1Ref} style={{ height: "200vh", position: "relative", zIndex: 2 }}>
           <video
             ref={videoRef}
             src={videoSrc}
@@ -496,13 +486,13 @@ export default function Home() {
           </div>
         </section>
 
-        {/* SCENE 2 */}
+        {/* SCENE 2 - Текст */}
         <section style={{ height: "300vh", position: "relative", zIndex: 3, background: "transparent" }}>
           <div
             ref={textRef}
             style={{
               position: "sticky",
-              top: "15vh",
+              top: "20vh", // Зафиксировали комфортный отступ от верха экрана
               height: "70vh",
               display: "flex",
               flexDirection: "column",
