@@ -22,6 +22,7 @@ export default function Home() {
   const [showContact, setShowContact] = useState(false);
   const [contactVisible, setContactVisible] = useState(false);
   const [form, setForm] = useState({ name: "", email: "", message: "" });
+  const [isSending, setIsSending] = useState(false); // Стейт блокировки кнопки при отправке
 
   const row0 = ["/1.jpg", "/2.jpg", "/3.jpg", "/4.jpg", "/5.jpg", "/6.jpg", "/7.jpg", "/8.jpg", "/9.jpg", "/10.jpg"];
   const row1 = ["/11.jpg", "/13.jpg", "/15.jpg", "/17.jpg", "/19.jpg", "/12.jpg", "/14.jpg", "/16.jpg", "/18.jpg", "/20.jpg"];
@@ -50,6 +51,37 @@ export default function Home() {
     if (ta) {
       ta.style.height = "auto";
       ta.style.height = ta.scrollHeight + "px";
+    }
+  };
+
+  // Функция отправки данных на бэкенд Resend
+  const handleSubmit = async () => {
+    if (!form.name || !form.email || !form.message) {
+      alert("PLEASE FILL IN ALL FIELDS");
+      return;
+    }
+
+    setIsSending(true);
+
+    try {
+      const response = await fetch('/api/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      });
+
+      if (response.ok) {
+        alert("MESSAGE SENT SUCCESSFULLY!");
+        setForm({ name: "", email: "", message: "" });
+        closeContact();
+      } else {
+        alert("FAILED TO SEND. PLEASE TRY AGAIN.");
+      }
+    } catch (error) {
+      console.error(error);
+      alert("AN ERROR OCCURRED. PLEASE TRY AGAIN.");
+    } finally {
+      setIsSending(false);
     }
   };
 
@@ -273,7 +305,7 @@ export default function Home() {
       {/* Contact modal */}
       {showContact && (
         <div
-          onClick={(e) => e.target === e.currentTarget && closeContact()}
+          onClick={(e) => e.target === e.currentTarget && !isSending && closeContact()}
           style={{
             position: "fixed", inset: 0, zIndex: 10000,
             background: contactVisible ? "rgba(0,0,0,0.5)" : "rgba(0,0,0,0)",
@@ -295,7 +327,7 @@ export default function Home() {
               <div style={{ fontSize: "clamp(20px, 3.5vw, 32px)", fontWeight: 900, letterSpacing: "-0.01em", lineHeight: 1, color: "#000" }}>
                 LET'S WORK
               </div>
-              <button onClick={closeContact} style={{ background: "none", border: "none", color: "#000", fontSize: "26px", cursor: "pointer", lineHeight: 1, padding: 0, marginTop: "-2px" }}>×</button>
+              <button disabled={isSending} onClick={closeContact} style={{ background: "none", border: "none", color: "#000", fontSize: "26px", cursor: isSending ? "not-allowed" : "pointer", lineHeight: 1, padding: 0, marginTop: "-2px" }}>×</button>
             </div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: "28px" }}>
@@ -307,6 +339,7 @@ export default function Home() {
                   <label style={labelStyle}>{label}</label>
                   <input
                     type={type}
+                    disabled={isSending}
                     value={form[key]}
                     onChange={(e) => setForm({ ...form, [key]: e.target.value.toUpperCase() })}
                     style={inputStyle}
@@ -316,10 +349,28 @@ export default function Home() {
 
               <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                 <label style={labelStyle}>MESSAGE</label>
-                <textarea ref={textareaRef} value={form.message} onChange={handleMessageChange} rows={1} style={{ ...inputStyle, resize: "none", overflow: "hidden", lineHeight: "1.5", transition: "height 0.25s ease", display: "block", verticalAlign: "bottom" }} />
+                <textarea ref={textareaRef} disabled={isSending} value={form.message} onChange={handleMessageChange} rows={1} style={{ ...inputStyle, resize: "none", overflow: "hidden", lineHeight: "1.5", transition: "height 0.25s ease", display: "block", verticalAlign: "bottom" }} />
               </div>
 
-              <button onClick={closeContact} style={{ marginTop: "12px", background: "#000", color: "#fff", border: "none", padding: "16px 36px", fontSize: "11px", letterSpacing: "0.2em", fontWeight: 900, cursor: "pointer", alignSelf: "flex-start" }}>SEND</button>
+              <button
+                onClick={handleSubmit}
+                disabled={isSending}
+                style={{
+                  marginTop: "12px",
+                  background: "#000",
+                  color: "#fff",
+                  border: "none",
+                  padding: "16px 36px",
+                  fontSize: "11px",
+                  letterSpacing: "0.2em",
+                  fontWeight: 900,
+                  cursor: isSending ? "not-allowed" : "pointer",
+                  alignSelf: "flex-start",
+                  opacity: isSending ? 0.6 : 1
+                }}
+              >
+                {isSending ? "SENDING..." : "SEND"}
+              </button>
             </div>
           </div>
         </div>
@@ -389,7 +440,7 @@ export default function Home() {
           </div>
         </section>
 
-        {/* SCENE 2 — ТЕКСТ ТЕПЕРЬ С "I'M A DESIGNER" НА ВСЕХ УСТРОЙСТВАХ */}
+        {/* SCENE 2 */}
         <section style={{ height: "600vh", position: "relative", zIndex: 3, background: "transparent" }}>
           <div
             ref={textRef}
