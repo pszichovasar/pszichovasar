@@ -181,21 +181,21 @@ export default function Home() {
 
       const scene1End = scene1.offsetTop + scene1.offsetHeight - window.innerHeight;
 
-      // --- ИСПРАВЛЕНИЕ 1: ОПУСКАЕМ ТЕКСТ ЕЩЕ НИЖЕ ---
+      // --- ИСПРАВЛЕННАЯ ЛОГИКА ДЛЯ ПЛАВНОГО СКРОЛЛА ТЕКСТА БЕЗ ЗАСТРЕВАНИЯ ---
       if (textEl) {
         if (scrollY < scene1End) {
-          // Текст начинает движение очень глубоко (260vh) и плавно поднимается.
-          // Финальная точка теперь 65vh от верха экрана (нижняя треть).
-          // Формула: Финал + (1 - прогресс) * (Старт - Финал)
-          // 65 + (1 - progress) * (260 - 65) = 65 + (1 - progress) * 195
           const translateY = 65 + (1 - progress) * 195;
           const textOpacity = Math.min(progress * 2.5, 1);
 
+          textEl.style.position = "fixed";
+          textEl.style.top = "0px";
           textEl.style.transform = `translateY(${translateY}vh)`;
           textEl.style.opacity = textOpacity.toString();
         } else {
-          // Фиксируем текст на значительно заниженной позиции (65vh)
-          textEl.style.transform = "translateY(65vh)";
+          const relativeScroll = scrollY - scene1End;
+          textEl.style.position = "absolute";
+          textEl.style.top = "0px";
+          textEl.style.transform = `translateY(calc(65vh + ${relativeScroll * -1}px))`;
           textEl.style.opacity = "1";
         }
       }
@@ -236,8 +236,8 @@ export default function Home() {
     border: "none",
     borderBottom: "1.5px solid #000",
     color: "#000",
-    fontSize: "clamp(14px, 1.8vw, 17px)",
-    padding: "10px 0",
+    fontSize: "clamp(13px, 1.6vw, 17px)",
+    padding: "6px 0",
     outline: "none",
     fontFamily: "'Arial Black', Gadget, sans-serif",
     textTransform: "uppercase",
@@ -245,7 +245,7 @@ export default function Home() {
   };
 
   const labelStyle: React.CSSProperties = {
-    fontSize: "10px",
+    fontSize: "9px",
     letterSpacing: "0.2em",
     color: "#000",
     textTransform: "uppercase",
@@ -313,9 +313,16 @@ export default function Home() {
             margin-top: 1.2em !important;
           }
 
-          /* --- ИСПРАВЛЕНИЕ 3: ДЕЛАЕМ КАРТОЧКУ КВАДРАТНОЙ НА МОБИЛЬНЫХ --- */
+          /* --- ИСПРАВЛЕНИЕ: ДЕЛАЕМ МОДАЛКУ ИДЕАЛЬНЫМ КВАДРАТОМ 1:1 НА МОБИЛКАХ --- */
           .contact-modal-content {
-            border-radius: 0px !important; /* Убираем скругление углов */
+            border-radius: 0px !important;
+            aspect-ratio: 1 / 1 !important; /* Пропорции куба */
+            width: 92vw !important; /* Занимает почти всю ширину экрана смартфона */
+            height: 92vw !important; /* Высота равна ширине */
+            padding: 24px !important; /* Чуть уменьшаем внутренние отступы, чтобы всё влезло */
+            display: flex !important;
+            flex-direction: column !important;
+            justify-content: center !important;
           }
         }
       `}</style>
@@ -342,7 +349,7 @@ export default function Home() {
           }}
         >
           <div
-            className="contact-modal-content" // Добавили класс для стилизации в медиа-запросе
+            className="contact-modal-content"
             style={{
               background: "#fff",
               color: "#000",
@@ -352,22 +359,23 @@ export default function Home() {
               opacity: contactVisible ? 1 : 0,
               transition: "transform 0.5s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.5s ease",
               boxSizing: "border-box",
-              borderRight: "1px solid #000", // Четкие границы брутализма
+              borderRight: "1px solid #000",
               borderBottom: "1px solid #000",
+              borderRadius: "0px",
             }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "40px" }}>
-              <div style={{ fontSize: "clamp(20px, 3.5vw, 32px)", fontWeight: 900, letterSpacing: "-0.01em", lineHeight: 1, color: "#000" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "24px" }}>
+              <div style={{ fontSize: "clamp(18px, 3.5vw, 32px)", fontWeight: 900, letterSpacing: "-0.01em", lineHeight: 1, color: "#000" }}>
                 LET'S WORK
               </div>
               <button disabled={isSending} onClick={closeContact} style={{ background: "none", border: "none", color: "#000", fontSize: "26px", cursor: isSending ? "not-allowed" : "pointer", lineHeight: 1, padding: 0, marginTop: "-2px" }}>×</button>
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: "28px" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
               {[
                 { label: "YOUR NAME", key: "name" as const, type: "text" },
                 { label: "EMAIL", key: "email" as const, type: "email" },
               ].map(({ label, key, type }) => (
-                <div key={key} style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                <div key={key} style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                   <label style={labelStyle}>{label}</label>
                   <input
                     type={type}
@@ -379,20 +387,20 @@ export default function Home() {
                 </div>
               ))}
 
-              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                 <label style={labelStyle}>MESSAGE</label>
-                <textarea ref={textareaRef} disabled={isSending} value={form.message} onChange={handleMessageChange} rows={1} style={{ ...inputStyle, resize: "none", overflow: "hidden", lineHeight: "1.5", transition: "height 0.25s ease", display: "block", verticalAlign: "bottom" }} />
+                <textarea ref={textareaRef} disabled={isSending} value={form.message} onChange={handleMessageChange} rows={1} style={{ ...inputStyle, resize: "none", overflow: "hidden", lineHeight: "1.4", transition: "height 0.25s ease", display: "block", verticalAlign: "bottom" }} />
               </div>
 
               <button
                 onClick={handleSubmit}
                 disabled={isSending}
                 style={{
-                  marginTop: "12px",
+                  marginTop: "8px",
                   background: "#000",
                   color: "#fff",
                   border: "none",
-                  padding: "16px 36px",
+                  padding: "14px 32px",
                   fontSize: "11px",
                   letterSpacing: "0.2em",
                   fontWeight: 900,
@@ -478,15 +486,16 @@ export default function Home() {
           </div>
         </section>
 
-        {/* --- ИСПРАВЛЕНИЕ 2: СОКРАЩАЕМ ДЛИНУ САЙТА ДО 150VH --- */}
         {/* SCENE 2 */}
         <section style={{ height: "150vh", position: "relative", zIndex: 3, background: "transparent" }}>
           <div
             ref={textRef}
             style={{
-              position: "sticky",
-              top: "10vh",
-              height: "75vh",
+              position: "fixed",
+              top: "0px",
+              left: "0px",
+              width: "100vw",
+              height: "100vh",
               display: "flex",
               flexDirection: "column",
               justifyContent: "flex-start",
@@ -494,35 +503,39 @@ export default function Home() {
               transform: "translateY(120vh)",
               opacity: 0,
               willChange: "transform, opacity",
+              pointerEvents: "none",
             }}
           >
-            <div className="text-line" style={{ fontSize: "clamp(32px, 6.5vw, 88px)" }}>
-              MY NAME <span className="mobile-br" />IS ARTEM
-            </div>
+            <div style={{ pointerEvents: "auto", display: "flex", flexDirection: "column" }}>
+              <div className="text-line" style={{ fontSize: "clamp(32px, 6.5vw, 88px)" }}>
+                MY NAME <span className="mobile-br" />IS ARTEM
+              </div>
 
-            <div className="text-line" style={{ fontSize: "clamp(32px, 6.5vw, 88px)", marginTop: "0.15em" }}>
-              I'M A <span className="mobile-br" />DESIGNER
-            </div>
+              <div className="text-line" style={{ fontSize: "clamp(32px, 6.5vw, 88px)", marginTop: "0.15em" }}>
+                I'M A <span className="mobile-br" />DESIGNER
+              </div>
 
-            <div
-              className={`text-line contact-trigger ${shaking ? "shakeY" : ""}`}
-              onMouseEnter={handleContactEnter}
-              onMouseLeave={() => setContactHovered(false)}
-              onClick={openContact}
-              style={{
-                fontSize: "clamp(32px, 6.5vw, 88px)",
-                marginTop: "1.6em",
-                cursor: "pointer",
-                display: "inline-block",
-                userSelect: "none"
-              }}
-            >
-              {contactHovered ? "GET YOUR BEST DESIGN EVER" : "CONTACT ME"}
+              <div
+                className={`text-line contact-trigger ${shaking ? "shakeY" : ""}`}
+                onMouseEnter={handleContactEnter}
+                onMouseLeave={() => setContactHovered(false)}
+                onClick={openContact}
+                style={{
+                  fontSize: "clamp(32px, 6.5vw, 88px)",
+                  marginTop: "1.6em",
+                  cursor: "pointer",
+                  display: "inline-block",
+                  userSelect: "none",
+                  alignSelf: "flex-start"
+                }}
+              >
+                {contactHovered ? "GET YOUR BEST DESIGN EVER" : "CONTACT ME"}
+              </div>
             </div>
           </div>
         </section>
 
-        <section style={{ height: "40vh", background: "#000" }} />
+        <section style={{ height: "40vh", background: "#000", position: "relative", zIndex: 4 }} />
       </main>
     </>
   );
