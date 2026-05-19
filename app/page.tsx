@@ -22,7 +22,10 @@ export default function Home() {
   const [showContact, setShowContact] = useState(false);
   const [contactVisible, setContactVisible] = useState(false);
   const [form, setForm] = useState({ name: "", email: "", message: "" });
-  const [isSending, setIsSending] = useState(false); // Стейт блокировки кнопки при отправке
+  const [isSending, setIsSending] = useState(false);
+
+  // Стейт для динамической смены видео (по умолчанию для ПК идет /me.mp4)
+  const [videoSrc, setVideoSrc] = useState("/me.mp4");
 
   const row0 = ["/1.jpg", "/2.jpg", "/3.jpg", "/4.jpg", "/5.jpg", "/6.jpg", "/7.jpg", "/8.jpg", "/9.jpg", "/10.jpg"];
   const row1 = ["/11.jpg", "/13.jpg", "/15.jpg", "/17.jpg", "/19.jpg", "/12.jpg", "/14.jpg", "/16.jpg", "/18.jpg", "/20.jpg"];
@@ -54,7 +57,6 @@ export default function Home() {
     }
   };
 
-  // Функция отправки данных на бэкенд Resend
   const handleSubmit = async () => {
     if (!form.name || !form.email || !form.message) {
       alert("PLEASE FILL IN ALL FIELDS");
@@ -77,7 +79,6 @@ export default function Home() {
         setForm({ name: "", email: "", message: "" });
         closeContact();
       } else {
-        // ТЕПЕРЬ ТУТ БУДЕТ ВЫВОДИТЬСЯ НАСТОЯЩАЯ ПРИЧИНА
         alert(`ERROR: ${data.error || 'UNKNOWN_ERROR'}`);
       }
     } catch (error: any) {
@@ -87,6 +88,21 @@ export default function Home() {
       setIsSending(false);
     }
   };
+
+  // ОПРЕДЕЛЕНИЕ IPHONE / IOS УСТРОЙСТВ
+  useEffect(() => {
+    const isiPhone = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    if (isiPhone) {
+      setVideoSrc("/iome.mp4");
+    }
+  }, []);
+
+  // Перезагрузка видеоплеера при смене источника (Обязательно для корректной работы Safari)
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.load();
+    }
+  }, [videoSrc]);
 
   useEffect(() => {
     const calcSize = () => {
@@ -410,8 +426,14 @@ export default function Home() {
 
         {/* SCENE 1 */}
         <section ref={scene1Ref} style={{ height: "250vh", position: "relative", zIndex: 2 }}>
+          {/* ФОНОВОЕ ВИДЕО С ПОДДЕРЖКОЙ ДИНАМИЧЕСКОГО СТАТУСА КАНАЛА */}
           <video
-            ref={videoRef} src="/me.mp4" muted loop autoPlay playsInline
+            ref={videoRef}
+            src={videoSrc} // Используем переменную со ссылкой на видео
+            muted
+            loop
+            autoPlay
+            playsInline
             style={{
               position: "fixed", top: 0, left: 0,
               width: "100vw", height: "100vh",
