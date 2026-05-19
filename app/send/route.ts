@@ -1,22 +1,23 @@
 import { Resend } from 'resend';
 import { NextResponse } from 'next/server';
 
-// Инициализируем Resend, он автоматически возьмет ключ из .env.local
-const resend = new Resend(process.env.RESEND_API_KEY);
+// Убираем инициализацию отсюда, чтобы сборка не падала!
 
 export async function POST(req: Request) {
   try {
     const { name, email, message } = await req.json();
 
-    // Валидация полей на стороне сервера
     if (!name || !email || !message) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
-    // 1. ОТПРАВЛЯЕМ УВЕДОМЛЕНИЕ ТЕБЕ НА ПОЧТУ
+    // Инициализируем прямо внутри запроса — теперь при сборке ошибки не будет
+    const resend = new Resend(process.env.RESEND_API_KEY);
+
+    // 1. УВЕДОМЛЕНИЕ ТЕБЕ
     await resend.emails.send({
       from: 'Portfolio Form <onboarding@resend.dev>',
-      to: 'твоя_личная_почта@gmail.com', // НАПИШИ СЮДА СВОЙ EMAIL
+      to: 'твоя_личная_почта@gmail.com', // Убедись, что тут твой реальный email
       subject: `🔥 NEW ORDER FROM ${name.toUpperCase()}`,
       html: `
         <div style="font-family: 'Arial Black', sans-serif; background: #000; color: #fff; padding: 30px; text-transform: uppercase;">
@@ -29,10 +30,10 @@ export async function POST(req: Request) {
       `,
     });
 
-    // 2. ОТПРАВЛЯЕМ АВТООТВЕТ КЛИЕНТУ
+    // 2. АВТООТВЕТ КЛИЕНТУ
     await resend.emails.send({
       from: 'Artem Design <onboarding@resend.dev>',
-      to: email, // Уходит на почту, которую ввёл пользователь
+      to: email,
       subject: 'THANK YOU FOR YOUR MESSAGE!',
       html: `
         <div style="font-family: 'Arial Black', sans-serif; background: #fff; color: #000; padding: 40px; text-transform: uppercase; border: 10px solid #000;">
@@ -49,6 +50,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
+    console.error(error);
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }
