@@ -142,6 +142,7 @@ export default function Home() {
       const scene1 = scene1Ref.current;
       const video = videoRef.current;
       const maskVideo = maskVideoRef.current;
+      const customBgOverlay = document.getElementById("video-dark-overlay");
       if (!scene1 || !video) return;
 
       const scrollY = window.scrollY;
@@ -161,7 +162,11 @@ export default function Home() {
 
       const fadeStart = 0.8;
       const meOpacity = Math.max((progress - fadeStart) / (1 - fadeStart), 0);
+
       video.style.opacity = meOpacity.toString();
+      if (customBgOverlay) {
+        customBgOverlay.style.opacity = (meOpacity * 0.3).toString();
+      }
 
       if (maskVideo && !maskTriggeredRef.current && progress >= TRIGGER_PROGRESS) {
         maskTriggeredRef.current = true;
@@ -421,6 +426,7 @@ export default function Home() {
 
         {/* SCENE 1 */}
         <section ref={scene1Ref} style={{ height: "250vh", position: "relative", zIndex: 2 }}>
+          {/* 1. Заднее видео */}
           <video
             ref={videoRef}
             src={videoSrc}
@@ -432,12 +438,25 @@ export default function Home() {
             style={{
               position: "fixed", top: 0, left: 0,
               width: "100vw", height: "100vh",
-              objectFit: "cover", zIndex: 3, // Подняли до 3, чтобы оно перекрывало .masked-grid (у которого zIndex 2)
+              objectFit: "cover", zIndex: 3,
               opacity: 0, transition: "opacity 0.3s ease",
             }}
           />
-          <div style={{ position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh", background: "rgba(0,0,0,0.3)", zIndex: 4, pointerEvents: "none" }} />
+          {/* 2. Черный слой с непрозрачностью ровно 30% строго ПОВЕРХ видео (zIndex: 4) */}
+          <div
+            id="video-dark-overlay"
+            style={{
+              position: "fixed", top: 0, left: 0,
+              width: "100vw", height: "100vh",
+              background: "black",
+              zIndex: 4,
+              pointerEvents: "none",
+              opacity: 0,
+              transition: "opacity 0.3s ease"
+            }}
+          />
 
+          {/* 3. Контейнер бесконечной сетки картинок (zIndex: 2) */}
           <div style={{ position: "sticky", top: 0, height: "100vh", overflow: "hidden", display: "flex", alignItems: "center", zIndex: 2 }}>
             <div ref={gridRef} className="masked-grid" style={{ gap: `${GAP}px`, paddingTop: `${GAP}px`, paddingBottom: `${GAP}px` }}>
               {rows.map((images, rowIndex) => {
@@ -461,7 +480,7 @@ export default function Home() {
         </section>
 
         {/* SCENE 2 */}
-        <section style={{ position: "relative", zIndex: 5, background: "black" }}>
+        <section style={{ position: "relative", zIndex: 6, background: "transparent" }}>
           <div
             ref={textRef}
             style={{
@@ -502,8 +521,6 @@ export default function Home() {
             </div>
           </div>
         </section>
-
-        <section style={{ height: "10vh", background: "#000", position: "relative", zIndex: 6 }} />
       </main>
     </>
   );
