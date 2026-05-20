@@ -14,13 +14,14 @@ export default function Home() {
   const textRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Состояния для начального появления оверлея (входная анимация)
+  // Оверлей теперь изначально скрыт и размыт
   const [overlayOpacity, setOverlayOpacity] = useState(0);
   const [overlayBlur, setOverlayBlur] = useState(20);
   const [maskOpacity, setMaskOpacity] = useState(0);
 
   const maskPlayingRef = useRef(false);
   const maskFinishedRef = useRef(false);
+  const overlayHasPlayedRef = useRef(false); // Флаг, чтобы запустить видео только один раз
 
   const [contactHovered, setContactHovered] = useState(false);
   const [shaking, setShaking] = useState(false);
@@ -113,24 +114,8 @@ export default function Home() {
     return () => window.removeEventListener("resize", calcSize);
   }, []);
 
-  // Входная анимация оверлея и запуск маски при загрузке
+  // Запуск только маски при загрузке (оверлей теперь ждет скролла)
   useEffect(() => {
-    // Плавное появление оверлея из блюра при заходе
-    let start = performance.now();
-    const duration = 800; // 0.8 секунды на проявление
-
-    const animateOverlayIn = (time: number) => {
-      const timeFraction = Math.min((time - start) / duration, 1);
-      setOverlayOpacity(timeFraction);
-      setOverlayBlur((1 - timeFraction) * 20);
-
-      if (timeFraction < 1) {
-        requestAnimationFrame(animateOverlayIn);
-      }
-    };
-    requestAnimationFrame(animateOverlayIn);
-
-    // Запуск mask.mp4
     const maskVideo = maskVideoRef.current;
     if (!maskVideo) return;
 
@@ -260,19 +245,31 @@ export default function Home() {
       }
     }
 
-    // === УПРАВЛЕНИЕ ОВЕРЛЕЕМ ПО СКРОЛЛУ (от 0.5 до 0.68) ===
-    // Начинает исчезать после сетки и полностью пропадает, когда вылезает "I'M A DESIGNER" (0.68)
+    // === УПРАВЛЕНИЕ ОВЕРЛЕЕМ ПО СКРОЛЛУ И ОДНОКРАТНЫЙ ЗАПУСК ===
     if (overlayRef.current) {
+      // Однократный запуск воспроизведения при достижении прогресса 0.5
+      if (progress >= 0.5 && !overlayHasPlayedRef.current) {
+        overlayHasPlayedRef.current = true;
+        overlayRef.current.currentTime = 0;
+        overlayRef.current.play().catch(() => { });
+      }
+
       if (progress <= 0.5) {
-        overlayRef.current.style.opacity = overlayOpacity.toString();
-        overlayRef.current.style.filter = `blur(${overlayBlur}px)`;
-      } else if (progress > 0.68) {
-        overlayRef.current.style.opacity = "0";
-        overlayRef.current.style.filter = "blur(20px)";
+        setOverlayOpacity(0);
+        setOverlayBlur(20);
+      } else if (progress > 0.5 && progress <= 0.58) {
+        // Плавное появление (0.5 -> 0.58)
+        const fadeIn = (progress - 0.5) / (0.58 - 0.5);
+        setOverlayOpacity(fadeIn);
+        setOverlayBlur((1 - fadeIn) * 20);
+      } else if (progress > 0.58 && progress <= 0.68) {
+        // Плавное исчезновение строго до момента появления "I'M A DESIGNER" (0.58 -> 0.68)
+        const fadeOut = (progress - 0.58) / (0.68 - 0.58);
+        setOverlayOpacity(1 - fadeOut);
+        setOverlayBlur(fadeOut * 20);
       } else {
-        const overlayProgress = (progress - 0.5) / (0.68 - 0.5); // 0 -> 1
-        overlayRef.current.style.opacity = (1 - overlayProgress).toString();
-        overlayRef.current.style.filter = `blur(${overlayProgress * 20}px)`;
+        setOverlayOpacity(0);
+        setOverlayBlur(20);
       }
     }
 
@@ -305,7 +302,7 @@ export default function Home() {
         textRef.current.style.pointerEvents = "none";
       }
     }
-  }, [progress, overlayOpacity, overlayBlur]);
+  }, [progress]);
 
   // Контакты и дополнительный блюр текста
   useEffect(() => {
@@ -516,13 +513,11 @@ export default function Home() {
         </div>
       )}
 
-      {/* ОВЕРЛЕЙ: Появляется через блюр на старте, исчезает строго по скроллу */}
+      {/* ОВЕРЛЕЙ: Появляется и исчезает строго по скроллу, проигрывается один раз */}
       <video
         ref={overlayRef}
-        autoPlay
         muted
         playsInline
-        loop
         style={{
           position: "fixed", top: 0, left: 0,
           width: "100vw", height: "100vh",
