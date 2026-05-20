@@ -18,8 +18,14 @@ export default function Home() {
   const [blur, setBlur] = useState(0);
   const [playCount, setPlayCount] = useState(0);
   const [maskOpacity, setMaskOpacity] = useState(0);
+
   const maskTriggeredRef = useRef(false);
   const maskPlayingRef = useRef(false);
+
+  // НОВЫЕ REFS ДЛЯ КОНТРОЛЯ ОКОНЧАНИЯ МАСКИ ВНУТРИ СКРОЛЛА
+  const [maskFinished, setMaskFinished] = useState(false);
+  const maskFinishedRef = useRef(false);
+
   const [contactHovered, setContactHovered] = useState(false);
   const [shaking, setShaking] = useState(false);
   const [showContact, setShowContact] = useState(false);
@@ -112,7 +118,7 @@ export default function Home() {
     return () => window.removeEventListener("resize", calcSize);
   }, []);
 
-  // Маска видео
+  // ОБНОВЛЕННЫЙ ТРЕНЕР ВИДЕО-МАСКИ: точная фиксация окончания воспроизведения
   useEffect(() => {
     const video = maskVideoRef.current;
     if (!video) return;
@@ -120,6 +126,13 @@ export default function Home() {
     const handleTimeUpdate = () => {
       if (!video.duration) return;
       const timeLeft = video.duration - video.currentTime;
+
+      // Если видео почти закончилось или закончилось совсем
+      if (timeLeft <= 0.1 && !maskFinishedRef.current) {
+        maskFinishedRef.current = true;
+        setMaskFinished(true);
+      }
+
       if (timeLeft <= 1.5 && maskPlayingRef.current) {
         maskPlayingRef.current = false;
         const fadeOut = () => {
@@ -133,22 +146,36 @@ export default function Home() {
       }
     };
 
+    const handleEnded = () => {
+      if (!maskFinishedRef.current) {
+        maskFinishedRef.current = true;
+        setMaskFinished(true);
+      }
+    };
+
     video.addEventListener("timeupdate", handleTimeUpdate);
-    return () => video.removeEventListener("timeupdate", handleTimeUpdate);
+    video.addEventListener("ended", handleEnded);
+    return () => {
+      video.removeEventListener("timeupdate", handleTimeUpdate);
+      video.removeEventListener("ended", handleEnded);
+    };
   }, []);
 
-  // ВИРТУАЛЬНЫЙ СКРОЛЛ: Перехватываем дельту движения и преобразуем в прогресс сайта
+  // ВИРТУАЛЬНЫЙ СКРОЛЛ С БЛОКИРОВКОЙ: не пускает дальше 0.3, пока маска крутится
   useEffect(() => {
     const handleWheel = (e: WheelEvent) => {
-      // Игнорируем скролл, если открыта форма контактов
       if (showContact) return;
-
       e.preventDefault();
-      // Чувствительность скролла (можно подкрутить)
+
       const speed = 0.0015;
       let next = currentProgressRef.current + e.deltaY * speed;
-      next = Math.min(Math.max(next, 0), 1);
 
+      // БЛОКИРОВКА: Держим на отметке 0.3, если маска еще не завершилась полностью
+      if (!maskFinishedRef.current && next > 0.3) {
+        next = 0.3;
+      }
+
+      next = Math.min(Math.max(next, 0), 1);
       currentProgressRef.current = next;
       setProgress(next);
     };
@@ -160,16 +187,21 @@ export default function Home() {
 
     const handleTouchMove = (e: TouchEvent) => {
       if (showContact) return;
-      e.preventDefault(); // Запрещаем стандартный прыгающий скролл браузера
+      e.preventDefault();
 
       const currentY = e.touches[0].clientY;
-      const deltaY = touchStartRef.current - currentY; // Инверсия, чтобы тянуть вверх = листать вниз
+      const deltaY = touchStartRef.current - currentY;
       touchStartRef.current = currentY;
 
-      const speed = 0.003; // Чувствительность для пальцев
+      const speed = 0.003;
       let next = currentProgressRef.current + deltaY * speed;
-      next = Math.min(Math.max(next, 0), 1);
 
+      // БЛОКИРОВКА: Тот же самый стопор для мобильных треков
+      if (!maskFinishedRef.current && next > 0.3) {
+        next = 0.3;
+      }
+
+      next = Math.min(Math.max(next, 0), 1);
       currentProgressRef.current = next;
       setProgress(next);
     };
@@ -185,9 +217,9 @@ export default function Home() {
     };
   }, [showContact]);
 
-  // Режиссируем последовательную анимацию элементов сайта
+  // Режиссируем последовательную анимацию элементов сайта (НОВЫЙ ТАЙМЛАЙН)
   useEffect(() => {
-    // === ФАЗА 1: ДВИЖЕНИЕ СЕТКИ (работает линейно на протяжении всей своей жизни до 65%) ===
+    // Линейное движение сетки (анимируется от 0% до 65% прогресса)
     const gridProgress = Math.min(progress / 0.65, 1);
     trackRefs.current.forEach((track, i) => {
       if (!track) return;
@@ -204,37 +236,41 @@ export default function Home() {
       gridRef.current.style.transform = `scale(${scale})`;
     }
 
-    // === ФАЗА 2: СНАЧАЛА ПРОЯВЛЯЕТСЯ ВИДЕО ЧЕРЕЗ БЛЮР (от 0% до 30%) ===
-    if (videoRef.current) {
-      if (progress <= 0.3) {
-        const videoFade = progress / 0.3; // Проявление от 0 до 1
-        const currentBlur = (1 - videoFade) * 20; // Размытие уменьшается с 20px до 0px
-
-        videoRef.current.style.opacity = videoFade.toString();
-        videoRef.current.style.filter = `blur(${currentBlur}px)`;
-      } else {
-        // После 30% видео всегда на 100% четкое и видимое
-        videoRef.current.style.opacity = "1";
-        videoRef.current.style.filter = "blur(0px)";
-      }
-    }
-
-    // === ФАЗА 3: ЗАТЕМ ИСЧЕЗАЕТ СЕТКА (от 30% до 55%) ===
+    // === ИСЧЕЗНОВЕНИЕ СЕТКИ (от 0.3 до 0.5) ===
+    // До 0.3 она намертво видна (пока идет видео-стопор), к 0.5 — полностью растворяется
     if (gridRef.current) {
-      if (progress < 0.3) {
+      if (progress <= 0.3) {
         gridRef.current.style.opacity = "1";
-      } else if (progress > 0.55) {
+      } else if (progress > 0.5) {
         gridRef.current.style.opacity = "0";
       } else {
-        const gridFade = (progress - 0.3) / (0.55 - 0.3); // Прогресс исчезновения сетки
+        const gridFade = (progress - 0.3) / (0.5 - 0.3);
         gridRef.current.style.opacity = (1 - gridFade).toString();
       }
     }
 
-    // === ФАЗА 4: ПОЯВЛЯЕТСЯ ТЕКСТ (строго после исчезновения сетки — от 55% до 80%) ===
+    // === РАЗБЛЮРИВАНИЕ И ПРОЯВЛЕНИЕ ВИДЕО 'ME' (от 0.5 до 0.65) ===
+    // Начинается строго ПОСЛЕ того, как сетка совсем исчезла (в точке 0.5)
+    if (videoRef.current) {
+      if (progress <= 0.5) {
+        videoRef.current.style.opacity = "0";
+        videoRef.current.style.filter = "blur(20px)";
+      } else if (progress > 0.65) {
+        videoRef.current.style.opacity = "1";
+        videoRef.current.style.filter = "blur(0px)";
+      } else {
+        const videoProgress = (progress - 0.5) / (0.65 - 0.5); // Прогресс внутри этого отрезка (0-1)
+        const currentBlur = (1 - videoProgress) * 20;
+
+        videoRef.current.style.opacity = videoProgress.toString();
+        videoRef.current.style.filter = `blur(${currentBlur}px)`;
+      }
+    }
+
+    // === ПОЯВЛЕНИЕ ТЕКСТА (от 0.68 до 0.9) ===
     if (textRef.current) {
-      if (progress > 0.55) {
-        const textProgress = Math.min((progress - 0.55) / 0.25, 1);
+      if (progress > 0.68) {
+        const textProgress = Math.min((progress - 0.68) / 0.22, 1);
         textRef.current.style.opacity = textProgress.toString();
         textRef.current.style.transform = `translate3d(0, ${(1 - textProgress) * 30}px, 0)`;
         textRef.current.style.pointerEvents = "auto";
@@ -245,7 +281,7 @@ export default function Home() {
       }
     }
 
-    // === ВСПОМОГАТЕЛЬНОЕ: Триггер видео-маски (запуск на стыке фаз) ===
+    // Триггер запуска видео-маски (на отметке 0.25)
     if (maskVideoRef.current && !maskTriggeredRef.current && progress >= 0.25) {
       maskTriggeredRef.current = true;
       maskPlayingRef.current = true;
@@ -260,7 +296,7 @@ export default function Home() {
       };
       fadeIn();
     }
-  }, [progress]);
+  }, [progress, maskFinished]);
 
   // Логика блюра при открытии контактов
   useEffect(() => {
@@ -270,7 +306,7 @@ export default function Home() {
       textEl.style.transition = "opacity 0.4s ease, filter 0.4s ease";
       textEl.style.opacity = "0";
       textEl.style.filter = "blur(12px)";
-    } else if (progress > 0.55) {
+    } else if (progress > 0.68) {
       textEl.style.transition = "opacity 0.4s ease, filter 0.4s ease";
       textEl.style.opacity = "1";
       textEl.style.filter = "blur(0px)";
@@ -316,7 +352,7 @@ export default function Home() {
           padding: 0;
           width: 100vw;
           height: 100vh;
-          overflow: hidden; /* Важнейшая строка: запрещаем дефолтный скролл */
+          overflow: hidden;
           background: black;
           position: fixed;
         }
@@ -499,7 +535,7 @@ export default function Home() {
         </video>
       )}
 
-      {/* ОСНОВНОЙ ФИКСИРОВАННЫЙ КОНТЕЙНЕР СУПЕР-САЙТА */}
+      {/* ОСНОВНОЙ ФИКСИРОВАННЫЙ КОНТЕЙНЕР */}
       <main style={{ position: "fixed", width: "100vw", height: "100vh", top: 0, left: 0, overflow: "hidden", background: "black" }}>
 
         {/* Видео заднего плана */}
@@ -541,7 +577,7 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Сцена Текста (Scene 2). Лежит поверх сетки, проявляется плавно по коду */}
+        {/* Сцена Текста (Scene 2). Лежит поверх сетки */}
         <div
           ref={textRef}
           style={{
