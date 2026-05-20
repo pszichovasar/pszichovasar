@@ -8,7 +8,7 @@ export default function Home() {
   const [imgSize, setImgSize] = useState(140);
 
   const videoRef = useRef<HTMLVideoElement>(null);
-  const videoOverlayRef = useRef<HTMLDivElement>(null); // Реф для плавного затемнения видео заднего плана
+  const videoOverlayRef = useRef<HTMLDivElement>(null); // Реф для плавного затемнения фона под текстом
   const maskVideoRef = useRef<HTMLVideoElement>(null);
   const overlayRef = useRef<HTMLVideoElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -291,12 +291,12 @@ export default function Home() {
       }
     }
 
-    // === ПРОЯВЛЕНИЕ И ПОСЛЕДУЮЩЕЕ ЗАТЕМНЕНИЕ/БЛЮР ВИДЕО 'ME' ===
+    // === ПРОЯВЛЕНИЕ, БЛЮР И ЗАТЕМНЕНИЕ ВИДЕО 'ME' ===
     if (videoRef.current) {
       let baseBlur = 0;
       let baseOpacity = 0;
 
-      // Этап 1: Появление видео (от 0.5 до 0.65)
+      // Появление видео (от 0.5 до 0.65)
       if (progress <= 0.5) {
         baseOpacity = 0;
         baseBlur = 20;
@@ -308,42 +308,37 @@ export default function Home() {
         baseOpacity = 1;
         baseBlur = 0;
       }
-      // Этап 2: Заблюривание видео на 20% по мере приближения к концу текста (от 0.8 до 1.0)
+      // Легкое заблюривание на 20% к самому концу скролла (от 0.8 до 1.0)
       else {
-        const blurProgress = (progress - 0.8) / (1.0 - 0.8); // 0 -> 1
+        const blurProgress = (progress - 0.8) / (1.0 - 0.8);
         baseOpacity = 1;
-        baseBlur = blurProgress * 4; // 4px — это аккуратный блюр (~20% от сильного размытия в 20px)
+        baseBlur = blurProgress * 4; // 4px — аккуратный софт-блюр эффекта фокуса
       }
 
       videoRef.current.style.opacity = baseOpacity.toString();
       videoRef.current.style.filter = `blur(${baseBlur}px)`;
     }
 
-    // Дополнительное плавное затемнение заднего плана через оверлей (от 0.8 до 1.0)
+    // Плавное дополнительное затемнение видео через оверлей (от 0.8 до 1.0)
     if (videoOverlayRef.current) {
       if (progress > 0.8) {
         const darkProgress = (progress - 0.8) / (1.0 - 0.8);
-        videoOverlayRef.current.style.background = `rgba(0, 0, 0, ${0.3 + darkProgress * 0.3})`; // Затемняем с 0.3 до 0.6
+        videoOverlayRef.current.style.background = `rgba(0, 0, 0, ${0.3 + darkProgress * 0.3})`; // Затемнение с 0.3 до 0.6
       } else {
         videoOverlayRef.current.style.background = "rgba(0, 0, 0, 0.3)";
       }
     }
 
-    // === ПЛАВНОЕ ВСПЛЫТИЕ ТЕКСТА С САМОГО НИЗА СТРАНИЦЫ (от 0.65 до 1.0) ===
+    // === ОРИГИНАЛЬНОЕ ПОЯВЛЕНИЕ ТЕКСТА (от 0.68 до 0.9) ===
     if (textRef.current) {
-      if (progress > 0.65) {
-        // textProgress идет от 0 до 1 на отрезке скролла от 0.65 до 0.95
-        const textProgress = Math.min((progress - 0.65) / 0.30, 1);
-
-        // Переводим прогресс в реальные пиксели смещения: от 100vh (самый низ) до 0 (центр/оригинальное положение)
-        const currentY = (1 - textProgress) * window.innerHeight;
-
-        textRef.current.style.opacity = Math.min(textProgress * 1.5, 1).toString(); // Чуть быстрее проявляем opacity
-        textRef.current.style.transform = `translate3d(0, ${currentY}px, 0)`;
+      if (progress > 0.68) {
+        const textProgress = Math.min((progress - 0.68) / 0.22, 1);
+        textRef.current.style.opacity = textProgress.toString();
+        textRef.current.style.transform = `translate3d(0, ${(1 - textProgress) * 30}px, 0)`; // Исходный сдвиг 30px
         textRef.current.style.pointerEvents = "auto";
       } else {
         textRef.current.style.opacity = "0";
-        textRef.current.style.transform = "translate3d(0, 100vh, 0)";
+        textRef.current.style.transform = "translate3d(0, 30px, 0)";
         textRef.current.style.pointerEvents = "none";
       }
     }
@@ -596,7 +591,7 @@ export default function Home() {
             willChange: "opacity, filter"
           }}
         />
-        {/* Интерактивное затемнение видео */}
+        {/* Интерактивный слой затемнения поверх видео */}
         <div ref={videoOverlayRef} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.3)", zIndex: 1, pointerEvents: "none", transition: "background 0.1s ease-out" }} />
 
         {/* Контейнер Сетки (Scene 1) */}
@@ -632,7 +627,7 @@ export default function Home() {
             alignItems: "center",
             padding: "0 clamp(20px, 6vw, 80px)",
             opacity: 0,
-            transform: "translate3d(0, 100vh, 0)", // Начальное положение — строго под экраном
+            transform: "translate3d(0, 30px, 0)",
             willChange: "transform, opacity",
             pointerEvents: "none"
           }}
