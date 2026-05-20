@@ -517,27 +517,25 @@ export default function Home() {
       )}
 
       {/* ОВЕРЛЕЙ: Появляется через блюр на старте, исчезает строго по скроллу */}
-      {playCount < 3 && (
-        <video
-          ref={overlayRef}
-          autoPlay
-          muted
-          playsInline
-          loop
-          style={{
-            position: "fixed", top: 0, left: 0,
-            width: "100vw", height: "100vh",
-            objectFit: "cover", zIndex: 9999,
-            pointerEvents: "none",
-            opacity: overlayOpacity,
-            filter: `blur(${overlayBlur}px)`,
-            willChange: "opacity, filter"
-          }}
-        >
-          <source src="/overlay.mp4" type='video/mp4; codecs="hvc1"' />
-          <source src="/overlay.webm" type="video/webm" />
-        </video>
-      )}
+      <video
+        ref={overlayRef}
+        autoPlay
+        muted
+        playsInline
+        loop
+        style={{
+          position: "fixed", top: 0, left: 0,
+          width: "100vw", height: "100vh",
+          objectFit: "cover", zIndex: 9999,
+          pointerEvents: "none",
+          opacity: overlayOpacity,
+          filter: `blur(${overlayBlur}px)`,
+          willChange: "opacity, filter"
+        }}
+      >
+        <source src="/overlay.mp4" type='video/mp4; codecs="hvc1"' />
+        <source src="/overlay.webm" type="video/webm" />
+      </video>
 
       {/* ОСНОВНОЙ ФИКСИРОВАННЫЙ КОНТЕЙНЕР */}
       <main style={{ position: "fixed", width: "100vw", height: "100vh", top: 0, left: 0, overflow: "hidden", background: "black" }}>
