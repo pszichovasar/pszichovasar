@@ -92,6 +92,42 @@ export default function Home() {
     }
   };
 
+  // Фикс автоплея маски на смартфонах при первом взаимодействии
+  useEffect(() => {
+    const unlockVideos = () => {
+      const maskVideo = maskVideoRef.current;
+      if (maskVideo && maskVideo.paused) {
+        maskVideo.play()
+          .then(() => console.log("Mask successfully unlocked"))
+          .catch((err) => {
+            console.error("Mask autoplay failed:", err);
+            maskFinishedRef.current = true;
+          });
+      }
+
+      const overlay = overlayRef.current;
+      if (overlay) {
+        overlay.play()
+          .then(() => {
+            overlay.pause();
+            overlay.currentTime = 0;
+          })
+          .catch((err) => console.log("Overlay unlock failed:", err));
+      }
+
+      window.removeEventListener("touchstart", unlockVideos);
+      window.removeEventListener("click", unlockVideos);
+    };
+
+    window.addEventListener("touchstart", unlockVideos, { passive: true });
+    window.addEventListener("click", unlockVideos, { passive: true });
+
+    return () => {
+      window.removeEventListener("touchstart", unlockVideos);
+      window.removeEventListener("click", unlockVideos);
+    };
+  }, []);
+
   // Проверка на iOS устройства
   useEffect(() => {
     const isiPhone = /iPhone|iPad|iPod/i.test(navigator.userAgent);
@@ -401,6 +437,9 @@ export default function Home() {
           overflow: hidden;
           background: black;
           position: fixed;
+          /* Добавляем 3D перспективу, чтобы исправить наложение слоев в iOS Safari */
+          perspective: 1000px;
+          transform-style: preserve-3d;
         }
 
         * {
@@ -466,15 +505,17 @@ export default function Home() {
         }
       `}</style>
 
-      {/* Маска */}
+      {/* Маска с добавленными мобильными атрибутами */}
       <video
         ref={maskVideoRef}
         src="/mask.mp4"
         muted
+        loop
         playsInline
+        autoPlay
         preload="auto"
         className="mask-video-element"
-        style={{ opacity: maskOpacity, display: maskOpacity > 0 ? "block" : "none" }}
+        style={{ opacity: maskOpacity, display: maskOpacity > 0 ? "block" : "none", willChange: "opacity" }}
       />
 
       {/* Модальное окно контактов */}
@@ -553,11 +594,12 @@ export default function Home() {
         </div>
       )}
 
-      {/* ОВЕРЛЕЙ */}
+      {/* ОВЕРЛЕЙ с фиксом слоев через translateZ для iOS */}
       <video
         ref={overlayRef}
         muted
         playsInline
+        preload="auto"
         style={{
           position: "fixed", top: 0, left: 0,
           width: "100vw", height: "100vh",
@@ -565,6 +607,7 @@ export default function Home() {
           pointerEvents: "none",
           opacity: overlayOpacity,
           filter: `blur(${overlayBlur}px)`,
+          transform: "translateZ(100px)", // Принудительно выносит вперед над блюром
           willChange: "opacity, filter"
         }}
       >
