@@ -14,15 +14,12 @@ export default function Home() {
   const textRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const [opacity, setOpacity] = useState(1);
-  const [blur, setBlur] = useState(0);
-  const [playCount, setPlayCount] = useState(0);
+  // Состояния для начального появления оверлея (входная анимация)
+  const [overlayOpacity, setOverlayOpacity] = useState(0);
+  const [overlayBlur, setOverlayBlur] = useState(20);
   const [maskOpacity, setMaskOpacity] = useState(0);
 
   const maskPlayingRef = useRef(false);
-
-  // Контроль окончания маски
-  const [maskFinished, setMaskFinished] = useState(false);
   const maskFinishedRef = useRef(false);
 
   const [contactHovered, setContactHovered] = useState(false);
@@ -32,7 +29,6 @@ export default function Home() {
   const [form, setForm] = useState({ name: "", email: "", message: "" });
   const [isSending, setIsSending] = useState(false);
 
-  // Ссылки для тач-событий на мобильных
   const touchStartRef = useRef(0);
   const currentProgressRef = useRef(0);
 
@@ -117,67 +113,66 @@ export default function Home() {
     return () => window.removeEventListener("resize", calcSize);
   }, []);
 
-  // МОДИФИЦИРОВАННЫЙ ТРЕНЕР МАСКИ: Запускается СРАЗУ при загрузке страницы
+  // Входная анимация оверлея и запуск маски при загрузке
   useEffect(() => {
-    const video = maskVideoRef.current;
-    if (!video) return;
+    // Плавное появление оверлея из блюра при заходе
+    let start = performance.now();
+    const duration = 800; // 0.8 секунды на проявление
 
-    // Сразу запускаем воспроизведение и проявляем маску
+    const animateOverlayIn = (time: number) => {
+      const timeFraction = Math.min((time - start) / duration, 1);
+      setOverlayOpacity(timeFraction);
+      setOverlayBlur((1 - timeFraction) * 20);
+
+      if (timeFraction < 1) {
+        requestAnimationFrame(animateOverlayIn);
+      }
+    };
+    requestAnimationFrame(animateOverlayIn);
+
+    // Запуск mask.mp4
+    const maskVideo = maskVideoRef.current;
+    if (!maskVideo) return;
+
     maskPlayingRef.current = true;
-    video.currentTime = 0;
-    video.play().catch((err) => {
-      console.log("Автоплей заблокирован браузером, нужен клик или мессендж: ", err);
-    });
+    maskVideo.currentTime = 0;
+    maskVideo.play().catch(() => { });
 
-    const fadeIn = () => {
+    const fadeInMask = () => {
       setMaskOpacity((prev) => {
         if (prev >= 1) return 1;
-        requestAnimationFrame(fadeIn);
-        return Math.min(1, prev + 0.04); // Чуть быстрее проявляем маску на старте
+        requestAnimationFrame(fadeInMask);
+        return Math.min(1, prev + 0.04);
       });
     };
-    fadeIn();
+    fadeInMask();
 
     const handleTimeUpdate = () => {
-      if (!video.duration) return;
-      const timeLeft = video.duration - video.currentTime;
+      if (!maskVideo.duration) return;
+      const timeLeft = maskVideo.duration - maskVideo.currentTime;
 
-      // Если видео почти закончилось
       if (timeLeft <= 0.1 && !maskFinishedRef.current) {
         maskFinishedRef.current = true;
-        setMaskFinished(true);
       }
 
-      // Плавное исчезновение маски в конце
       if (timeLeft <= 1.5 && maskPlayingRef.current) {
         maskPlayingRef.current = false;
-        const fadeOut = () => {
+        const fadeOutMask = () => {
           setMaskOpacity((prev) => {
             if (prev <= 0) return 0;
-            requestAnimationFrame(fadeOut);
+            requestAnimationFrame(fadeOutMask);
             return Math.max(0, prev - 0.02);
           });
         };
-        fadeOut();
+        fadeOutMask();
       }
     };
 
-    const handleEnded = () => {
-      if (!maskFinishedRef.current) {
-        maskFinishedRef.current = true;
-        setMaskFinished(true);
-      }
-    };
-
-    video.addEventListener("timeupdate", handleTimeUpdate);
-    video.addEventListener("ended", handleEnded);
-    return () => {
-      video.removeEventListener("timeupdate", handleTimeUpdate);
-      video.removeEventListener("ended", handleEnded);
-    };
+    maskVideo.addEventListener("timeupdate", handleTimeUpdate);
+    return () => maskVideo.removeEventListener("timeupdate", handleTimeUpdate);
   }, []);
 
-  // ВИРТУАЛЬНЫЙ СКРОЛЛ С БЛОКИРОВКОЙ: Стопорит на 0.3, если маска еще играет
+  // Виртуальный скролл со стопором маски
   useEffect(() => {
     const handleWheel = (e: WheelEvent) => {
       if (showContact) return;
@@ -186,7 +181,6 @@ export default function Home() {
       const speed = 0.0015;
       let next = currentProgressRef.current + e.deltaY * speed;
 
-      // БЛОКИРОВКА: Держим скролл на отметке 0.3, пока маска не завершится
       if (!maskFinishedRef.current && next > 0.3) {
         next = 0.3;
       }
@@ -212,7 +206,6 @@ export default function Home() {
       const speed = 0.003;
       let next = currentProgressRef.current + deltaY * speed;
 
-      // БЛОКИРОВКА: Тот же самый стопор для тач-событий
       if (!maskFinishedRef.current && next > 0.3) {
         next = 0.3;
       }
@@ -233,9 +226,9 @@ export default function Home() {
     };
   }, [showContact]);
 
-  // Режиссируем последовательную анимацию элементов сайта на основе скролла
+  // Интерактивный таймлайн анимаций
   useEffect(() => {
-    // Движение сетки картинок (активно от 0.0 до 0.65 общего прогресса)
+    // Движение сетки
     const gridProgress = Math.min(progress / 0.65, 1);
     trackRefs.current.forEach((track, i) => {
       if (!track) return;
@@ -252,19 +245,38 @@ export default function Home() {
       gridRef.current.style.transform = `scale(${scale})`;
     }
 
-    // === ИСЧЕЗНОВЕНИЕ СЕТКИ (от 0.3 до 0.5) ===
+    // === ИСЧЕЗНОВЕНИЕ СЕТКИ ЧЕРЕЗ БЛЮР И ОПАСИТИ (от 0.3 до 0.5) ===
     if (gridRef.current) {
       if (progress <= 0.3) {
         gridRef.current.style.opacity = "1";
+        gridRef.current.style.filter = "blur(0px)";
       } else if (progress > 0.5) {
         gridRef.current.style.opacity = "0";
+        gridRef.current.style.filter = "blur(30px)";
       } else {
-        const gridFade = (progress - 0.3) / (0.5 - 0.3);
+        const gridFade = (progress - 0.3) / (0.5 - 0.3); // 0 -> 1
         gridRef.current.style.opacity = (1 - gridFade).toString();
+        gridRef.current.style.filter = `blur(${gridFade * 30}px)`;
       }
     }
 
-    // === РАЗБЛЮРИВАНИЕ И ПРОЯВЛЕНИЕ ВИДЕО 'ME' (от 0.5 до 0.65) ===
+    // === УПРАВЛЕНИЕ ОВЕРЛЕЕМ ПО СКРОЛЛУ (от 0.5 до 0.68) ===
+    // Начинает исчезать после сетки и полностью пропадает, когда вылезает "I'M A DESIGNER" (0.68)
+    if (overlayRef.current) {
+      if (progress <= 0.5) {
+        overlayRef.current.style.opacity = overlayOpacity.toString();
+        overlayRef.current.style.filter = `blur(${overlayBlur}px)`;
+      } else if (progress > 0.68) {
+        overlayRef.current.style.opacity = "0";
+        overlayRef.current.style.filter = "blur(20px)";
+      } else {
+        const overlayProgress = (progress - 0.5) / (0.68 - 0.5); // 0 -> 1
+        overlayRef.current.style.opacity = (1 - overlayProgress).toString();
+        overlayRef.current.style.filter = `blur(${overlayProgress * 20}px)`;
+      }
+    }
+
+    // === ПРОЯВЛЕНИЕ ВИДЕО 'ME' (от 0.5 до 0.65) ===
     if (videoRef.current) {
       if (progress <= 0.5) {
         videoRef.current.style.opacity = "0";
@@ -275,7 +287,6 @@ export default function Home() {
       } else {
         const videoProgress = (progress - 0.5) / (0.65 - 0.5);
         const currentBlur = (1 - videoProgress) * 20;
-
         videoRef.current.style.opacity = videoProgress.toString();
         videoRef.current.style.filter = `blur(${currentBlur}px)`;
       }
@@ -294,9 +305,9 @@ export default function Home() {
         textRef.current.style.pointerEvents = "none";
       }
     }
-  }, [progress, maskFinished]);
+  }, [progress, overlayOpacity, overlayBlur]);
 
-  // Логика блюра контента при открытии контактов
+  // Контакты и дополнительный блюр текста
   useEffect(() => {
     const textEl = textRef.current;
     if (!textEl) return;
@@ -418,7 +429,7 @@ export default function Home() {
         }
       `}</style>
 
-      {/* Маска (Воспроизводится сразу при загрузке) */}
+      {/* Маска */}
       <video
         ref={maskVideoRef}
         src="/mask.mp4"
@@ -505,28 +516,23 @@ export default function Home() {
         </div>
       )}
 
-      {/* Оверлей при первом заходе */}
+      {/* ОВЕРЛЕЙ: Появляется через блюр на старте, исчезает строго по скроллу */}
       {playCount < 3 && (
         <video
           ref={overlayRef}
           autoPlay
           muted
           playsInline
+          loop
           style={{
             position: "fixed", top: 0, left: 0,
             width: "100vw", height: "100vh",
             objectFit: "cover", zIndex: 9999,
-            pointerEvents: "none", opacity,
-            filter: `blur(${blur}px)`,
-            transition: "opacity 0.1s linear, filter 0.1s linear",
+            pointerEvents: "none",
+            opacity: overlayOpacity,
+            filter: `blur(${overlayBlur}px)`,
+            willChange: "opacity, filter"
           }}
-          onTimeUpdate={() => {
-            const v = overlayRef.current;
-            if (!v) return;
-            const timeLeft = v.duration - v.currentTime;
-            if (timeLeft <= 1) { setOpacity(timeLeft); setBlur((1 - timeLeft) * 12); }
-          }}
-          onEnded={() => { setOpacity(0); setBlur(12); }}
         >
           <source src="/overlay.mp4" type='video/mp4; codecs="hvc1"' />
           <source src="/overlay.webm" type="video/webm" />
@@ -536,7 +542,7 @@ export default function Home() {
       {/* ОСНОВНОЙ ФИКСИРОВАННЫЙ КОНТЕЙНЕР */}
       <main style={{ position: "fixed", width: "100vw", height: "100vh", top: 0, left: 0, overflow: "hidden", background: "black" }}>
 
-        {/* Видео заднего плана */}
+        {/* Видео заднего плана 'ME' */}
         <video
           ref={videoRef}
           src={videoSrc}
@@ -555,7 +561,7 @@ export default function Home() {
 
         {/* Контейнер Сетки (Scene 1) */}
         <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", zIndex: 2, overflow: "hidden" }}>
-          <div ref={gridRef} className="masked-grid" style={{ gap: `${GAP}px`, willChange: "transform, opacity" }}>
+          <div ref={gridRef} className="masked-grid" style={{ gap: `${GAP}px`, willChange: "transform, opacity, filter" }}>
             {rows.map((images, rowIndex) => {
               const looped = [...images, ...images];
               return (
