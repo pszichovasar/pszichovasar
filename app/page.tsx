@@ -19,10 +19,9 @@ export default function Home() {
   const [playCount, setPlayCount] = useState(0);
   const [maskOpacity, setMaskOpacity] = useState(0);
 
-  const maskTriggeredRef = useRef(false);
   const maskPlayingRef = useRef(false);
 
-  // НОВЫЕ REFS ДЛЯ КОНТРОЛЯ ОКОНЧАНИЯ МАСКИ ВНУТРИ СКРОЛЛА
+  // Контроль окончания маски
   const [maskFinished, setMaskFinished] = useState(false);
   const maskFinishedRef = useRef(false);
 
@@ -118,21 +117,38 @@ export default function Home() {
     return () => window.removeEventListener("resize", calcSize);
   }, []);
 
-  // ОБНОВЛЕННЫЙ ТРЕНЕР ВИДЕО-МАСКИ: точная фиксация окончания воспроизведения
+  // МОДИФИЦИРОВАННЫЙ ТРЕНЕР МАСКИ: Запускается СРАЗУ при загрузке страницы
   useEffect(() => {
     const video = maskVideoRef.current;
     if (!video) return;
+
+    // Сразу запускаем воспроизведение и проявляем маску
+    maskPlayingRef.current = true;
+    video.currentTime = 0;
+    video.play().catch((err) => {
+      console.log("Автоплей заблокирован браузером, нужен клик или мессендж: ", err);
+    });
+
+    const fadeIn = () => {
+      setMaskOpacity((prev) => {
+        if (prev >= 1) return 1;
+        requestAnimationFrame(fadeIn);
+        return Math.min(1, prev + 0.04); // Чуть быстрее проявляем маску на старте
+      });
+    };
+    fadeIn();
 
     const handleTimeUpdate = () => {
       if (!video.duration) return;
       const timeLeft = video.duration - video.currentTime;
 
-      // Если видео почти закончилось или закончилось совсем
+      // Если видео почти закончилось
       if (timeLeft <= 0.1 && !maskFinishedRef.current) {
         maskFinishedRef.current = true;
         setMaskFinished(true);
       }
 
+      // Плавное исчезновение маски в конце
       if (timeLeft <= 1.5 && maskPlayingRef.current) {
         maskPlayingRef.current = false;
         const fadeOut = () => {
@@ -161,7 +177,7 @@ export default function Home() {
     };
   }, []);
 
-  // ВИРТУАЛЬНЫЙ СКРОЛЛ С БЛОКИРОВКОЙ: не пускает дальше 0.3, пока маска крутится
+  // ВИРТУАЛЬНЫЙ СКРОЛЛ С БЛОКИРОВКОЙ: Стопорит на 0.3, если маска еще играет
   useEffect(() => {
     const handleWheel = (e: WheelEvent) => {
       if (showContact) return;
@@ -170,7 +186,7 @@ export default function Home() {
       const speed = 0.0015;
       let next = currentProgressRef.current + e.deltaY * speed;
 
-      // БЛОКИРОВКА: Держим на отметке 0.3, если маска еще не завершилась полностью
+      // БЛОКИРОВКА: Держим скролл на отметке 0.3, пока маска не завершится
       if (!maskFinishedRef.current && next > 0.3) {
         next = 0.3;
       }
@@ -196,7 +212,7 @@ export default function Home() {
       const speed = 0.003;
       let next = currentProgressRef.current + deltaY * speed;
 
-      // БЛОКИРОВКА: Тот же самый стопор для мобильных треков
+      // БЛОКИРОВКА: Тот же самый стопор для тач-событий
       if (!maskFinishedRef.current && next > 0.3) {
         next = 0.3;
       }
@@ -217,9 +233,9 @@ export default function Home() {
     };
   }, [showContact]);
 
-  // Режиссируем последовательную анимацию элементов сайта (НОВЫЙ ТАЙМЛАЙН)
+  // Режиссируем последовательную анимацию элементов сайта на основе скролла
   useEffect(() => {
-    // Линейное движение сетки (анимируется от 0% до 65% прогресса)
+    // Движение сетки картинок (активно от 0.0 до 0.65 общего прогресса)
     const gridProgress = Math.min(progress / 0.65, 1);
     trackRefs.current.forEach((track, i) => {
       if (!track) return;
@@ -237,7 +253,6 @@ export default function Home() {
     }
 
     // === ИСЧЕЗНОВЕНИЕ СЕТКИ (от 0.3 до 0.5) ===
-    // До 0.3 она намертво видна (пока идет видео-стопор), к 0.5 — полностью растворяется
     if (gridRef.current) {
       if (progress <= 0.3) {
         gridRef.current.style.opacity = "1";
@@ -250,7 +265,6 @@ export default function Home() {
     }
 
     // === РАЗБЛЮРИВАНИЕ И ПРОЯВЛЕНИЕ ВИДЕО 'ME' (от 0.5 до 0.65) ===
-    // Начинается строго ПОСЛЕ того, как сетка совсем исчезла (в точке 0.5)
     if (videoRef.current) {
       if (progress <= 0.5) {
         videoRef.current.style.opacity = "0";
@@ -259,7 +273,7 @@ export default function Home() {
         videoRef.current.style.opacity = "1";
         videoRef.current.style.filter = "blur(0px)";
       } else {
-        const videoProgress = (progress - 0.5) / (0.65 - 0.5); // Прогресс внутри этого отрезка (0-1)
+        const videoProgress = (progress - 0.5) / (0.65 - 0.5);
         const currentBlur = (1 - videoProgress) * 20;
 
         videoRef.current.style.opacity = videoProgress.toString();
@@ -280,25 +294,9 @@ export default function Home() {
         textRef.current.style.pointerEvents = "none";
       }
     }
-
-    // Триггер запуска видео-маски (на отметке 0.25)
-    if (maskVideoRef.current && !maskTriggeredRef.current && progress >= 0.25) {
-      maskTriggeredRef.current = true;
-      maskPlayingRef.current = true;
-      maskVideoRef.current.currentTime = 0;
-      maskVideoRef.current.play().catch(() => { });
-      const fadeIn = () => {
-        setMaskOpacity((prev) => {
-          if (prev >= 1) return 1;
-          requestAnimationFrame(fadeIn);
-          return Math.min(1, prev + 0.03);
-        });
-      };
-      fadeIn();
-    }
   }, [progress, maskFinished]);
 
-  // Логика блюра при открытии контактов
+  // Логика блюра контента при открытии контактов
   useEffect(() => {
     const textEl = textRef.current;
     if (!textEl) return;
@@ -408,7 +406,7 @@ export default function Home() {
 
         @media (max-width: 768px) {
           .desktop-br { display: none; }
-          .mobile-br { display: block; }
+          .mobile-br { block; }
           
           .text-line {
             font-size: 8.5vw !important; 
@@ -420,7 +418,7 @@ export default function Home() {
         }
       `}</style>
 
-      {/* Маска */}
+      {/* Маска (Воспроизводится сразу при загрузке) */}
       <video
         ref={maskVideoRef}
         src="/mask.mp4"
@@ -507,7 +505,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* Оверлей */}
+      {/* Оверлей при первом заходе */}
       {playCount < 3 && (
         <video
           ref={overlayRef}
@@ -577,7 +575,7 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Сцена Текста (Scene 2). Лежит поверх сетки */}
+        {/* Сцена Текста (Scene 2) */}
         <div
           ref={textRef}
           style={{
