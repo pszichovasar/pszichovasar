@@ -8,6 +8,7 @@ export default function Home() {
   const [imgSize, setImgSize] = useState(140);
 
   const videoRef = useRef<HTMLVideoElement>(null);
+  const videoOverlayRef = useRef<HTMLDivElement>(null); // Реф для плавного затемнения видео заднего плана
   const maskVideoRef = useRef<HTMLVideoElement>(null);
   const overlayRef = useRef<HTMLVideoElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -114,14 +115,21 @@ export default function Home() {
     return () => window.removeEventListener("resize", calcSize);
   }, []);
 
-  // Запуск только маски при загрузке (оверлей теперь ждет скролла)
+  // Запуск маски и управление её состоянием
   useEffect(() => {
     const maskVideo = maskVideoRef.current;
     if (!maskVideo) return;
 
     maskPlayingRef.current = true;
     maskVideo.currentTime = 0;
-    maskVideo.play().catch(() => { });
+
+    const fallbackTimeout = setTimeout(() => {
+      maskFinishedRef.current = true;
+    }, 3500);
+
+    maskVideo.play().catch(() => {
+      maskFinishedRef.current = true;
+    });
 
     const fadeInMask = () => {
       setMaskOpacity((prev) => {
@@ -136,8 +144,9 @@ export default function Home() {
       if (!maskVideo.duration) return;
       const timeLeft = maskVideo.duration - maskVideo.currentTime;
 
-      if (timeLeft <= 0.1 && !maskFinishedRef.current) {
+      if (timeLeft <= 0.15 && !maskFinishedRef.current) {
         maskFinishedRef.current = true;
+        clearTimeout(fallbackTimeout);
       }
 
       if (timeLeft <= 1.5 && maskPlayingRef.current) {
@@ -153,8 +162,20 @@ export default function Home() {
       }
     };
 
+    const handleVideoEnded = () => {
+      maskFinishedRef.current = true;
+      setMaskOpacity(0);
+      clearTimeout(fallbackTimeout);
+    };
+
     maskVideo.addEventListener("timeupdate", handleTimeUpdate);
-    return () => maskVideo.removeEventListener("timeupdate", handleTimeUpdate);
+    maskVideo.addEventListener("ended", handleVideoEnded);
+
+    return () => {
+      maskVideo.removeEventListener("timeupdate", handleTimeUpdate);
+      maskVideo.removeEventListener("ended", handleVideoEnded);
+      clearTimeout(fallbackTimeout);
+    };
   }, []);
 
   // Виртуальный скролл со стопором маски
@@ -188,7 +209,7 @@ export default function Home() {
       const deltaY = touchStartRef.current - currentY;
       touchStartRef.current = currentY;
 
-      const speed = 0.003;
+      const speed = 0.002;
       let next = currentProgressRef.current + deltaY * speed;
 
       if (!maskFinishedRef.current && next > 0.3) {
@@ -247,7 +268,6 @@ export default function Home() {
 
     // === УПРАВЛЕНИЕ ОВЕРЛЕЕМ ПО СКРОЛЛУ И ОДНОКРАТНЫЙ ЗАПУСК ===
     if (overlayRef.current) {
-      // Однократный запуск воспроизведения при достижении прогресса 0.5
       if (progress >= 0.5 && !overlayHasPlayedRef.current) {
         overlayHasPlayedRef.current = true;
         overlayRef.current.currentTime = 0;
@@ -258,12 +278,10 @@ export default function Home() {
         setOverlayOpacity(0);
         setOverlayBlur(20);
       } else if (progress > 0.5 && progress <= 0.58) {
-        // Плавное появление (0.5 -> 0.58)
         const fadeIn = (progress - 0.5) / (0.58 - 0.5);
         setOverlayOpacity(fadeIn);
         setOverlayBlur((1 - fadeIn) * 20);
       } else if (progress > 0.58 && progress <= 0.68) {
-        // Плавное исчезновение строго до момента появления "I'M A DESIGNER" (0.58 -> 0.68)
         const fadeOut = (progress - 0.58) / (0.68 - 0.58);
         setOverlayOpacity(1 - fadeOut);
         setOverlayBlur(fadeOut * 20);
@@ -273,32 +291,59 @@ export default function Home() {
       }
     }
 
-    // === ПРОЯВЛЕНИЕ ВИДЕО 'ME' (от 0.5 до 0.65) ===
+    // === ПРОЯВЛЕНИЕ И ПОСЛЕДУЮЩЕЕ ЗАТЕМНЕНИЕ/БЛЮР ВИДЕО 'ME' ===
     if (videoRef.current) {
+      let baseBlur = 0;
+      let baseOpacity = 0;
+
+      // Этап 1: Появление видео (от 0.5 до 0.65)
       if (progress <= 0.5) {
-        videoRef.current.style.opacity = "0";
-        videoRef.current.style.filter = "blur(20px)";
-      } else if (progress > 0.65) {
-        videoRef.current.style.opacity = "1";
-        videoRef.current.style.filter = "blur(0px)";
-      } else {
+        baseOpacity = 0;
+        baseBlur = 20;
+      } else if (progress > 0.5 && progress <= 0.65) {
         const videoProgress = (progress - 0.5) / (0.65 - 0.5);
-        const currentBlur = (1 - videoProgress) * 20;
-        videoRef.current.style.opacity = videoProgress.toString();
-        videoRef.current.style.filter = `blur(${currentBlur}px)`;
+        baseOpacity = videoProgress;
+        baseBlur = (1 - videoProgress) * 20;
+      } else if (progress > 0.65 && progress <= 0.8) {
+        baseOpacity = 1;
+        baseBlur = 0;
+      }
+      // Этап 2: Заблюривание видео на 20% по мере приближения к концу текста (от 0.8 до 1.0)
+      else {
+        const blurProgress = (progress - 0.8) / (1.0 - 0.8); // 0 -> 1
+        baseOpacity = 1;
+        baseBlur = blurProgress * 4; // 4px — это аккуратный блюр (~20% от сильного размытия в 20px)
+      }
+
+      videoRef.current.style.opacity = baseOpacity.toString();
+      videoRef.current.style.filter = `blur(${baseBlur}px)`;
+    }
+
+    // Дополнительное плавное затемнение заднего плана через оверлей (от 0.8 до 1.0)
+    if (videoOverlayRef.current) {
+      if (progress > 0.8) {
+        const darkProgress = (progress - 0.8) / (1.0 - 0.8);
+        videoOverlayRef.current.style.background = `rgba(0, 0, 0, ${0.3 + darkProgress * 0.3})`; // Затемняем с 0.3 до 0.6
+      } else {
+        videoOverlayRef.current.style.background = "rgba(0, 0, 0, 0.3)";
       }
     }
 
-    // === ПОЯВЛЕНИЕ ТЕКСТА (от 0.68 до 0.9) ===
+    // === ПЛАВНОЕ ВСПЛЫТИЕ ТЕКСТА С САМОГО НИЗА СТРАНИЦЫ (от 0.65 до 1.0) ===
     if (textRef.current) {
-      if (progress > 0.68) {
-        const textProgress = Math.min((progress - 0.68) / 0.22, 1);
-        textRef.current.style.opacity = textProgress.toString();
-        textRef.current.style.transform = `translate3d(0, ${(1 - textProgress) * 30}px, 0)`;
+      if (progress > 0.65) {
+        // textProgress идет от 0 до 1 на отрезке скролла от 0.65 до 0.95
+        const textProgress = Math.min((progress - 0.65) / 0.30, 1);
+
+        // Переводим прогресс в реальные пиксели смещения: от 100vh (самый низ) до 0 (центр/оригинальное положение)
+        const currentY = (1 - textProgress) * window.innerHeight;
+
+        textRef.current.style.opacity = Math.min(textProgress * 1.5, 1).toString(); // Чуть быстрее проявляем opacity
+        textRef.current.style.transform = `translate3d(0, ${currentY}px, 0)`;
         textRef.current.style.pointerEvents = "auto";
       } else {
         textRef.current.style.opacity = "0";
-        textRef.current.style.transform = "translate3d(0, 30px, 0)";
+        textRef.current.style.transform = "translate3d(0, 100vh, 0)";
         textRef.current.style.pointerEvents = "none";
       }
     }
@@ -414,7 +459,7 @@ export default function Home() {
 
         @media (max-width: 768px) {
           .desktop-br { display: none; }
-          .mobile-br { block; }
+          .mobile-br { display: block; }
           
           .text-line {
             font-size: 8.5vw !important; 
@@ -513,7 +558,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* ОВЕРЛЕЙ: Появляется и исчезает строго по скроллу, проигрывается один раз */}
+      {/* ОВЕРЛЕЙ */}
       <video
         ref={overlayRef}
         muted
@@ -548,9 +593,11 @@ export default function Home() {
             width: "100vw", height: "100vh",
             objectFit: "cover", zIndex: 0,
             opacity: 0,
+            willChange: "opacity, filter"
           }}
         />
-        <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.3)", zIndex: 1, pointerEvents: "none" }} />
+        {/* Интерактивное затемнение видео */}
+        <div ref={videoOverlayRef} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.3)", zIndex: 1, pointerEvents: "none", transition: "background 0.1s ease-out" }} />
 
         {/* Контейнер Сетки (Scene 1) */}
         <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", zIndex: 2, overflow: "hidden" }}>
@@ -585,6 +632,7 @@ export default function Home() {
             alignItems: "center",
             padding: "0 clamp(20px, 6vw, 80px)",
             opacity: 0,
+            transform: "translate3d(0, 100vh, 0)", // Начальное положение — строго под экраном
             willChange: "transform, opacity",
             pointerEvents: "none"
           }}
