@@ -93,13 +93,13 @@ export default function Home() {
     if (videoRef.current) videoRef.current.load();
   }, [videoSrc]);
 
-  // Расчет размеров плиток + инициализация стартовой позиции треков
+  // Расчет размеров плиток + жесткая инициализация стартовой позиции треков в пикселях
   useEffect(() => {
     const calcSize = () => {
       const vh = window.innerHeight;
       setImgSize(Math.floor((vh - GAP * 6) / 5));
 
-      // Сразу же выставляем начальные позиции для треков при загрузке и ресайзе (когда progress = 0)
+      // Применяем ту же математику, что и при скролле, исключая проценты
       trackRefs.current.forEach((track, i) => {
         if (!track) return;
         const maxMove = track.scrollWidth / 2;
@@ -111,13 +111,16 @@ export default function Home() {
       });
     };
 
-    // Запуск после полного рендера, чтобы scrollWidth успел посчитаться корректно
-    const timer = setTimeout(calcSize, 50);
+    // Запускаем несколько раз, чтобы гарантировать отработку после загрузки картинок
+    calcSize();
+    const timer1 = setTimeout(calcSize, 50);
+    const timer2 = setTimeout(calcSize, 300); // Страховка на случай медленного рендера DOM
 
     window.addEventListener("resize", calcSize);
     return () => {
       window.removeEventListener("resize", calcSize);
-      clearTimeout(timer);
+      clearTimeout(timer1);
+      clearTimeout(timer2);
     };
   }, []);
 
@@ -468,8 +471,6 @@ export default function Home() {
           <div ref={gridRef} className="masked-grid" style={{ gap: `${GAP}px`, willChange: "transform, opacity, filter" }}>
             {rows.map((images, rowIndex) => {
               const looped = [...images, ...images];
-              // Изначально задаем сдвиг в инлайновом стиле, чтобы до первого скролла не было скачка
-              const isLeftDirection = !directions[rowIndex];
               return (
                 <div
                   key={rowIndex}
@@ -480,8 +481,7 @@ export default function Home() {
                     width: "max-content",
                     paddingLeft: `${GAP}px`,
                     paddingRight: `${GAP}px`,
-                    willChange: "transform",
-                    transform: isLeftDirection ? "translate3d(-50%, 0, 0)" : "translate3d(0px, 0, 0)"
+                    willChange: "transform"
                   }}
                 >
                   {looped.map((img, i) => (
