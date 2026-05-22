@@ -8,6 +8,7 @@ export default function Home() {
   const [imgSize, setImgSize] = useState(140);
 
   const videoRef = useRef<HTMLVideoElement>(null);
+  const videoOverlayRef = useRef<HTMLDivElement>(null); // Реф для плавного затемнения фона под текстом
   const gridRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -20,7 +21,6 @@ export default function Home() {
   const [isSending, setIsSending] = useState(false);
 
   const touchStartRef = useRef(0);
-  // Инициализируем реф тем же значением, что и дефолтный прогресс, чтобы избежать скачка
   const currentProgressRef = useRef(0);
 
   const row0 = ["/1.jpg", "/2.jpg", "/3.jpg", "/4.jpg", "/5.jpg", "/6.jpg", "/7.jpg", "/8.jpg", "/9.jpg", "/10.jpg"];
@@ -150,8 +150,9 @@ export default function Home() {
     };
   }, [showContact]);
 
-  // Анимации по скроллу
+  // Интерактивный таймлайн анимаций
   useEffect(() => {
+    // Движение сетки
     const gridProgress = Math.min(progress / 0.65, 1);
     trackRefs.current.forEach((track, i) => {
       if (!track) return;
@@ -168,6 +169,7 @@ export default function Home() {
       gridRef.current.style.transform = `scale(${scale})`;
     }
 
+    // === ИСЧЕЗНОВЕНИЕ СЕТКИ ЧЕРЕЗ БЛЮР И ОПАСИТИ (от 0.3 до 0.5) ===
     if (gridRef.current) {
       if (progress <= 0.3) {
         gridRef.current.style.opacity = "1";
@@ -176,16 +178,18 @@ export default function Home() {
         gridRef.current.style.opacity = "0";
         gridRef.current.style.filter = "blur(30px)";
       } else {
-        const gridFade = (progress - 0.3) / (0.5 - 0.3);
+        const gridFade = (progress - 0.3) / (0.5 - 0.3); // 0 -> 1
         gridRef.current.style.opacity = (1 - gridFade).toString();
         gridRef.current.style.filter = `blur(${gridFade * 30}px)`;
       }
     }
 
+    // === ПРОЯВЛЕНИЕ, БЛЮР И ЗАТЕМНЕНИЕ ВИДЕО 'ME' ===
     if (videoRef.current) {
       let baseBlur = 0;
       let baseOpacity = 0;
 
+      // Появление видео (от 0.5 до 0.65)
       if (progress <= 0.5) {
         baseOpacity = 0;
         baseBlur = 20;
@@ -193,20 +197,37 @@ export default function Home() {
         const videoProgress = (progress - 0.5) / (0.65 - 0.5);
         baseOpacity = videoProgress;
         baseBlur = (1 - videoProgress) * 20;
-      } else {
+      } else if (progress > 0.65 && progress <= 0.8) {
         baseOpacity = 1;
         baseBlur = 0;
+      }
+      // Легкое заблюривание на 20% к самому концу скролла (от 0.8 до 1.0)
+      else {
+        const blurProgress = (progress - 0.8) / (1.0 - 0.8);
+        baseOpacity = 1;
+        baseBlur = blurProgress * 4; // 4px — аккуратный софт-блюр эффекта фокуса
       }
 
       videoRef.current.style.opacity = baseOpacity.toString();
       videoRef.current.style.filter = `blur(${baseBlur}px)`;
     }
 
+    // Плавное дополнительное затемнение видео через оверлей (от 0.8 до 1.0)
+    if (videoOverlayRef.current) {
+      if (progress > 0.8) {
+        const darkProgress = (progress - 0.8) / (1.0 - 0.8);
+        videoOverlayRef.current.style.background = `rgba(0, 0, 0, ${0.3 + darkProgress * 0.3})`; // Затемнение с 0.3 до 0.6
+      } else {
+        videoOverlayRef.current.style.background = "rgba(0, 0, 0, 0.3)";
+      }
+    }
+
+    // === ОРИГИНАЛЬНОЕ ПОЯВЛЕНИЕ ТЕКСТА (от 0.68 до 0.9) ===
     if (textRef.current) {
-      if (progress > 0.65) {
-        const textProgress = Math.min((progress - 0.65) / 0.2, 1);
+      if (progress > 0.68) {
+        const textProgress = Math.min((progress - 0.68) / 0.22, 1);
         textRef.current.style.opacity = textProgress.toString();
-        textRef.current.style.transform = `translate3d(0, ${(1 - textProgress) * 30}px, 0)`;
+        textRef.current.style.transform = `translate3d(0, ${(1 - textProgress) * 30}px, 0)`; // Исходный сдвиг 30px
         textRef.current.style.pointerEvents = "auto";
       } else {
         textRef.current.style.opacity = "0";
@@ -216,7 +237,7 @@ export default function Home() {
     }
   }, [progress]);
 
-  // Скрытие основного текста при открытых контактах
+  // Контакты и дополнительный блюр текста
   useEffect(() => {
     const textEl = textRef.current;
     if (!textEl) return;
@@ -224,15 +245,13 @@ export default function Home() {
       textEl.style.transition = "opacity 0.4s ease, filter 0.4s ease";
       textEl.style.opacity = "0";
       textEl.style.filter = "blur(12px)";
-      textEl.style.pointerEvents = "none";
-    } else if (progress > 0.65) {
+    } else if (progress > 0.68) {
       textEl.style.transition = "opacity 0.4s ease, filter 0.4s ease";
       textEl.style.opacity = "1";
       textEl.style.filter = "blur(0px)";
-      textEl.style.pointerEvents = "auto";
       setTimeout(() => { if (textEl) textEl.style.transition = ""; }, 450);
     }
-  }, [contactVisible, progress]);
+  }, [contactVisible]);
 
   const handleContactEnter = () => {
     if (shaking) return;
@@ -252,7 +271,6 @@ export default function Home() {
     padding: "6px 0",
     outline: "none",
     fontFamily: "'Arial Black', Gadget, sans-serif",
-    fontWeight: "normal",
     textTransform: "uppercase",
     width: "100%",
   };
@@ -263,7 +281,6 @@ export default function Home() {
     color: "#000",
     textTransform: "uppercase",
     fontFamily: "'Arial Black', Gadget, sans-serif",
-    fontWeight: "normal",
   };
 
   return (
@@ -277,13 +294,12 @@ export default function Home() {
           overflow: hidden;
           background: black;
           position: fixed;
+          perspective: 1000px;
+          transform-style: preserve-3d;
         }
 
         * {
           font-family: 'Arial Black', Gadget, sans-serif !important;
-          font-weight: normal !important;
-          font-stretch: normal !important;
-          font-style: normal !important;
           text-transform: uppercase !important;
           box-sizing: border-box;
         }
@@ -309,7 +325,8 @@ export default function Home() {
         }
 
         .text-line {
-          letter-spacing: -0.02em;
+          font-weight: 900;
+          letter-spacing: -0.01em;
           line-height: 1.0;
           color: white;
         }
@@ -322,11 +339,11 @@ export default function Home() {
           .mobile-br { display: block; }
           
           .text-line {
-            font-size: 6.5vw !important; 
+            font-size: 8.5vw !important; 
           }
           .contact-trigger {
-            font-size: 6.5vw !important;
-            margin-top: 1.6em !important;
+            font-size: 8.5vw !important;
+            margin-top: 1.2em !important;
           }
         }
       `}</style>
@@ -356,7 +373,7 @@ export default function Home() {
             justifyContent: "space-between"
           }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", width: "100%" }}>
-              <div style={{ fontSize: "clamp(18px, 3.2vw, 28px)", letterSpacing: "-0.01em", lineHeight: 1, color: "#000" }}>
+              <div style={{ fontSize: "clamp(18px, 3.2vw, 28px)", fontWeight: 900, letterSpacing: "-0.01em", lineHeight: 1, color: "#000" }}>
                 LET'S WORK
               </div>
               <button disabled={isSending} onClick={closeContact} style={{ background: "none", border: "none", color: "#000", fontSize: "24px", cursor: isSending ? "not-allowed" : "pointer", lineHeight: 1, padding: 0, marginTop: "-4px" }}>×</button>
@@ -395,6 +412,7 @@ export default function Home() {
                 padding: "14px 32px",
                 fontSize: "10px",
                 letterSpacing: "0.2em",
+                fontWeight: 900,
                 cursor: isSending ? "not-allowed" : "pointer",
                 alignSelf: "flex-start",
                 opacity: isSending ? 0.6 : 1
@@ -425,6 +443,8 @@ export default function Home() {
             willChange: "opacity, filter"
           }}
         />
+        {/* Интерактивный слой затемнения поверх видео */}
+        <div ref={videoOverlayRef} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.3)", zIndex: 1, pointerEvents: "none", transition: "background 0.1s ease-out" }} />
 
         {/* Контейнер Сетки (Scene 1) */}
         <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", zIndex: 2, overflow: "hidden" }}>
