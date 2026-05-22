@@ -8,16 +8,23 @@ export default function Home() {
   const [imgSize, setImgSize] = useState(140);
 
   const videoRef = useRef<HTMLVideoElement>(null);
+  const videoOverlayRef = useRef<HTMLDivElement>(null); // Реф для плавного затемнения фона под текстом
   const maskVideoRef = useRef<HTMLVideoElement>(null);
   const overlayRef = useRef<HTMLVideoElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Сразу ставим прозрачность 1, чтобы избежать мерцания, и запускаем отсчет анимации
-  const [overlayOpacity, setOverlayOpacity] = useState(1);
-  const [overlayBlur, setOverlayBlur] = useState(0);
-  const [maskOpacity, setMaskOpacity] = useState(1); // Маска сразу активна при инициализации
+  // Стейты для кинематографичного появления/исчезновения маски
+  const [maskOpacity, setMaskOpacity] = useState(0);
+  const [maskBlur, setMaskBlur] = useState(20);
+
+  const [overlayOpacity, setOverlayOpacity] = useState(0);
+  const [overlayBlur, setOverlayBlur] = useState(20);
+
+  const maskPlayingRef = useRef(false);
+  const maskFinishedRef = useRef(false);
+  const overlayHasPlayedRef = useRef(false); // Флаг, чтобы запустить видео только один раз
 
   const [contactHovered, setContactHovered] = useState(false);
   const [shaking, setShaking] = useState(false);
@@ -110,58 +117,105 @@ export default function Home() {
     return () => window.removeEventListener("resize", calcSize);
   }, []);
 
-  // Синхронизация по времени внутри самого видео mask.mp4
+  // Кинематографичный запуск маски с плавным проявлением и исчезновением из блюра
   useEffect(() => {
-    // Входная анимация размытия оверлея
-    let start = performance.now();
-    const duration = 800;
-    const animateOverlayIn = (time: number) => {
-      const timeFraction = Math.min((time - start) / duration, 1);
-      setOverlayOpacity(1);
-      setOverlayBlur((1 - timeFraction) * 20);
-      if (timeFraction < 1) requestAnimationFrame(animateOverlayIn);
-    };
-    requestAnimationFrame(animateOverlayIn);
-
     const maskVideo = maskVideoRef.current;
+    if (!maskVideo) return;
 
-    if (maskVideo) {
+    let fallbackTimeout: NodeJS.Timeout;
+    let animationFrameId: number;
+
+    const startMaskPlayback = () => {
+      if (maskPlayingRef.current) return;
+      maskPlayingRef.current = true;
       maskVideo.currentTime = 0;
-      maskVideo.play().catch(() => { });
+
+      fallbackTimeout = setTimeout(() => {
+        maskFinishedRef.current = true;
+      }, 3500);
+
+      maskVideo.play().catch(() => {
+        maskFinishedRef.current = true;
+      });
+
+      // Анимация плавного появления (из блюра и прозрачности)
+      let currentOpacity = 0;
+      let currentBlur = 20;
+
+      const fadeInMask = () => {
+        currentOpacity = Math.min(1, currentOpacity + 0.05); // Шаг прозрачности
+        currentBlur = Math.max(0, currentBlur - 1);         // Шаг уменьшения блюра
+
+        setMaskOpacity(currentOpacity);
+        setMaskBlur(currentBlur);
+
+        if (currentOpacity < 1 || currentBlur > 0) {
+          animationFrameId = requestAnimationFrame(fadeInMask);
+        }
+      };
+      animationFrameId = requestAnimationFrame(fadeInMask);
+    };
+
+    // Проверяем готовность видео буферизироваться без затыков
+    if (maskVideo.readyState >= 4) {
+      startMaskPlayback();
+    } else {
+      maskVideo.addEventListener("canplaythrough", startMaskPlayback, { once: true });
     }
 
-    const checkMaskTime = () => {
-      if (!maskVideo) return;
+    const handleTimeUpdate = () => {
+      if (!maskVideo.duration) return;
+      const timeLeft = maskVideo.duration - maskVideo.currentTime;
 
-      // УКАЖИ СЕКУНДУ: На какой секунде внутри mask.mp4 исчезает последнее приветствие?
-      const endOfWelcomeTime = 2.5;
+      // Принудительный стопор незадолго до физического конца файла, чтобы избежать дефолтного фриза плеера
+      if (timeLeft <= 0.15 && !maskFinishedRef.current) {
+        maskFinishedRef.current = true;
+        clearTimeout(fallbackTimeout);
+      }
 
-      if (maskVideo.currentTime >= endOfWelcomeTime) {
-        // Как только время подошло — мягко уводим маску в ноль
-        const fadeOut = () => {
-          setMaskOpacity((prev) => {
-            if (prev <= 0) return 0;
-            requestAnimationFrame(fadeOut);
-            return Math.max(0, prev - 0.05); // Скорость растворения
-          });
+      // За 1.5 секунды до конца видео запускаем обратное размытие и растворение
+      if (timeLeft <= 1.5 && maskPlayingRef.current) {
+        maskPlayingRef.current = false;
+        cancelAnimationFrame(animationFrameId);
+
+        let currentOpacity = maskVideo.style.opacity ? parseFloat(maskVideo.style.opacity) : 1;
+        let currentBlur = 0;
+
+        const fadeOutMask = () => {
+          currentOpacity = Math.max(0, currentOpacity - 0.03); // Плавное исчезновение
+          currentBlur = Math.min(20, currentBlur + 0.5);      // Плавное размытие
+
+          setMaskOpacity(currentOpacity);
+          setMaskBlur(currentBlur);
+
+          if (currentOpacity > 0 || currentBlur < 20) {
+            animationFrameId = requestAnimationFrame(fadeOutMask);
+          }
         };
-        fadeOut();
-
-        // Отписываемся от события, чтобы анимация не дублировалась
-        maskVideo.removeEventListener("timeupdate", checkMaskTime);
+        animationFrameId = requestAnimationFrame(fadeOutMask);
       }
     };
 
-    if (maskVideo) {
-      maskVideo.addEventListener("timeupdate", checkMaskTime);
-    }
+    const handleVideoEnded = () => {
+      maskFinishedRef.current = true;
+      setMaskOpacity(0);
+      setMaskBlur(20);
+      clearTimeout(fallbackTimeout);
+    };
+
+    maskVideo.addEventListener("timeupdate", handleTimeUpdate);
+    maskVideo.addEventListener("ended", handleVideoEnded);
 
     return () => {
-      if (maskVideo) maskVideo.removeEventListener("timeupdate", checkMaskTime);
+      maskVideo.removeEventListener("canplaythrough", startMaskPlayback);
+      maskVideo.removeEventListener("timeupdate", handleTimeUpdate);
+      maskVideo.removeEventListener("ended", handleVideoEnded);
+      cancelAnimationFrame(animationFrameId);
+      clearTimeout(fallbackTimeout);
     };
   }, []);
 
-  // Виртуальный скролл
+  // Виртуальный скролл со стопором маски
   useEffect(() => {
     const handleWheel = (e: WheelEvent) => {
       if (showContact) return;
@@ -169,6 +223,10 @@ export default function Home() {
 
       const speed = 0.0015;
       let next = currentProgressRef.current + e.deltaY * speed;
+
+      if (!maskFinishedRef.current && next > 0.3) {
+        next = 0.3;
+      }
 
       next = Math.min(Math.max(next, 0), 1);
       currentProgressRef.current = next;
@@ -188,8 +246,12 @@ export default function Home() {
       const deltaY = touchStartRef.current - currentY;
       touchStartRef.current = currentY;
 
-      const speed = 0.003;
+      const speed = 0.002;
       let next = currentProgressRef.current + deltaY * speed;
+
+      if (!maskFinishedRef.current && next > 0.3) {
+        next = 0.3;
+      }
 
       next = Math.min(Math.max(next, 0), 1);
       currentProgressRef.current = next;
@@ -207,7 +269,7 @@ export default function Home() {
     };
   }, [showContact]);
 
-  // Интерактивный таймлайн анимаций сетки, заднего фона и текста
+  // Интерактивный таймлайн анимаций по скроллу
   useEffect(() => {
     // Движение сетки
     const gridProgress = Math.min(progress / 0.65, 1);
@@ -226,7 +288,7 @@ export default function Home() {
       gridRef.current.style.transform = `scale(${scale})`;
     }
 
-    // Исчезновение сетки (от 0.3 до 0.5)
+    // Исчезновение сетки через блюр и опасити (от 0.3 до 0.5)
     if (gridRef.current) {
       if (progress <= 0.3) {
         gridRef.current.style.opacity = "1";
@@ -235,40 +297,70 @@ export default function Home() {
         gridRef.current.style.opacity = "0";
         gridRef.current.style.filter = "blur(30px)";
       } else {
-        const gridFade = (progress - 0.3) / (0.5 - 0.3);
+        const gridFade = (progress - 0.3) / (0.5 - 0.3); // 0 -> 1
         gridRef.current.style.opacity = (1 - gridFade).toString();
         gridRef.current.style.filter = `blur(${gridFade * 30}px)`;
       }
     }
 
-    // Управление оверлеем по скроллу (от 0.5 до 0.68)
+    // Управление оверлеем по скроллу и однократный запуск
     if (overlayRef.current) {
+      if (progress >= 0.5 && !overlayHasPlayedRef.current) {
+        overlayHasPlayedRef.current = true;
+        overlayRef.current.currentTime = 0;
+        overlayRef.current.play().catch(() => { });
+      }
+
       if (progress <= 0.5) {
-        overlayRef.current.style.opacity = overlayOpacity.toString();
-        overlayRef.current.style.filter = `blur(${overlayBlur}px)`;
-      } else if (progress > 0.68) {
-        overlayRef.current.style.opacity = "0";
-        overlayRef.current.style.filter = "blur(20px)";
+        setOverlayOpacity(0);
+        setOverlayBlur(20);
+      } else if (progress > 0.5 && progress <= 0.58) {
+        const fadeIn = (progress - 0.5) / (0.58 - 0.5);
+        setOverlayOpacity(fadeIn);
+        setOverlayBlur((1 - fadeIn) * 20);
+      } else if (progress > 0.58 && progress <= 0.68) {
+        const fadeOut = (progress - 0.58) / (0.68 - 0.58);
+        setOverlayOpacity(1 - fadeOut);
+        setOverlayBlur(fadeOut * 20);
       } else {
-        const overlayProgress = (progress - 0.5) / (0.68 - 0.5);
-        overlayRef.current.style.opacity = (1 - overlayProgress).toString();
-        overlayRef.current.style.filter = `blur(${overlayProgress * 20}px)`;
+        setOverlayOpacity(0);
+        setOverlayBlur(20);
       }
     }
 
-    // Проявление видео 'ME' (от 0.5 до 0.65)
+    // Проявление, блюр и затемнение видео 'ME'
     if (videoRef.current) {
+      let baseBlur = 0;
+      let baseOpacity = 0;
+
       if (progress <= 0.5) {
-        videoRef.current.style.opacity = "0";
-        videoRef.current.style.filter = "blur(20px)";
-      } else if (progress > 0.65) {
-        videoRef.current.style.opacity = "1";
-        videoRef.current.style.filter = "blur(0px)";
-      } else {
+        baseOpacity = 0;
+        baseBlur = 20;
+      } else if (progress > 0.5 && progress <= 0.65) {
         const videoProgress = (progress - 0.5) / (0.65 - 0.5);
-        const currentBlur = (1 - videoProgress) * 20;
-        videoRef.current.style.opacity = videoProgress.toString();
-        videoRef.current.style.filter = `blur(${currentBlur}px)`;
+        baseOpacity = videoProgress;
+        baseBlur = (1 - videoProgress) * 20;
+      } else if (progress > 0.65 && progress <= 0.8) {
+        const videoProgress = (progress - 0.65) / (0.8 - 0.65);
+        baseOpacity = 1;
+        baseBlur = 0;
+      } else {
+        const blurProgress = (progress - 0.8) / (1.0 - 0.8);
+        baseOpacity = 1;
+        baseBlur = blurProgress * 4;
+      }
+
+      videoRef.current.style.opacity = baseOpacity.toString();
+      videoRef.current.style.filter = `blur(${baseBlur}px)`;
+    }
+
+    // Плавное дополнительное затемнение видео через оверлей (от 0.8 до 1.0)
+    if (videoOverlayRef.current) {
+      if (progress > 0.8) {
+        const darkProgress = (progress - 0.8) / (1.0 - 0.8);
+        videoOverlayRef.current.style.background = `rgba(0, 0, 0, ${0.3 + darkProgress * 0.3})`;
+      } else {
+        videoOverlayRef.current.style.background = "rgba(0, 0, 0, 0.3)";
       }
     }
 
@@ -285,7 +377,7 @@ export default function Home() {
         textRef.current.style.pointerEvents = "none";
       }
     }
-  }, [progress, overlayOpacity, overlayBlur]);
+  }, [progress]);
 
   // Контакты и дополнительный блюр текста
   useEffect(() => {
@@ -321,7 +413,7 @@ export default function Home() {
     padding: "6px 0",
     outline: "none",
     fontFamily: "'Arial Black', Gadget, sans-serif",
-    fontWeight: 900,
+    fontWeight: "normal",
     textTransform: "uppercase",
     width: "100%",
   };
@@ -332,7 +424,7 @@ export default function Home() {
     color: "#000",
     textTransform: "uppercase",
     fontFamily: "'Arial Black', Gadget, sans-serif",
-    fontWeight: 900,
+    fontWeight: "normal",
   };
 
   return (
@@ -350,15 +442,11 @@ export default function Home() {
 
         * {
           font-family: 'Arial Black', Gadget, sans-serif !important;
+          font-weight: normal !important;
+          font-stretch: normal !important;
+          font-style: normal !important;
           text-transform: uppercase !important;
           box-sizing: border-box;
-        }
-
-        input, textarea, button, label {
-          font-family: 'Arial Black', Gadget, sans-serif !important;
-          font-weight: 900 !important;
-          text-transform: uppercase !important;
-          -webkit-font-smoothing: antialiased;
         }
 
         @keyframes shakeY {
@@ -391,16 +479,15 @@ export default function Home() {
           pointer-events: none;
           mix-blend-mode: multiply;
           z-index: 5;
-          will-change: opacity;
-          transition: opacity 0.1s linear;
+          display: block;
+          will-change: opacity, filter;
+          transform: translateZ(0); /* Аппаратное ускорение */
         }
 
         .text-line {
-          font-weight: 900;
-          letter-spacing: -0.01em;
+          letter-spacing: -0.02em;
           line-height: 1.0;
           color: white;
-          font-family: 'Arial Black', Gadget, sans-serif !important;
         }
         
         .desktop-br { display: inline; }
@@ -411,20 +498,16 @@ export default function Home() {
           .mobile-br { display: block; }
           
           .text-line {
-            font-size: 8.5vw !important; 
-            font-family: 'Arial Black', Gadget, sans-serif !important;
-            font-weight: 900 !important;
+            font-size: 6.5vw !important; 
           }
           .contact-trigger {
-            font-size: 8.5vw !important;
-            margin-top: 1.2em !important;
-            font-family: 'Arial Black', Gadget, sans-serif !important;
-            font-weight: 900 !important;
+            font-size: 6.5vw !important;
+            margin-top: 1.6em !important;
           }
         }
       `}</style>
 
-      {/* МАСКА (без loop, исчезает по таймлайну видео) */}
+      {/* Маска с плавным динамическим блюром и прозрачностью */}
       <video
         ref={maskVideoRef}
         src="/mask.mp4"
@@ -432,10 +515,13 @@ export default function Home() {
         playsInline
         preload="auto"
         className="mask-video-element"
-        style={{ opacity: maskOpacity, display: maskOpacity > 0 ? "block" : "none" }}
+        style={{
+          opacity: maskOpacity,
+          filter: `blur(${maskBlur}px)`
+        }}
       />
 
-      {/* МОДАЛЬНОЕ ОКНО КОНТАКТОВ */}
+      {/* Модальное окно контактов */}
       {showContact && (
         <div
           onClick={(e) => e.target === e.currentTarget && !isSending && closeContact()}
@@ -460,7 +546,7 @@ export default function Home() {
             justifyContent: "space-between"
           }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", width: "100%" }}>
-              <div style={{ fontSize: "clamp(18px, 3.2vw, 28px)", fontWeight: 900, letterSpacing: "-0.01em", lineHeight: 1, color: "#000" }}>
+              <div style={{ fontSize: "clamp(18px, 3.2vw, 28px)", letterSpacing: "-0.01em", lineHeight: 1, color: "#000" }}>
                 LET'S WORK
               </div>
               <button disabled={isSending} onClick={closeContact} style={{ background: "none", border: "none", color: "#000", fontSize: "24px", cursor: isSending ? "not-allowed" : "pointer", lineHeight: 1, padding: 0, marginTop: "-4px" }}>×</button>
@@ -499,7 +585,6 @@ export default function Home() {
                 padding: "14px 32px",
                 fontSize: "10px",
                 letterSpacing: "0.2em",
-                fontWeight: 900,
                 cursor: isSending ? "not-allowed" : "pointer",
                 alignSelf: "flex-start",
                 opacity: isSending ? 0.6 : 1
@@ -511,13 +596,11 @@ export default function Home() {
         </div>
       )}
 
-      {/* ОВЕРЛЕЙ */}
+      {/* ОВЕРЛЕЙ ВИДЕО ПЕРЕХОДА */}
       <video
         ref={overlayRef}
-        autoPlay
         muted
         playsInline
-        loop
         style={{
           position: "fixed", top: 0, left: 0,
           width: "100vw", height: "100vh",
@@ -548,9 +631,11 @@ export default function Home() {
             width: "100vw", height: "100vh",
             objectFit: "cover", zIndex: 0,
             opacity: 0,
+            willChange: "opacity, filter"
           }}
         />
-        <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.3)", zIndex: 1, pointerEvents: "none" }} />
+        {/* Интерактивный слой затемнения поверх видео */}
+        <div ref={videoOverlayRef} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.3)", zIndex: 1, pointerEvents: "none", transition: "background 0.1s ease-out" }} />
 
         {/* Контейнер Сетки (Scene 1) */}
         <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", zIndex: 2, overflow: "hidden" }}>
@@ -585,6 +670,7 @@ export default function Home() {
             alignItems: "center",
             padding: "0 clamp(20px, 6vw, 80px)",
             opacity: 0,
+            transform: "translate3d(0, 30px, 0)",
             willChange: "transform, opacity",
             pointerEvents: "none"
           }}
