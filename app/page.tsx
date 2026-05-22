@@ -28,9 +28,6 @@ export default function Home() {
   const [form, setForm] = useState({ name: "", email: "", message: "" });
   const [isSending, setIsSending] = useState(false);
 
-  // --- Стейты для радиального меню ---
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
-
   const touchStartRef = useRef(0);
   const currentProgressRef = useRef(0);
 
@@ -89,17 +86,6 @@ export default function Home() {
       alert(`FETCH_FAILED: ${error?.message || 'SERVER_UNREACHABLE'}`);
     } finally {
       setIsSending(false);
-    }
-  };
-
-  // Обработчик для кликов по опциям меню
-  const handleMenuOptionClick = (option: string) => {
-    setIsMenuOpen(false);
-    if (option === "CONTACT") {
-      // Чтобы анимация закрытия кольца не конфликтовала с открытием контактов
-      setTimeout(() => openContact(), 400);
-    } else {
-      alert(`NAVIGATING TO: ${option}`);
     }
   };
 
@@ -231,7 +217,7 @@ export default function Home() {
   // Виртуальный скролл
   useEffect(() => {
     const handleWheel = (e: WheelEvent) => {
-      if (showContact || isMenuOpen) return;
+      if (showContact) return;
       e.preventDefault();
 
       const speed = 0.0015;
@@ -247,12 +233,12 @@ export default function Home() {
     };
 
     const handleTouchStart = (e: TouchEvent) => {
-      if (showContact || isMenuOpen) return;
+      if (showContact) return;
       touchStartRef.current = e.touches[0].clientY;
     };
 
     const handleTouchMove = (e: TouchEvent) => {
-      if (showContact || isMenuOpen) return;
+      if (showContact) return;
       e.preventDefault();
 
       const currentY = e.touches[0].clientY;
@@ -280,7 +266,7 @@ export default function Home() {
       window.removeEventListener("touchstart", handleTouchStart);
       window.removeEventListener("touchmove", handleTouchMove);
     };
-  }, [showContact, isMenuOpen]);
+  }, [showContact]);
 
   // Анимации по скроллу
   useEffect(() => {
@@ -352,20 +338,20 @@ export default function Home() {
         const textProgress = Math.min((progress - 0.65) / 0.2, 1);
         textRef.current.style.opacity = textProgress.toString();
         textRef.current.style.transform = `translate3d(0, ${(1 - textProgress) * 30}px, 0)`;
-        textRef.current.style.pointerEvents = isMenuOpen ? "none" : "auto";
+        textRef.current.style.pointerEvents = "auto";
       } else {
         textRef.current.style.opacity = "0";
         textRef.current.style.transform = "translate3d(0, 30px, 0)";
         textRef.current.style.pointerEvents = "none";
       }
     }
-  }, [progress, isMenuOpen]);
+  }, [progress]);
 
-  // Скрытие основного текста при открытом меню или контактах
+  // Скрытие основного текста при открытых контактах
   useEffect(() => {
     const textEl = textRef.current;
     if (!textEl) return;
-    if (contactVisible || isMenuOpen) {
+    if (contactVisible) {
       textEl.style.transition = "opacity 0.4s ease, filter 0.4s ease";
       textEl.style.opacity = "0";
       textEl.style.filter = "blur(12px)";
@@ -377,7 +363,7 @@ export default function Home() {
       textEl.style.pointerEvents = "auto";
       setTimeout(() => { if (textEl) textEl.style.transition = ""; }, 450);
     }
-  }, [contactVisible, isMenuOpen, progress]);
+  }, [contactVisible, progress]);
 
   const handleContactEnter = () => {
     if (shaking) return;
@@ -476,27 +462,6 @@ export default function Home() {
         
         .desktop-br { display: inline; }
         .mobile-br { display: none; }
-
-        /* --- CSS АНИМАЦИЯ ПЛАВАНИЯ ДЛЯ МЕНЮ --- */
-        @keyframes floatMenu {
-          0% { transform: translate(0px, 0px) rotate(0deg); }
-          25% { transform: translate(15px, -15px) rotate(3deg); }
-          50% { transform: translate(-10px, 20px) rotate(-5deg); }
-          75% { transform: translate(20px, 10px) rotate(4deg); }
-          100% { transform: translate(0px, 0px) rotate(0deg); }
-        }
-
-        .floating-menu-container {
-          animation: floatMenu 8s ease-in-out infinite;
-        }
-
-        .menu-option-text {
-          cursor: pointer;
-          transition: opacity 0.2s ease, fill 0.2s ease;
-        }
-        .menu-option-text:hover {
-          fill: #ff3b30 !important; /* Подсветка опций красным при наведении */
-        }
 
         @media (max-width: 768px) {
           .desktop-br { display: none; }
@@ -663,7 +628,7 @@ export default function Home() {
             pointerEvents: "none"
           }}
         >
-          <div style={{ display: "flex", flexDirection: "column", justifyTemplate: "flex-start", width: "100%" }}>
+          <div style={{ display: "flex", flexDirection: "column", justifyContent: "flex-start", width: "100%" }}>
             <div className="text-line" style={{ fontSize: "clamp(32px, 6.5vw, 88px)" }}>
               MY NAME <span className="mobile-br" />IS ARTEM
             </div>
@@ -688,111 +653,6 @@ export default function Home() {
               {contactHovered ? "GET YOUR BEST DESIGN EVER" : "CONTACT ME"}
             </div>
           </div>
-        </div>
-
-        {/* --- ПЛАВАЮЩЕЕ КРАСНОЕ КОЛЬЦО-МЕНЮ --- */}
-        <div
-          style={{
-            position: "fixed",
-            // Если меню закрыто — оно аккуратно сидит в верхнем правом углу, если открыто — занимает весь экран по центру
-            top: isMenuOpen ? 0 : "40px",
-            right: isMenuOpen ? 0 : "40px",
-            width: isMenuOpen ? "100vw" : "70px",
-            height: isMenuOpen ? "100vh" : "70px",
-            zIndex: 99999,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            transition: "width 0.6s cubic-bezier(0.85, 0, 0.15, 1), height 0.6s cubic-bezier(0.85, 0, 0.15, 1), top 0.6s cubic-bezier(0.85, 0, 0.15, 1), right 0.6s cubic-bezier(0.85, 0, 0.15, 1)",
-          }}
-          className={isMenuOpen ? "" : "floating-menu-container"}
-        >
-          {/* Фон-затемнение под развернутым меню */}
-          <div
-            onClick={() => setIsMenuOpen(false)}
-            style={{
-              position: "absolute",
-              inset: 0,
-              background: "rgba(0,0,0,0.6)",
-              backdropFilter: "blur(10px)",
-              opacity: isMenuOpen ? 1 : 0,
-              pointerEvents: isMenuOpen ? "auto" : "none",
-              transition: "opacity 0.6s ease"
-            }}
-          />
-
-          <svg
-            viewBox="0 0 1000 1000"
-            onClick={() => !isMenuOpen && setIsMenuOpen(true)}
-            style={{
-              width: isMenuOpen ? "min(85vw, 85vh)" : "100%",
-              height: isMenuOpen ? "min(85vw, 85vh)" : "100%",
-              transform: isMenuOpen ? "rotate(0deg)" : "rotate(0deg)",
-              transition: "width 0.6s cubic-bezier(0.85, 0, 0.15, 1), height 0.6s cubic-bezier(0.85, 0, 0.15, 1)",
-              cursor: "pointer",
-              position: "relative",
-              zIndex: 2
-            }}
-          >
-            <defs>
-              {/* Невидимый путь-окружность, по которому пойдет скругленный текст */}
-              {/* Смещаем начальную точку, чтобы текст распределялся эстетично */}
-              <path
-                id="textCirclePath"
-                d="M 500,500 m -360,0 a 360,360 0 1,1 720,0 a 360,360 0 1,1 -720,0"
-              />
-            </defs>
-
-            {/* Само кольцо */}
-            <circle
-              cx="500"
-              cy="500"
-              r={isMenuOpen ? "360" : "400"} // Слегка меняем радиус при раскрытии для динамики
-              fill="none"
-              stroke="#ff3b30" // Насыщенный красный
-              strokeWidth={isMenuOpen ? "25" : "120"} // В свернутом состоянии выглядит как заполненный круг/толстое кольцо
-              style={{
-                transition: "stroke-width 0.6s cubic-bezier(0.85, 0, 0.15, 1), r 0.6s cubic-bezier(0.85, 0, 0.15, 1)"
-              }}
-            />
-
-            {/* Крестик закрытия по центру кольца */}
-            {isMenuOpen && (
-              <g
-                onClick={(e) => { e.stopPropagation(); setIsMenuOpen(false); }}
-                style={{ cursor: "pointer" }}
-              >
-                {/* Прозрачная увеличенная зона клика для крестика */}
-                <circle cx="500" cy="500" r="60" fill="transparent" />
-                <line x1="460" y1="460" x2="540" y2="540" stroke="white" strokeWidth="12" strokeLinecap="round" />
-                <line x1="540" y1="460" x2="460" y2="540" stroke="white" strokeWidth="12" strokeLinecap="round" />
-              </g>
-            )}
-
-            {/* Текст меню вдоль кольца */}
-            <text
-              fill="white"
-              style={{
-                fontFamily: "'Arial Black', Gadget, sans-serif",
-                fontSize: "52px",
-                letterSpacing: "4px",
-                opacity: isMenuOpen ? 1 : 0,
-                pointerEvents: isMenuOpen ? "auto" : "none",
-                transition: "opacity 0.4s ease 0.2s", // Появляется с небольшой задержкой после раскрытия
-              }}
-            >
-              {/* startOffset распределяет ссылки по периметру круга в % */}
-              <textPath href="#textCirclePath" startOffset="8%" className="menu-option-text" onClick={(e) => { e.stopPropagation(); handleMenuOptionClick("ABOUT"); }}>
-                ABOUT
-              </textPath>
-              <textPath href="#textCirclePath" startOffset="40%" className="menu-option-text" onClick={(e) => { e.stopPropagation(); handleMenuOptionClick("PORTFOLIO"); }}>
-                PORTFOLIO
-              </textPath>
-              <textPath href="#textCirclePath" startOffset="75%" className="menu-option-text" onClick={(e) => { e.stopPropagation(); handleMenuOptionClick("CONTACT"); }}>
-                CONTACT
-              </textPath>
-            </text>
-          </svg>
         </div>
 
       </main>
