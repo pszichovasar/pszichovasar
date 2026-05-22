@@ -10,7 +10,6 @@ export default function Home() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const videoOverlayRef = useRef<HTMLDivElement>(null); // Реф для плавного затемнения фона под текстом
   const maskVideoRef = useRef<HTMLVideoElement>(null);
-  const overlayRef = useRef<HTMLVideoElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -19,12 +18,8 @@ export default function Home() {
   const [maskOpacity, setMaskOpacity] = useState(0);
   const [maskBlur, setMaskBlur] = useState(20);
 
-  const [overlayOpacity, setOverlayOpacity] = useState(0);
-  const [overlayBlur, setOverlayBlur] = useState(20);
-
   const maskPlayingRef = useRef(false);
   const maskFinishedRef = useRef(false);
-  const overlayHasPlayedRef = useRef(false); // Флаг, чтобы запустить видео только один раз
 
   const [contactHovered, setContactHovered] = useState(false);
   const [shaking, setShaking] = useState(false);
@@ -117,7 +112,7 @@ export default function Home() {
     return () => window.removeEventListener("resize", calcSize);
   }, []);
 
-  // Кинематографичный запуск маски с плавным проявлением и исчезновением из блюра
+  // Улучшенный запуск маски, адаптированный под мобильные браузеры
   useEffect(() => {
     const maskVideo = maskVideoRef.current;
     if (!maskVideo) return;
@@ -128,62 +123,70 @@ export default function Home() {
     const startMaskPlayback = () => {
       if (maskPlayingRef.current) return;
       maskPlayingRef.current = true;
+
+      // Сбрасываем время и принудительно вызываем play
       maskVideo.currentTime = 0;
 
       fallbackTimeout = setTimeout(() => {
         maskFinishedRef.current = true;
       }, 3500);
 
-      maskVideo.play().catch(() => {
-        maskFinishedRef.current = true;
-      });
+      const playPromise = maskVideo.play();
 
-      // Анимация плавного появления (из блюра и прозрачности)
-      let currentOpacity = 0;
-      let currentBlur = 20;
+      if (playPromise !== undefined) {
+        playPromise
+          .then(() => {
+            // Видео успешно запустилось, погнали анимацию появления
+            let currentOpacity = 0;
+            let currentBlur = 20;
 
-      const fadeInMask = () => {
-        currentOpacity = Math.min(1, currentOpacity + 0.05); // Шаг прозрачности
-        currentBlur = Math.max(0, currentBlur - 1);         // Шаг уменьшения блюра
+            const fadeInMask = () => {
+              currentOpacity = Math.min(1, currentOpacity + 0.05);
+              currentBlur = Math.max(0, currentBlur - 1);
 
-        setMaskOpacity(currentOpacity);
-        setMaskBlur(currentBlur);
+              setMaskOpacity(currentOpacity);
+              setMaskBlur(currentBlur);
 
-        if (currentOpacity < 1 || currentBlur > 0) {
-          animationFrameId = requestAnimationFrame(fadeInMask);
-        }
-      };
-      animationFrameId = requestAnimationFrame(fadeInMask);
+              if (currentOpacity < 1 || currentBlur > 0) {
+                animationFrameId = requestAnimationFrame(fadeInMask);
+              }
+            };
+            animationFrameId = requestAnimationFrame(fadeInMask);
+          })
+          .catch((err) => {
+            console.log("Автоплей маски заблокирован мобильной системой:", err);
+            // Фолбек: если мобилка намертво заблокировала видео, сразу разблокируем скролл, чтобы сайт не завис
+            maskFinishedRef.current = true;
+          });
+      }
     };
 
-    // Проверяем готовность видео буферизироваться без затыков
-    if (maskVideo.readyState >= 4) {
+    // На мобилках используем loadedmetadata вместо canplaythrough, так как оно срабатывает гарантированно
+    if (maskVideo.readyState >= 1) {
       startMaskPlayback();
     } else {
-      maskVideo.addEventListener("canplaythrough", startMaskPlayback, { once: true });
+      maskVideo.addEventListener("loadedmetadata", startMaskPlayback, { once: true });
     }
 
     const handleTimeUpdate = () => {
       if (!maskVideo.duration) return;
       const timeLeft = maskVideo.duration - maskVideo.currentTime;
 
-      // Принудительный стопор незадолго до физического конца файла, чтобы избежать дефолтного фриза плеера
       if (timeLeft <= 0.15 && !maskFinishedRef.current) {
         maskFinishedRef.current = true;
         clearTimeout(fallbackTimeout);
       }
 
-      // За 1.5 секунды до конца видео запускаем обратное размытие и растворение
       if (timeLeft <= 1.5 && maskPlayingRef.current) {
         maskPlayingRef.current = false;
         cancelAnimationFrame(animationFrameId);
 
-        let currentOpacity = maskVideo.style.opacity ? parseFloat(maskVideo.style.opacity) : 1;
+        let currentOpacity = 1;
         let currentBlur = 0;
 
         const fadeOutMask = () => {
-          currentOpacity = Math.max(0, currentOpacity - 0.03); // Плавное исчезновение
-          currentBlur = Math.min(20, currentBlur + 0.5);      // Плавное размытие
+          currentOpacity = Math.max(0, currentOpacity - 0.03);
+          currentBlur = Math.min(20, currentBlur + 0.5);
 
           setMaskOpacity(currentOpacity);
           setMaskBlur(currentBlur);
@@ -207,7 +210,7 @@ export default function Home() {
     maskVideo.addEventListener("ended", handleVideoEnded);
 
     return () => {
-      maskVideo.removeEventListener("canplaythrough", startMaskPlayback);
+      maskVideo.removeEventListener("loadedmetadata", startMaskPlayback);
       maskVideo.removeEventListener("timeupdate", handleTimeUpdate);
       maskVideo.removeEventListener("ended", handleVideoEnded);
       cancelAnimationFrame(animationFrameId);
@@ -303,32 +306,7 @@ export default function Home() {
       }
     }
 
-    // Управление оверлеем по скроллу и однократный запуск
-    if (overlayRef.current) {
-      if (progress >= 0.5 && !overlayHasPlayedRef.current) {
-        overlayHasPlayedRef.current = true;
-        overlayRef.current.currentTime = 0;
-        overlayRef.current.play().catch(() => { });
-      }
-
-      if (progress <= 0.5) {
-        setOverlayOpacity(0);
-        setOverlayBlur(20);
-      } else if (progress > 0.5 && progress <= 0.58) {
-        const fadeIn = (progress - 0.5) / (0.58 - 0.5);
-        setOverlayOpacity(fadeIn);
-        setOverlayBlur((1 - fadeIn) * 20);
-      } else if (progress > 0.58 && progress <= 0.68) {
-        const fadeOut = (progress - 0.58) / (0.68 - 0.58);
-        setOverlayOpacity(1 - fadeOut);
-        setOverlayBlur(fadeOut * 20);
-      } else {
-        setOverlayOpacity(0);
-        setOverlayBlur(20);
-      }
-    }
-
-    // Проявление, блюр и затемнение видео 'ME'
+    // Проявление, блюр и затемнение видео 'ME' (начинается сразу после ухода сетки с 0.5)
     if (videoRef.current) {
       let baseBlur = 0;
       let baseOpacity = 0;
@@ -341,7 +319,6 @@ export default function Home() {
         baseOpacity = videoProgress;
         baseBlur = (1 - videoProgress) * 20;
       } else if (progress > 0.65 && progress <= 0.8) {
-        const videoProgress = (progress - 0.65) / (0.8 - 0.65);
         baseOpacity = 1;
         baseBlur = 0;
       } else {
@@ -364,10 +341,10 @@ export default function Home() {
       }
     }
 
-    // Появление текста (от 0.68 до 0.9)
+    // Появление текста (от 0.65 до 0.85) — чуть-чуть сдвинули старт, чтобы плавно вытекал вслед за видео
     if (textRef.current) {
-      if (progress > 0.68) {
-        const textProgress = Math.min((progress - 0.68) / 0.22, 1);
+      if (progress > 0.65) {
+        const textProgress = Math.min((progress - 0.65) / 0.2, 1);
         textRef.current.style.opacity = textProgress.toString();
         textRef.current.style.transform = `translate3d(0, ${(1 - textProgress) * 30}px, 0)`;
         textRef.current.style.pointerEvents = "auto";
@@ -387,13 +364,13 @@ export default function Home() {
       textEl.style.transition = "opacity 0.4s ease, filter 0.4s ease";
       textEl.style.opacity = "0";
       textEl.style.filter = "blur(12px)";
-    } else if (progress > 0.68) {
+    } else if (progress > 0.65) {
       textEl.style.transition = "opacity 0.4s ease, filter 0.4s ease";
       textEl.style.opacity = "1";
       textEl.style.filter = "blur(0px)";
       setTimeout(() => { if (textEl) textEl.style.transition = ""; }, 450);
     }
-  }, [contactVisible]);
+  }, [contactVisible, progress]);
 
   const handleContactEnter = () => {
     if (shaking) return;
@@ -481,7 +458,7 @@ export default function Home() {
           z-index: 5;
           display: block;
           will-change: opacity, filter;
-          transform: translateZ(0); /* Аппаратное ускорение */
+          transform: translateZ(0);
         }
 
         .text-line {
@@ -495,7 +472,7 @@ export default function Home() {
 
         @media (max-width: 768px) {
           .desktop-br { display: none; }
-          .mobile-br { display: block; }
+          .mobile-br { block; }
           
           .text-line {
             font-size: 6.5vw !important; 
@@ -507,11 +484,13 @@ export default function Home() {
         }
       `}</style>
 
-      {/* Маска с плавным динамическим блюром и прозрачностью */}
+      {/* Маска с добавлением критически важного для мобилок атрибута muted и исправленным алгоритмом запуска */}
       <video
         ref={maskVideoRef}
         src="/mask.mp4"
         muted
+        autoPlay
+        loop={false}
         playsInline
         preload="auto"
         className="mask-video-element"
@@ -596,25 +575,6 @@ export default function Home() {
         </div>
       )}
 
-      {/* ОВЕРЛЕЙ ВИДЕО ПЕРЕХОДА */}
-      <video
-        ref={overlayRef}
-        muted
-        playsInline
-        style={{
-          position: "fixed", top: 0, left: 0,
-          width: "100vw", height: "100vh",
-          objectFit: "cover", zIndex: 9999,
-          pointerEvents: "none",
-          opacity: overlayOpacity,
-          filter: `blur(${overlayBlur}px)`,
-          willChange: "opacity, filter"
-        }}
-      >
-        <source src="/overlay.mp4" type='video/mp4; codecs="hvc1"' />
-        <source src="/overlay.webm" type="video/webm" />
-      </video>
-
       {/* ОСНОВНОЙ ФИКСИРОВАННЫЙ КОНТЕЙНЕР */}
       <main style={{ position: "fixed", width: "100vw", height: "100vh", top: 0, left: 0, overflow: "hidden", background: "black" }}>
 
@@ -675,7 +635,7 @@ export default function Home() {
             pointerEvents: "none"
           }}
         >
-          <div style={{ display: "flex", flexDirection: "column", justifyContent: "flex-start", width: "100%" }}>
+          <div style={{ display: "flex", flexDirection: "column", justifyTemplate: "flex-start", width: "100%" }}>
             <div className="text-line" style={{ fontSize: "clamp(32px, 6.5vw, 88px)" }}>
               MY NAME <span className="mobile-br" />IS ARTEM
             </div>
