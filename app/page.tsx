@@ -344,54 +344,44 @@ export default function Home() {
           transition: transform 0.1s ease-out;
         }
 
-        /* Текстовые линии главного экрана (ПК) */
+        /* Текстовые линии главного экрана на Компьютере (чистый Arial Black без обводки) */
         .text-line {
           font-family: 'Arial Black', Arial, sans-serif !important;
           font-weight: 900 !important;
-          letter-spacing: -0.05em;
+          letter-spacing: -0.03em;
           line-height: 0.92;
           color: white;
-          -webkit-text-stroke: 2px white; 
-          paint-order: stroke fill;
         }
         
         .desktop-br { display: inline; }
         .mobile-br { display: none; }
 
-        /* Элементы выплывающей карточки (ПК) */
+        /* Элементы выплывающей карточки на Компьютере (чистые) */
         .card-title {
           font-family: 'Arial Black', Arial, sans-serif !important;
           font-weight: 900 !important;
-          letter-spacing: -0.04em;
-          -webkit-text-stroke: 1.2px #000;
-          paint-order: stroke fill;
+          letter-spacing: -0.02em;
         }
 
         .card-label {
           font-family: 'Arial Black', Arial, sans-serif !important;
           font-weight: 900 !important;
           letter-spacing: 0.1em;
-          -webkit-text-stroke: 0.4px #000;
-          paint-order: stroke fill;
         }
 
         .card-input {
           font-family: 'Arial Black', Arial, sans-serif !important;
           font-weight: 900 !important;
           letter-spacing: -0.02em;
-          -webkit-text-stroke: 0.6px #000;
-          paint-order: stroke fill;
         }
 
         .card-btn {
           font-family: 'Arial Black', Arial, sans-serif !important;
           font-weight: 900 !important;
           letter-spacing: 0.15em;
-          -webkit-text-stroke: 0.5px #fff;
-          paint-order: stroke fill;
         }
 
-        /* Адаптив под мобильные устройства (iPhone) */
+        /* Адаптив под мобильные устройства (iPhone) — хак с обводкой остается только тут */
         @media (max-width: 768px) {
           .desktop-br { display: none; }
           .mobile-br { display: block; }
@@ -400,24 +390,29 @@ export default function Home() {
             font-size: 8.5vw !important;
             letter-spacing: -0.05em;
             -webkit-text-stroke: 1.2px white;
+            paint-order: stroke fill;
           }
           .contact-trigger {
             font-size: 8.5vw !important;
             margin-top: 1.2em !important;
           }
 
-          /* Синхронизация плотности букв карточки на экранах смартфонов */
+          /* Карточка на мобилке: делаем шрифт жирнее через stroke */
           .card-title {
             -webkit-text-stroke: 0.8px #000;
+            paint-order: stroke fill;
           }
           .card-label {
             -webkit-text-stroke: 0.3px #000;
+            paint-order: stroke fill;
           }
           .card-input {
             -webkit-text-stroke: 0.4px #000;
+            paint-order: stroke fill;
           }
           .card-btn {
             -webkit-text-stroke: 0.4px #fff;
+            paint-order: stroke fill;
           }
         }
       `}</style>
@@ -447,7 +442,7 @@ export default function Home() {
             justifyContent: "space-between"
           }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", width: "100%" }}>
-              <div className="card-title" style={{ fontSize: "clamp(18px, 3.2vw, 28px)", fontWeight: 900, letterSpacing: "-0.01em", lineHeight: 1, color: "#000" }}>
+              <div className="card-title" style={{ fontSize: "clamp(18px, 3.2vw, 28px)", fontWeight: 900, lineHeight: 1, color: "#000" }}>
                 LET'S WORK
               </div>
               <button disabled={isSending} onClick={closeContact} style={{ background: "none", border: "none", color: "#000", fontSize: "24px", cursor: isSending ? "not-allowed" : "pointer", lineHeight: 1, padding: 0, marginTop: "-4px" }}>×</button>
