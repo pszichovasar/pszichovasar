@@ -17,7 +17,7 @@ export default function Home() {
   // Сразу ставим прозрачность 1, чтобы избежать мерцания, и запускаем отсчет анимации
   const [overlayOpacity, setOverlayOpacity] = useState(1);
   const [overlayBlur, setOverlayBlur] = useState(0);
-  const [maskOpacity, setMaskOpacity] = useState(0);
+  const [maskOpacity, setMaskOpacity] = useState(1); // Маска сразу активна при инициализации
 
   const [contactHovered, setContactHovered] = useState(false);
   const [shaking, setShaking] = useState(false);
@@ -110,37 +110,55 @@ export default function Home() {
     return () => window.removeEventListener("resize", calcSize);
   }, []);
 
-  // Входная анимация оверлея и запуск маски при загрузке страницы
+  // Синхронизация по времени внутри самого видео mask.mp4
   useEffect(() => {
+    // Входная анимация размытия оверлея
     let start = performance.now();
-    const duration = 800; // 0.8 секунды на плавный уход блюра
-
+    const duration = 800;
     const animateOverlayIn = (time: number) => {
       const timeFraction = Math.min((time - start) / duration, 1);
       setOverlayOpacity(1);
       setOverlayBlur((1 - timeFraction) * 20);
-
-      if (timeFraction < 1) {
-        requestAnimationFrame(animateOverlayIn);
-      }
+      if (timeFraction < 1) requestAnimationFrame(animateOverlayIn);
     };
     requestAnimationFrame(animateOverlayIn);
 
-    // Первоначальный запуск цикличной маски на старте
     const maskVideo = maskVideoRef.current;
+
     if (maskVideo) {
       maskVideo.currentTime = 0;
       maskVideo.play().catch(() => { });
-
-      const fadeInMask = () => {
-        setMaskOpacity((prev) => {
-          if (prev >= 1) return 1;
-          requestAnimationFrame(fadeInMask);
-          return Math.min(1, prev + 0.04);
-        });
-      };
-      fadeInMask();
     }
+
+    const checkMaskTime = () => {
+      if (!maskVideo) return;
+
+      // УКАЖИ СЕКУНДУ: На какой секунде внутри mask.mp4 исчезает последнее приветствие?
+      const endOfWelcomeTime = 2.5;
+
+      if (maskVideo.currentTime >= endOfWelcomeTime) {
+        // Как только время подошло — мягко уводим маску в ноль
+        const fadeOut = () => {
+          setMaskOpacity((prev) => {
+            if (prev <= 0) return 0;
+            requestAnimationFrame(fadeOut);
+            return Math.max(0, prev - 0.05); // Скорость растворения
+          });
+        };
+        fadeOut();
+
+        // Отписываемся от события, чтобы анимация не дублировалась
+        maskVideo.removeEventListener("timeupdate", checkMaskTime);
+      }
+    };
+
+    if (maskVideo) {
+      maskVideo.addEventListener("timeupdate", checkMaskTime);
+    }
+
+    return () => {
+      if (maskVideo) maskVideo.removeEventListener("timeupdate", checkMaskTime);
+    };
   }, []);
 
   // Виртуальный скролл
@@ -189,19 +207,8 @@ export default function Home() {
     };
   }, [showContact]);
 
-  // Интерактивный таймлайн анимаций
+  // Интерактивный таймлайн анимаций сетки, заднего фона и текста
   useEffect(() => {
-    // === УПРАВЛЕНИЕ МАСКОЙ ПО СКРОЛЛУ ===
-    // Маска исчезает мгновенно, как только начинается движение к картинкам (в диапазоне от 0 до 0.15)
-    if (progress === 0) {
-      setMaskOpacity(1);
-    } else if (progress > 0 && progress <= 0.15) {
-      const maskFade = (progress - 0) / (0.15 - 0);
-      setMaskOpacity(1 - maskFade);
-    } else {
-      setMaskOpacity(0);
-    }
-
     // Движение сетки
     const gridProgress = Math.min(progress / 0.65, 1);
     trackRefs.current.forEach((track, i) => {
@@ -351,6 +358,7 @@ export default function Home() {
           font-family: 'Arial Black', Gadget, sans-serif !important;
           font-weight: 900 !important;
           text-transform: uppercase !important;
+          -webkit-font-smoothing: antialiased;
         }
 
         @keyframes shakeY {
@@ -384,6 +392,7 @@ export default function Home() {
           mix-blend-mode: multiply;
           z-index: 5;
           will-change: opacity;
+          transition: opacity 0.1s linear;
         }
 
         .text-line {
@@ -415,19 +424,18 @@ export default function Home() {
         }
       `}</style>
 
-      {/* Маска: теперь зациклена и исчезает по скроллу */}
+      {/* МАСКА (без loop, исчезает по таймлайну видео) */}
       <video
         ref={maskVideoRef}
         src="/mask.mp4"
         muted
-        loop
         playsInline
         preload="auto"
         className="mask-video-element"
         style={{ opacity: maskOpacity, display: maskOpacity > 0 ? "block" : "none" }}
       />
 
-      {/* Модальное окно контактов */}
+      {/* МОДАЛЬНОЕ ОКНО КОНТАКТОВ */}
       {showContact && (
         <div
           onClick={(e) => e.target === e.currentTarget && !isSending && closeContact()}
