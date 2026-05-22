@@ -81,7 +81,7 @@ export default function Home() {
     }
   };
 
-  // Проверка на iOS устройства
+  // Проверка на iOS устройства (оставляет me.mp4 или iome.mp4 в зависимости от ОС)
   useEffect(() => {
     const isiPhone = /iPhone|iPad|iPod/i.test(navigator.userAgent);
     if (isiPhone) {
@@ -93,28 +93,27 @@ export default function Home() {
     if (videoRef.current) videoRef.current.load();
   }, [videoSrc]);
 
-  // Расчет размеров плиток + жесткая инициализация стартовой позиции треков в пикселях
+  // Расчет размеров плиток + жесткая инициализация стартовой позиции треков
   useEffect(() => {
     const calcSize = () => {
       const vh = window.innerHeight;
-      setImgSize(Math.floor((vh - GAP * 6) / 5));
+      const computedSize = Math.floor((vh - GAP * 6) / 5);
+      setImgSize(computedSize);
 
-      // Применяем ту же математику, что и при скролле, исключая проценты
       trackRefs.current.forEach((track, i) => {
-        if (!track) return;
-        const maxMove = track.scrollWidth / 2;
+        if (!track || !rows[i]) return;
+        const loopWidth = (computedSize + GAP) * rows[i].length;
         if (directions[i]) {
           track.style.transform = `translate3d(0px, 0, 0)`;
         } else {
-          track.style.transform = `translate3d(${-maxMove}px, 0, 0)`;
+          track.style.transform = `translate3d(${-loopWidth}px, 0, 0)`;
         }
       });
     };
 
-    // Запускаем несколько раз, чтобы гарантировать отработку после загрузки картинок
     calcSize();
     const timer1 = setTimeout(calcSize, 50);
-    const timer2 = setTimeout(calcSize, 300); // Страховка на случай медленного рендера DOM
+    const timer2 = setTimeout(calcSize, 300);
 
     window.addEventListener("resize", calcSize);
     return () => {
@@ -172,15 +171,17 @@ export default function Home() {
 
   // Интерактивный таймлайн анимаций
   useEffect(() => {
-    // Движение сетки
     const gridProgress = Math.min(progress / 0.65, 1);
+
+    // === 1. ИДЕАЛЬНО ПЛАВНЫЙ БЕСШОВНЫЙ СДВИГ РЯДОВ ===
     trackRefs.current.forEach((track, i) => {
-      if (!track) return;
-      const maxMove = track.scrollWidth / 2;
+      if (!track || !rows[i]) return;
+      const loopWidth = (imgSize + GAP) * rows[i].length;
+
       if (directions[i]) {
-        track.style.transform = `translate3d(${-gridProgress * maxMove}px, 0, 0)`;
+        track.style.transform = `translate3d(${-gridProgress * loopWidth}px, 0, 0)`;
       } else {
-        track.style.transform = `translate3d(${-maxMove + gridProgress * maxMove}px, 0, 0)`;
+        track.style.transform = `translate3d(${-loopWidth + gridProgress * loopWidth}px, 0, 0)`;
       }
     });
 
@@ -189,7 +190,7 @@ export default function Home() {
       gridRef.current.style.transform = `scale(${scale})`;
     }
 
-    // === ИСЧЕЗНОВЕНИЕ СЕТКИ ЧЕРЕЗ БЛЮР И ОПАСИТИ (от 0.3 до 0.5) ===
+    // === 2. ИСЧЕЗНОВЕНИЕ СЕТКИ ЧЕРЕЗ БЛЮР И ОПАСИТИ (от 0.3 до 0.5) ===
     if (gridRef.current) {
       if (progress <= 0.3) {
         gridRef.current.style.opacity = "1";
@@ -198,42 +199,46 @@ export default function Home() {
         gridRef.current.style.opacity = "0";
         gridRef.current.style.filter = "blur(30px)";
       } else {
-        const gridFade = (progress - 0.3) / (0.5 - 0.3); // 0 -> 1
+        const gridFade = (progress - 0.3) / (0.5 - 0.3);
         gridRef.current.style.opacity = (1 - gridFade).toString();
         gridRef.current.style.filter = `blur(${gridFade * 30}px)`;
       }
     }
 
-    // === ОПТИМИЗИРОВАННОЕ ПОЯВЛЕНИЕ ВИДЕО 'ME' (БЕЗ БЛЮРА) ===
+    // === 3. ПОЯВЛЕНИЕ И ПОСЛЕДУЮЩИЙ БЛЮР ВИДЕО ===
     if (videoRef.current) {
       let baseOpacity = 0;
+      let baseBlur = 0;
 
-      // Появление видео (от 0.5 до 0.65)
       if (progress <= 0.5) {
         baseOpacity = 0;
+        baseBlur = 0;
       } else if (progress > 0.5 && progress <= 0.65) {
+        // Проявление видео от 0.5 до 0.65
         baseOpacity = (progress - 0.5) / (0.65 - 0.5);
+        baseBlur = 0;
       } else {
+        // Видео полностью проявлено, но начинает плавно размываться при появлении текста (от 0.65 до 1.0)
         baseOpacity = 1;
+        const textStepProgress = Math.min((progress - 0.65) / (1.0 - 0.65), 1);
+        baseBlur = textStepProgress * 15; // Максимальный блюр 15px
       }
 
       videoRef.current.style.opacity = baseOpacity.toString();
+      videoRef.current.style.filter = `blur(${baseBlur}px)`;
     }
 
-    // === УСИЛЕННОЕ ЗАТЕМНЕНИЕ ЧЕРЕЗ ОВЕРЛЕЙ (от 0.65 до 1.0) ===
+    // === 4. УСИЛЕННОЕ ЗАТЕМНЕНИЕ ЧЕРЕЗ ОВЕРЛЕЙ (от 0.65 до 1.0) ===
     if (videoOverlayRef.current) {
       if (progress > 0.65) {
-        // Прогресс затемнения идет параллельно с проявлением текста
         const darkProgress = Math.min((progress - 0.65) / (1.0 - 0.65), 1);
-        // Стартуем с легкого затемнения 0.2 и уходим в глубокое 0.85 для сочности текста
         videoOverlayRef.current.style.background = `rgba(0, 0, 0, ${0.2 + darkProgress * 0.65})`;
       } else {
-        // Пока сетка двигается, видео слегка притеняем, чтобы оно не спорило с картинками
         videoOverlayRef.current.style.background = "rgba(0, 0, 0, 0.2)";
       }
     }
 
-    // === ОРИГИНАЛЬНОЕ ПОЯВЛЕНИЕ ТЕКСТА (от 0.68 до 0.9) ===
+    // === 5. ПОЯВЛЕНИЕ ТЕКСТА (от 0.68 до 0.9) ===
     if (textRef.current) {
       if (progress > 0.68) {
         const textProgress = Math.min((progress - 0.68) / 0.22, 1);
@@ -246,9 +251,9 @@ export default function Home() {
         textRef.current.style.pointerEvents = "none";
       }
     }
-  }, [progress]);
+  }, [progress, imgSize]);
 
-  // Контакты и дополнительный блюр текста
+  // Контакты и дополнительный блюр текста при открытии формы
   useEffect(() => {
     const textEl = textRef.current;
     if (!textEl) return;
@@ -438,7 +443,7 @@ export default function Home() {
       {/* ОСНОВНОЙ ФИКСИРОВАННЫЙ КОНТЕЙНЕР */}
       <main style={{ position: "fixed", width: "100vw", height: "100vh", top: 0, left: 0, overflow: "hidden", background: "black" }}>
 
-        {/* Видео заднего плана 'ME' */}
+        {/* Видео заднего плана 'ME' / 'IOME' */}
         <video
           ref={videoRef}
           src={videoSrc}
@@ -455,7 +460,7 @@ export default function Home() {
           }}
         />
         {/* Интерактивный слой затемнения поверх видео */}
-        <div ref={videoOverlayRef} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.3)", zIndex: 1, pointerEvents: "none", transition: "background 0.1s ease-out" }} />
+        <div ref={videoOverlayRef} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.2)", zIndex: 1, pointerEvents: "none", transition: "background 0.1s ease-out" }} />
 
         {/* Контейнер Сетки (Scene 1) */}
         <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", zIndex: 2, overflow: "hidden" }}>
@@ -502,7 +507,7 @@ export default function Home() {
             pointerEvents: "none"
           }}
         >
-          <div style={{ display: "flex", flexDirection: "column", justifyContent: "flex-start", width: "100%" }}>
+          <div style={{ display: "flex", flexDirection: "column", justifyTemplate: "flex-start", width: "100%" }}>
             <div className="text-line" style={{ fontSize: "clamp(32px, 6.5vw, 88px)" }}>
               MY NAME <span className="mobile-br" />IS ARTEM
             </div>
