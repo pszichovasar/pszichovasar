@@ -188,6 +188,7 @@ export default function Home() {
 
   // Интерактивный таймлайн анимаций
   useEffect(() => {
+    // Сетка остается без изменений (как была)
     const gridProgress = Math.min(progress / 0.65, 1);
 
     trackRefs.current.forEach((track, i) => {
@@ -204,9 +205,7 @@ export default function Home() {
     if (gridRef.current) {
       const scale = 1 - gridProgress * 0.05;
       gridRef.current.style.transform = `scale(${scale})`;
-    }
 
-    if (gridRef.current) {
       if (progress <= 0.3) {
         gridRef.current.style.opacity = "1";
         gridRef.current.style.filter = "blur(0px)";
@@ -220,38 +219,18 @@ export default function Home() {
       }
     }
 
+    // Видео плавно проявляется
     if (videoRef.current) {
-      let baseOpacity = 0;
-      let baseBlur = 0;
-
-      if (progress <= 0.5) {
-        baseOpacity = 0;
-        baseBlur = 0;
-      } else if (progress > 0.5 && progress <= 0.65) {
-        baseOpacity = (progress - 0.5) / (0.65 - 0.5);
-        baseBlur = 0;
-      } else {
-        baseOpacity = 1;
-        const textStepProgress = Math.min((progress - 0.65) / (1.0 - 0.65), 1);
-        baseBlur = textStepProgress * 15;
-      }
-
-      videoRef.current.style.opacity = baseOpacity.toString();
-      videoRef.current.style.filter = `blur(${baseBlur}px)`;
+      // Видео начинает проявляться с 0.5 и становится полностью видимым к 0.7
+      const vidOpacity = Math.min((progress - 0.5) / 0.2, 1);
+      videoRef.current.style.opacity = progress > 0.5 ? vidOpacity.toString() : "0";
     }
 
-    if (videoOverlayRef.current) {
-      if (progress > 0.65) {
-        const darkProgress = Math.min((progress - 0.65) / (1.0 - 0.65), 1);
-        videoOverlayRef.current.style.background = `rgba(0, 0, 0, ${0.2 + darkProgress * 0.65})`;
-      } else {
-        videoOverlayRef.current.style.background = "rgba(0, 0, 0, 0.2)";
-      }
-    }
-
+    // А вот здесь мы увеличили дистанцию для текста:
+    // Он начинает появляться только после 0.85 (вместо 0.68)
     if (textRef.current) {
-      if (progress > 0.68) {
-        const textProgress = Math.min((progress - 0.68) / 0.22, 1);
+      if (progress > 0.85) {
+        const textProgress = Math.min((progress - 0.85) / 0.15, 1);
         textRef.current.style.opacity = textProgress.toString();
         textRef.current.style.transform = `translate3d(0, ${(1 - textProgress) * 30}px, 0)`;
         textRef.current.style.pointerEvents = "auto";
@@ -270,13 +249,12 @@ export default function Home() {
       textEl.style.transition = "opacity 0.4s ease, filter 0.4s ease";
       textEl.style.opacity = "0";
       textEl.style.filter = "blur(12px)";
-    } else if (progress > 0.68) {
+    } else if (progress > 0.85) { // Обновили триггер здесь
       textEl.style.transition = "opacity 0.4s ease, filter 0.4s ease";
       textEl.style.opacity = "1";
       textEl.style.filter = "blur(0px)";
-      setTimeout(() => { if (textEl) textEl.style.transition = ""; }, 450);
     }
-  }, [contactVisible]);
+  }, [contactVisible, progress]);
 
   const handleContactEnter = () => {
     if (shaking) return;
