@@ -93,15 +93,32 @@ export default function Home() {
     if (videoRef.current) videoRef.current.load();
   }, [videoSrc]);
 
-  // Расчет размеров плиток
+  // Расчет размеров плиток + инициализация стартовой позиции треков
   useEffect(() => {
     const calcSize = () => {
       const vh = window.innerHeight;
       setImgSize(Math.floor((vh - GAP * 6) / 5));
+
+      // Сразу же выставляем начальные позиции для треков при загрузке и ресайзе (когда progress = 0)
+      trackRefs.current.forEach((track, i) => {
+        if (!track) return;
+        const maxMove = track.scrollWidth / 2;
+        if (directions[i]) {
+          track.style.transform = `translate3d(0px, 0, 0)`;
+        } else {
+          track.style.transform = `translate3d(${-maxMove}px, 0, 0)`;
+        }
+      });
     };
-    calcSize();
+
+    // Запуск после полного рендера, чтобы scrollWidth успел посчитаться корректно
+    const timer = setTimeout(calcSize, 50);
+
     window.addEventListener("resize", calcSize);
-    return () => window.removeEventListener("resize", calcSize);
+    return () => {
+      window.removeEventListener("resize", calcSize);
+      clearTimeout(timer);
+    };
   }, []);
 
   // Виртуальный скролл
@@ -451,11 +468,21 @@ export default function Home() {
           <div ref={gridRef} className="masked-grid" style={{ gap: `${GAP}px`, willChange: "transform, opacity, filter" }}>
             {rows.map((images, rowIndex) => {
               const looped = [...images, ...images];
+              // Изначально задаем сдвиг в инлайновом стиле, чтобы до первого скролла не было скачка
+              const isLeftDirection = !directions[rowIndex];
               return (
                 <div
                   key={rowIndex}
                   ref={(el) => { trackRefs.current[rowIndex] = el; }}
-                  style={{ display: "flex", gap: `${GAP}px`, width: "max-content", paddingLeft: `${GAP}px`, paddingRight: `${GAP}px`, willChange: "transform" }}
+                  style={{
+                    display: "flex",
+                    gap: `${GAP}px`,
+                    width: "max-content",
+                    paddingLeft: `${GAP}px`,
+                    paddingRight: `${GAP}px`,
+                    willChange: "transform",
+                    transform: isLeftDirection ? "translate3d(-50%, 0, 0)" : "translate3d(0px, 0, 0)"
+                  }}
                 >
                   {looped.map((img, i) => (
                     <div key={rowIndex + "-" + i} style={{ width: `${imgSize}px`, height: `${imgSize}px`, borderRadius: "12px", flexShrink: 0, position: "relative", overflow: "hidden" }}>
