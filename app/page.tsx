@@ -204,41 +204,32 @@ export default function Home() {
       }
     }
 
-    // === ПРОЯВЛЕНИЕ, БЛЮР И ЗАТЕМНЕНИЕ ВИДЕО 'ME' ===
+    // === ОПТИМИЗИРОВАННОЕ ПОЯВЛЕНИЕ ВИДЕО 'ME' (БЕЗ БЛЮРА) ===
     if (videoRef.current) {
-      let baseBlur = 0;
       let baseOpacity = 0;
 
       // Появление видео (от 0.5 до 0.65)
       if (progress <= 0.5) {
         baseOpacity = 0;
-        baseBlur = 20;
       } else if (progress > 0.5 && progress <= 0.65) {
-        const videoProgress = (progress - 0.5) / (0.65 - 0.5);
-        baseOpacity = videoProgress;
-        baseBlur = (1 - videoProgress) * 20;
-      } else if (progress > 0.65 && progress <= 0.8) {
+        baseOpacity = (progress - 0.5) / (0.65 - 0.5);
+      } else {
         baseOpacity = 1;
-        baseBlur = 0;
-      }
-      // Легкое заблюривание на 20% к самому концу скролла (от 0.8 до 1.0)
-      else {
-        const blurProgress = (progress - 0.8) / (1.0 - 0.8);
-        baseOpacity = 1;
-        baseBlur = blurProgress * 4; // 4px — аккуратный софт-блюр эффекта фокуса
       }
 
       videoRef.current.style.opacity = baseOpacity.toString();
-      videoRef.current.style.filter = `blur(${baseBlur}px)`;
     }
 
-    // Плавное дополнительное затемнение видео через оверлей (от 0.8 до 1.0)
+    // === УСИЛЕННОЕ ЗАТЕМНЕНИЕ ЧЕРЕЗ ОВЕРЛЕЙ (от 0.65 до 1.0) ===
     if (videoOverlayRef.current) {
-      if (progress > 0.8) {
-        const darkProgress = (progress - 0.8) / (1.0 - 0.8);
-        videoOverlayRef.current.style.background = `rgba(0, 0, 0, ${0.3 + darkProgress * 0.3})`; // Затемнение с 0.3 до 0.6
+      if (progress > 0.65) {
+        // Прогресс затемнения идет параллельно с проявлением текста
+        const darkProgress = Math.min((progress - 0.65) / (1.0 - 0.65), 1);
+        // Стартуем с легкого затемнения 0.2 и уходим в глубокое 0.85 для сочности текста
+        videoOverlayRef.current.style.background = `rgba(0, 0, 0, ${0.2 + darkProgress * 0.65})`;
       } else {
-        videoOverlayRef.current.style.background = "rgba(0, 0, 0, 0.3)";
+        // Пока сетка двигается, видео слегка притеняем, чтобы оно не спорило с картинками
+        videoOverlayRef.current.style.background = "rgba(0, 0, 0, 0.2)";
       }
     }
 
@@ -247,7 +238,7 @@ export default function Home() {
       if (progress > 0.68) {
         const textProgress = Math.min((progress - 0.68) / 0.22, 1);
         textRef.current.style.opacity = textProgress.toString();
-        textRef.current.style.transform = `translate3d(0, ${(1 - textProgress) * 30}px, 0)`; // Исходный сдвиг 30px
+        textRef.current.style.transform = `translate3d(0, ${(1 - textProgress) * 30}px, 0)`;
         textRef.current.style.pointerEvents = "auto";
       } else {
         textRef.current.style.opacity = "0";
