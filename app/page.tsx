@@ -8,18 +8,9 @@ export default function Home() {
   const [imgSize, setImgSize] = useState(140);
 
   const videoRef = useRef<HTMLVideoElement>(null);
-  const videoOverlayRef = useRef<HTMLDivElement>(null);
-  const maskVideoRef = useRef<HTMLVideoElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  // Стейты для кинематографичного появления/исчезновения маски
-  const [maskOpacity, setMaskOpacity] = useState(0);
-  const [maskBlur, setMaskBlur] = useState(20);
-
-  const maskPlayingRef = useRef(false);
-  const maskFinishedRef = useRef(false);
 
   const [contactHovered, setContactHovered] = useState(false);
   const [shaking, setShaking] = useState(false);
@@ -29,6 +20,7 @@ export default function Home() {
   const [isSending, setIsSending] = useState(false);
 
   const touchStartRef = useRef(0);
+  // Инициализируем реф тем же значением, что и дефолтный прогресс, чтобы избежать скачка
   const currentProgressRef = useRef(0);
 
   const row0 = ["/1.jpg", "/2.jpg", "/3.jpg", "/4.jpg", "/5.jpg", "/6.jpg", "/7.jpg", "/8.jpg", "/9.jpg", "/10.jpg"];
@@ -112,108 +104,6 @@ export default function Home() {
     return () => window.removeEventListener("resize", calcSize);
   }, []);
 
-  // Улучшенный запуск маски
-  useEffect(() => {
-    const maskVideo = maskVideoRef.current;
-    if (!maskVideo) return;
-
-    let fallbackTimeout: NodeJS.Timeout;
-    let animationFrameId: number;
-
-    const startMaskPlayback = () => {
-      if (maskPlayingRef.current) return;
-      maskPlayingRef.current = true;
-
-      maskVideo.currentTime = 0;
-
-      fallbackTimeout = setTimeout(() => {
-        maskFinishedRef.current = true;
-      }, 3500);
-
-      const playPromise = maskVideo.play();
-
-      if (playPromise !== undefined) {
-        playPromise
-          .then(() => {
-            let currentOpacity = 0;
-            let currentBlur = 20;
-
-            const fadeInMask = () => {
-              currentOpacity = Math.min(1, currentOpacity + 0.05);
-              currentBlur = Math.max(0, currentBlur - 1);
-
-              setMaskOpacity(currentOpacity);
-              setMaskBlur(currentBlur);
-
-              if (currentOpacity < 1 || currentBlur > 0) {
-                animationFrameId = requestAnimationFrame(fadeInMask);
-              }
-            };
-            animationFrameId = requestAnimationFrame(fadeInMask);
-          })
-          .catch((err) => {
-            console.log("Автоплей маски заблокирован мобильной системой:", err);
-            maskFinishedRef.current = true;
-          });
-      }
-    };
-
-    if (maskVideo.readyState >= 1) {
-      startMaskPlayback();
-    } else {
-      maskVideo.addEventListener("loadedmetadata", startMaskPlayback, { once: true });
-    }
-
-    const handleTimeUpdate = () => {
-      if (!maskVideo.duration) return;
-      const timeLeft = maskVideo.duration - maskVideo.currentTime;
-
-      if (timeLeft <= 0.15 && !maskFinishedRef.current) {
-        maskFinishedRef.current = true;
-        clearTimeout(fallbackTimeout);
-      }
-
-      if (timeLeft <= 1.5 && maskPlayingRef.current) {
-        maskPlayingRef.current = false;
-        cancelAnimationFrame(animationFrameId);
-
-        let currentOpacity = 1;
-        let currentBlur = 0;
-
-        const fadeOutMask = () => {
-          currentOpacity = Math.max(0, currentOpacity - 0.03);
-          currentBlur = Math.min(20, currentBlur + 0.5);
-
-          setMaskOpacity(currentOpacity);
-          setMaskBlur(currentBlur);
-
-          if (currentOpacity > 0 || currentBlur < 20) {
-            animationFrameId = requestAnimationFrame(fadeOutMask);
-          }
-        };
-        animationFrameId = requestAnimationFrame(fadeOutMask);
-      }
-    };
-
-    const handleVideoEnded = () => {
-      maskFinishedRef.current = true;
-      setMaskOpacity(0);
-      setMaskBlur(20);
-      clearTimeout(fallbackTimeout);
-    };
-
-    maskVideo.addEventListener("timeupdate", handleTimeUpdate);
-    maskVideo.addEventListener("ended", handleVideoEnded);
-
-    return () => {
-      maskVideo.removeEventListener("loadedmetadata", startMaskPlayback);
-      maskVideo.removeEventListener("timeupdate", handleTimeUpdate);
-      maskVideo.removeEventListener("ended", handleVideoEnded);
-      cancelAnimationFrame(animationFrameId);
-      clearTimeout(fallbackTimeout);
-    };
-  }, []);
-
   // Виртуальный скролл
   useEffect(() => {
     const handleWheel = (e: WheelEvent) => {
@@ -222,10 +112,6 @@ export default function Home() {
 
       const speed = 0.0015;
       let next = currentProgressRef.current + e.deltaY * speed;
-
-      if (!maskFinishedRef.current && next > 0.3) {
-        next = 0.3;
-      }
 
       next = Math.min(Math.max(next, 0), 1);
       currentProgressRef.current = next;
@@ -247,10 +133,6 @@ export default function Home() {
 
       const speed = 0.002;
       let next = currentProgressRef.current + deltaY * speed;
-
-      if (!maskFinishedRef.current && next > 0.3) {
-        next = 0.3;
-      }
 
       next = Math.min(Math.max(next, 0), 1);
       currentProgressRef.current = next;
@@ -311,26 +193,13 @@ export default function Home() {
         const videoProgress = (progress - 0.5) / (0.65 - 0.5);
         baseOpacity = videoProgress;
         baseBlur = (1 - videoProgress) * 20;
-      } else if (progress > 0.65 && progress <= 0.8) {
+      } else {
         baseOpacity = 1;
         baseBlur = 0;
-      } else {
-        const blurProgress = (progress - 0.8) / (1.0 - 0.8);
-        baseOpacity = 1;
-        baseBlur = blurProgress * 4;
       }
 
       videoRef.current.style.opacity = baseOpacity.toString();
       videoRef.current.style.filter = `blur(${baseBlur}px)`;
-    }
-
-    if (videoOverlayRef.current) {
-      if (progress > 0.8) {
-        const darkProgress = (progress - 0.8) / (1.0 - 0.8);
-        videoOverlayRef.current.style.background = `rgba(0, 0, 0, ${0.3 + darkProgress * 0.3})`;
-      } else {
-        videoOverlayRef.current.style.background = "rgba(0, 0, 0, 0.3)";
-      }
     }
 
     if (textRef.current) {
@@ -438,21 +307,6 @@ export default function Home() {
           position: relative;
           transition: transform 0.1s ease-out;
         }
-        
-        .mask-video-element {
-          position: fixed;
-          top: 0;
-          left: 0;
-          width: 100vw;
-          height: 100vh;
-          object-fit: cover;
-          pointer-events: none;
-          mix-blend-mode: multiply;
-          z-index: 5;
-          display: block;
-          will-change: opacity, filter;
-          transform: translateZ(0);
-        }
 
         .text-line {
           letter-spacing: -0.02em;
@@ -476,22 +330,6 @@ export default function Home() {
           }
         }
       `}</style>
-
-      {/* Маска */}
-      <video
-        ref={maskVideoRef}
-        src="/mask.mp4"
-        muted
-        autoPlay
-        loop={false}
-        playsInline
-        preload="auto"
-        className="mask-video-element"
-        style={{
-          opacity: maskOpacity,
-          filter: `blur(${maskBlur}px)`
-        }}
-      />
 
       {/* Модальное окно контактов */}
       {showContact && (
@@ -587,8 +425,6 @@ export default function Home() {
             willChange: "opacity, filter"
           }}
         />
-        {/* Интерактивный слой затемнения поверх видео */}
-        <div ref={videoOverlayRef} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.3)", zIndex: 1, pointerEvents: "none", transition: "background 0.1s ease-out" }} />
 
         {/* Контейнер Сетки (Scene 1) */}
         <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", zIndex: 2, overflow: "hidden" }}>
