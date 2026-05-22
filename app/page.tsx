@@ -8,21 +8,20 @@ export default function Home() {
   const [imgSize, setImgSize] = useState(140);
 
   const videoRef = useRef<HTMLVideoElement>(null);
-  const videoOverlayRef = useRef<HTMLDivElement>(null); // Реф для плавного затемнения фона под текстом
   const maskVideoRef = useRef<HTMLVideoElement>(null);
   const overlayRef = useRef<HTMLVideoElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const welcomeRef = useRef<HTMLDivElement>(null);
 
-  // Оверлей теперь изначально скрыт и размыт
-  const [overlayOpacity, setOverlayOpacity] = useState(0);
-  const [overlayBlur, setOverlayBlur] = useState(20);
+  // Сразу ставим прозрачность 1, чтобы избежать мерцания, и запускаем отсчет анимации
+  const [overlayOpacity, setOverlayOpacity] = useState(1);
+  const [overlayBlur, setOverlayBlur] = useState(0);
   const [maskOpacity, setMaskOpacity] = useState(0);
 
   const maskPlayingRef = useRef(false);
   const maskFinishedRef = useRef(false);
-  const overlayHasPlayedRef = useRef(false); // Флаг, чтобы запустить видео только один раз
 
   const [contactHovered, setContactHovered] = useState(false);
   const [shaking, setShaking] = useState(false);
@@ -33,6 +32,20 @@ export default function Home() {
 
   const touchStartRef = useRef(0);
   const currentProgressRef = useRef(0);
+
+  // 10 приветствий на самых распространенных языках
+  const welcomes = [
+    "WELCOME",      // Английский
+    "BIENVENUE",    // Французский
+    "BIENVENIDO",   // Испанский
+    "WILLKOMMEN",   // Немецкий
+    "BENVENUTO",    // Итальянский
+    "BEM-VINDO",    // Португальский
+    "ДОБРО ПОЖАЛОВАТЬ", // Русский
+    "HUĀNYÍNG",     // Китайский (Пиньинь для сохранения шрифта Arial)
+    "YŌKOSO",       // Японский (Ромадзи)
+    "WELKOM"        // Голландский
+  ];
 
   const row0 = ["/1.jpg", "/2.jpg", "/3.jpg", "/4.jpg", "/5.jpg", "/6.jpg", "/7.jpg", "/8.jpg", "/9.jpg", "/10.jpg"];
   const row1 = ["/11.jpg", "/12.jpg", "/13.jpg", "/14.jpg", "/15.jpg", "/16.jpg", "/17.jpg", "/18.jpg", "/19.jpg", "/20.jpg"];
@@ -92,42 +105,6 @@ export default function Home() {
     }
   };
 
-  // Фикс автоплея маски на смартфонах при первом взаимодействии
-  useEffect(() => {
-    const unlockVideos = () => {
-      const maskVideo = maskVideoRef.current;
-      if (maskVideo && maskVideo.paused) {
-        maskVideo.play()
-          .then(() => console.log("Mask successfully unlocked"))
-          .catch((err) => {
-            console.error("Mask autoplay failed:", err);
-            maskFinishedRef.current = true;
-          });
-      }
-
-      const overlay = overlayRef.current;
-      if (overlay) {
-        overlay.play()
-          .then(() => {
-            overlay.pause();
-            overlay.currentTime = 0;
-          })
-          .catch((err) => console.log("Overlay unlock failed:", err));
-      }
-
-      window.removeEventListener("touchstart", unlockVideos);
-      window.removeEventListener("click", unlockVideos);
-    };
-
-    window.addEventListener("touchstart", unlockVideos, { passive: true });
-    window.addEventListener("click", unlockVideos, { passive: true });
-
-    return () => {
-      window.removeEventListener("touchstart", unlockVideos);
-      window.removeEventListener("click", unlockVideos);
-    };
-  }, []);
-
   // Проверка на iOS устройства
   useEffect(() => {
     const isiPhone = /iPhone|iPad|iPod/i.test(navigator.userAgent);
@@ -151,68 +128,67 @@ export default function Home() {
     return () => window.removeEventListener("resize", calcSize);
   }, []);
 
-  // Запуск маски и управление её состоянием
+  // Входная анимация оверлея при загрузке
   useEffect(() => {
-    const maskVideo = maskVideoRef.current;
-    if (!maskVideo) return;
+    let start = performance.now();
+    const duration = 800;
 
-    maskPlayingRef.current = true;
-    maskVideo.currentTime = 0;
+    const animateOverlayIn = (time: number) => {
+      const timeFraction = Math.min((time - start) / duration, 1);
+      setOverlayOpacity(1);
+      setOverlayBlur((1 - timeFraction) * 20);
 
-    const fallbackTimeout = setTimeout(() => {
-      maskFinishedRef.current = true;
-    }, 3500);
-
-    maskVideo.play().catch(() => {
-      maskFinishedRef.current = true;
-    });
-
-    const fadeInMask = () => {
-      setMaskOpacity((prev) => {
-        if (prev >= 1) return 1;
-        requestAnimationFrame(fadeInMask);
-        return Math.min(1, prev + 0.04);
-      });
-    };
-    fadeInMask();
-
-    const handleTimeUpdate = () => {
-      if (!maskVideo.duration) return;
-      const timeLeft = maskVideo.duration - maskVideo.currentTime;
-
-      if (timeLeft <= 0.15 && !maskFinishedRef.current) {
-        maskFinishedRef.current = true;
-        clearTimeout(fallbackTimeout);
-      }
-
-      if (timeLeft <= 1.5 && maskPlayingRef.current) {
-        maskPlayingRef.current = false;
-        const fadeOutMask = () => {
-          setMaskOpacity((prev) => {
-            if (prev <= 0) return 0;
-            requestAnimationFrame(fadeOutMask);
-            return Math.max(0, prev - 0.02);
-          });
-        };
-        fadeOutMask();
+      if (timeFraction < 1) {
+        requestAnimationFrame(animateOverlayIn);
       }
     };
-
-    const handleVideoEnded = () => {
-      maskFinishedRef.current = true;
-      setMaskOpacity(0);
-      clearTimeout(fallbackTimeout);
-    };
-
-    maskVideo.addEventListener("timeupdate", handleTimeUpdate);
-    maskVideo.addEventListener("ended", handleVideoEnded);
-
-    return () => {
-      maskVideo.removeEventListener("timeupdate", handleTimeUpdate);
-      maskVideo.removeEventListener("ended", handleVideoEnded);
-      clearTimeout(fallbackTimeout);
-    };
+    requestAnimationFrame(animateOverlayIn);
   }, []);
+
+  // Ленивый триггер для mask.mp4 (запускается только когда прокрутили титры приветствия)
+  useEffect(() => {
+    if (progress > 0.22 && !maskPlayingRef.current && !maskFinishedRef.current) {
+      const maskVideo = maskVideoRef.current;
+      if (!maskVideo) return;
+
+      maskPlayingRef.current = true;
+      maskVideo.currentTime = 0;
+      maskVideo.play().catch(() => { });
+
+      const fadeInMask = () => {
+        setMaskOpacity((prev) => {
+          if (prev >= 1) return 1;
+          requestAnimationFrame(fadeInMask);
+          return Math.min(1, prev + 0.04);
+        });
+      };
+      fadeInMask();
+
+      const handleTimeUpdate = () => {
+        if (!maskVideo.duration) return;
+        const timeLeft = maskVideo.duration - maskVideo.currentTime;
+
+        if (timeLeft <= 0.1 && !maskFinishedRef.current) {
+          maskFinishedRef.current = true;
+        }
+
+        if (timeLeft <= 1.5 && maskPlayingRef.current) {
+          maskPlayingRef.current = false;
+          const fadeOutMask = () => {
+            setMaskOpacity((prev) => {
+              if (prev <= 0) return 0;
+              requestAnimationFrame(fadeOutMask);
+              return Math.max(0, prev - 0.02);
+            });
+          };
+          fadeOutMask();
+        }
+      };
+
+      maskVideo.addEventListener("timeupdate", handleTimeUpdate);
+      return () => maskVideo.removeEventListener("timeupdate", handleTimeUpdate);
+    }
+  }, [progress]);
 
   // Виртуальный скролл со стопором маски
   useEffect(() => {
@@ -220,11 +196,12 @@ export default function Home() {
       if (showContact) return;
       e.preventDefault();
 
-      const speed = 0.0015;
+      const speed = 0.0012; // Чуть снизили скорость, чтобы титры читались комфортнее
       let next = currentProgressRef.current + e.deltaY * speed;
 
-      if (!maskFinishedRef.current && next > 0.3) {
-        next = 0.3;
+      // Блокируем скролл дальше сетки, пока видео-маска не доиграет
+      if (progress > 0.25 && !maskFinishedRef.current && next > 0.45) {
+        next = 0.45;
       }
 
       next = Math.min(Math.max(next, 0), 1);
@@ -245,11 +222,11 @@ export default function Home() {
       const deltaY = touchStartRef.current - currentY;
       touchStartRef.current = currentY;
 
-      const speed = 0.002;
+      const speed = 0.0025;
       let next = currentProgressRef.current + deltaY * speed;
 
-      if (!maskFinishedRef.current && next > 0.3) {
-        next = 0.3;
+      if (progress > 0.25 && !maskFinishedRef.current && next > 0.45) {
+        next = 0.45;
       }
 
       next = Math.min(Math.max(next, 0), 1);
@@ -266,12 +243,28 @@ export default function Home() {
       window.removeEventListener("touchstart", handleTouchStart);
       window.removeEventListener("touchmove", handleTouchMove);
     };
-  }, [showContact]);
+  }, [showContact, progress]);
 
-  // Интерактивный таймлайн анимаций
+  // Интерактивный таймлайн всех анимаций на основе progress
   useEffect(() => {
-    // Движение сетки
-    const gridProgress = Math.min(progress / 0.65, 1);
+    // 1. УПРАВЛЕНИЕ СЦЕНОЙ WELCOME (от 0.0 до 0.25)
+    if (welcomeRef.current) {
+      if (progress <= 0.22) {
+        welcomeRef.current.style.opacity = "1";
+        welcomeRef.current.style.filter = "blur(0px)";
+      } else if (progress > 0.25) {
+        welcomeRef.current.style.opacity = "0";
+        welcomeRef.current.style.filter = "blur(30px)";
+      } else {
+        // Плавный уход в блюр на стыке с сеткой
+        const fadeOut = (progress - 0.22) / (0.25 - 0.22);
+        welcomeRef.current.style.opacity = (1 - fadeOut).toString();
+        welcomeRef.current.style.filter = `blur(${fadeOut * 30}px)`;
+      }
+    }
+
+    // 2. ДВИЖЕНИЕ И ПРОЯВЛЕНИЕ СЕТКИ (Вход от 0.23 до 0.35, Выход от 0.45 до 0.65)
+    const gridProgress = Math.min(Math.max((progress - 0.23) / 0.42, 0), 1);
     trackRefs.current.forEach((track, i) => {
       if (!track) return;
       const maxMove = track.scrollWidth / 2;
@@ -285,92 +278,65 @@ export default function Home() {
     if (gridRef.current) {
       const scale = 1 - gridProgress * 0.05;
       gridRef.current.style.transform = `scale(${scale})`;
-    }
 
-    // === ИСЧЕЗНОВЕНИЕ СЕТКИ ЧЕРЕЗ БЛЮР И ОПАСИТИ (от 0.3 до 0.5) ===
-    if (gridRef.current) {
-      if (progress <= 0.3) {
+      // Альфа сетки
+      if (progress <= 0.23) {
+        gridRef.current.style.opacity = "0";
+        gridRef.current.style.filter = "blur(20px)";
+      } else if (progress > 0.23 && progress <= 0.30) {
+        const fadeIn = (progress - 0.23) / (0.30 - 0.23);
+        gridRef.current.style.opacity = fadeIn.toString();
+        gridRef.current.style.filter = `blur(${(1 - fadeIn) * 20}px)`;
+      } else if (progress > 0.30 && progress <= 0.45) {
         gridRef.current.style.opacity = "1";
         gridRef.current.style.filter = "blur(0px)";
-      } else if (progress > 0.5) {
+      } else if (progress > 0.45 && progress <= 0.65) {
+        const fadeOut = (progress - 0.45) / (0.65 - 0.45);
+        gridRef.current.style.opacity = (1 - fadeOut).toString();
+        gridRef.current.style.filter = `blur(${fadeOut * 30}px)`;
+      } else {
         gridRef.current.style.opacity = "0";
         gridRef.current.style.filter = "blur(30px)";
-      } else {
-        const gridFade = (progress - 0.3) / (0.5 - 0.3); // 0 -> 1
-        gridRef.current.style.opacity = (1 - gridFade).toString();
-        gridRef.current.style.filter = `blur(${gridFade * 30}px)`;
       }
     }
 
-    // === УПРАВЛЕНИЕ ОВЕРЛЕЕМ ПО СКРОЛЛУ И ОДНОКРАТНЫЙ ЗАПУСК ===
+    // 3. УПРАВЛЕНИЕ ОВЕРЛЕЕМ (Исчезает параллельно с уходом сетки от 0.5 до 0.68)
     if (overlayRef.current) {
-      if (progress >= 0.5 && !overlayHasPlayedRef.current) {
-        overlayHasPlayedRef.current = true;
-        overlayRef.current.currentTime = 0;
-        overlayRef.current.play().catch(() => { });
-      }
-
       if (progress <= 0.5) {
-        setOverlayOpacity(0);
-        setOverlayBlur(20);
-      } else if (progress > 0.5 && progress <= 0.58) {
-        const fadeIn = (progress - 0.5) / (0.58 - 0.5);
-        setOverlayOpacity(fadeIn);
-        setOverlayBlur((1 - fadeIn) * 20);
-      } else if (progress > 0.58 && progress <= 0.68) {
-        const fadeOut = (progress - 0.58) / (0.68 - 0.58);
-        setOverlayOpacity(1 - fadeOut);
-        setOverlayBlur(fadeOut * 20);
+        overlayRef.current.style.opacity = overlayOpacity.toString();
+        overlayRef.current.style.filter = `blur(${overlayBlur}px)`;
+      } else if (progress > 0.68) {
+        overlayRef.current.style.opacity = "0";
+        overlayRef.current.style.filter = "blur(20px)";
       } else {
-        setOverlayOpacity(0);
-        setOverlayBlur(20);
+        const overlayProgress = (progress - 0.5) / (0.68 - 0.5);
+        overlayRef.current.style.opacity = (1 - overlayProgress).toString();
+        overlayRef.current.style.filter = `blur(${overlayProgress * 20}px)`;
       }
     }
 
-    // === ПРОЯВЛЕНИЕ, БЛЮР И ЗАТЕМНЕНИЕ ВИДЕО 'ME' ===
+    // 4. ПРОЯВЛЕНИЕ ВИДЕО 'ME' (от 0.5 до 0.65)
     if (videoRef.current) {
-      let baseBlur = 0;
-      let baseOpacity = 0;
-
-      // Появление видео (от 0.5 до 0.65)
       if (progress <= 0.5) {
-        baseOpacity = 0;
-        baseBlur = 20;
-      } else if (progress > 0.5 && progress <= 0.65) {
-        const videoProgress = (progress - 0.5) / (0.65 - 0.5);
-        baseOpacity = videoProgress;
-        baseBlur = (1 - videoProgress) * 20;
-      } else if (progress > 0.65 && progress <= 0.8) {
-        baseOpacity = 1;
-        baseBlur = 0;
-      }
-      // Легкое заблюривание на 20% к самому концу скролла (от 0.8 до 1.0)
-      else {
-        const blurProgress = (progress - 0.8) / (1.0 - 0.8);
-        baseOpacity = 1;
-        baseBlur = blurProgress * 4; // 4px — аккуратный софт-блюр эффекта фокуса
-      }
-
-      videoRef.current.style.opacity = baseOpacity.toString();
-      videoRef.current.style.filter = `blur(${baseBlur}px)`;
-    }
-
-    // Плавное дополнительное затемнение видео через оверлей (от 0.8 до 1.0)
-    if (videoOverlayRef.current) {
-      if (progress > 0.8) {
-        const darkProgress = (progress - 0.8) / (1.0 - 0.8);
-        videoOverlayRef.current.style.background = `rgba(0, 0, 0, ${0.3 + darkProgress * 0.3})`; // Затемнение с 0.3 до 0.6
+        videoRef.current.style.opacity = "0";
+        videoRef.current.style.filter = "blur(20px)";
+      } else if (progress > 0.65) {
+        videoRef.current.style.opacity = "1";
+        videoRef.current.style.filter = "blur(0px)";
       } else {
-        videoOverlayRef.current.style.background = "rgba(0, 0, 0, 0.3)";
+        const videoProgress = (progress - 0.5) / (0.65 - 0.5);
+        const currentBlur = (1 - videoProgress) * 20;
+        videoRef.current.style.opacity = videoProgress.toString();
+        videoRef.current.style.filter = `blur(${currentBlur}px)`;
       }
     }
 
-    // === ОРИГИНАЛЬНОЕ ПОЯВЛЕНИЕ ТЕКСТА (от 0.68 до 0.9) ===
+    // 5. ПОЯВЛЕНИЕ ФИНАЛЬНОГО ТЕКСТА (от 0.68 до 0.9)
     if (textRef.current) {
       if (progress > 0.68) {
         const textProgress = Math.min((progress - 0.68) / 0.22, 1);
         textRef.current.style.opacity = textProgress.toString();
-        textRef.current.style.transform = `translate3d(0, ${(1 - textProgress) * 30}px, 0)`; // Исходный сдвиг 30px
+        textRef.current.style.transform = `translate3d(0, ${(1 - textProgress) * 30}px, 0)`;
         textRef.current.style.pointerEvents = "auto";
       } else {
         textRef.current.style.opacity = "0";
@@ -378,7 +344,7 @@ export default function Home() {
         textRef.current.style.pointerEvents = "none";
       }
     }
-  }, [progress]);
+  }, [progress, overlayOpacity, overlayBlur]);
 
   // Контакты и дополнительный блюр текста
   useEffect(() => {
@@ -394,7 +360,7 @@ export default function Home() {
       textEl.style.filter = "blur(0px)";
       setTimeout(() => { if (textEl) textEl.style.transition = ""; }, 450);
     }
-  }, [contactVisible]);
+  }, [contactVisible, progress]);
 
   const handleContactEnter = () => {
     if (shaking) return;
@@ -404,6 +370,12 @@ export default function Home() {
       setContactHovered(true);
     }, 400);
   };
+
+  // Вычисляем индекс текущего слова Welcome на основе progress (от 0.0 до 0.22)
+  const currentWelcomeIndex = Math.min(
+    Math.floor((Math.min(progress, 0.22) / 0.22) * welcomes.length),
+    welcomes.length - 1
+  );
 
   const inputStyle: React.CSSProperties = {
     background: "transparent",
@@ -437,9 +409,6 @@ export default function Home() {
           overflow: hidden;
           background: black;
           position: fixed;
-          /* Добавляем 3D перспективу, чтобы исправить наложение слоев в iOS Safari */
-          perspective: 1000px;
-          transform-style: preserve-3d;
         }
 
         * {
@@ -483,8 +452,8 @@ export default function Home() {
 
         .text-line {
           font-weight: 900;
-          letter-spacing: -0.01em;
-          line-height: 1.0;
+          letter-spacing: -0.02em;
+          line-height: 0.9;
           color: white;
         }
         
@@ -505,17 +474,15 @@ export default function Home() {
         }
       `}</style>
 
-      {/* Маска с добавленными мобильными атрибутами */}
+      {/* Маска */}
       <video
         ref={maskVideoRef}
         src="/mask.mp4"
         muted
-        loop
         playsInline
-        autoPlay
         preload="auto"
         className="mask-video-element"
-        style={{ opacity: maskOpacity, display: maskOpacity > 0 ? "block" : "none", willChange: "opacity" }}
+        style={{ opacity: maskOpacity, display: maskOpacity > 0 ? "block" : "none" }}
       />
 
       {/* Модальное окно контактов */}
@@ -594,12 +561,13 @@ export default function Home() {
         </div>
       )}
 
-      {/* ОВЕРЛЕЙ с фиксом слоев через translateZ для iOS */}
+      {/* ОВЕРЛЕЙ */}
       <video
         ref={overlayRef}
+        autoPlay
         muted
         playsInline
-        preload="auto"
+        loop
         style={{
           position: "fixed", top: 0, left: 0,
           width: "100vw", height: "100vh",
@@ -607,7 +575,6 @@ export default function Home() {
           pointerEvents: "none",
           opacity: overlayOpacity,
           filter: `blur(${overlayBlur}px)`,
-          transform: "translateZ(100px)", // Принудительно выносит вперед над блюром
           willChange: "opacity, filter"
         }}
       >
@@ -631,11 +598,41 @@ export default function Home() {
             width: "100vw", height: "100vh",
             objectFit: "cover", zIndex: 0,
             opacity: 0,
-            willChange: "opacity, filter"
           }}
         />
-        {/* Интерактивный слой затемнения поверх видео */}
-        <div ref={videoOverlayRef} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.3)", zIndex: 1, pointerEvents: "none", transition: "background 0.1s ease-out" }} />
+        <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.3)", zIndex: 1, pointerEvents: "none" }} />
+
+        {/* НОВОЕ: ЭКРАН ТИТРОВ WELCOME (Scene 0) */}
+        <div
+          ref={welcomeRef}
+          style={{
+            position: "absolute",
+            inset: 0,
+            zIndex: 15,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "0 4vw",
+            background: "black",
+            willChange: "opacity, filter",
+            pointerEvents: "none"
+          }}
+        >
+          <div
+            style={{
+              fontSize: "clamp(40px, 12vw, 170px)",
+              fontWeight: 900,
+              color: "white",
+              textAlign: "center",
+              lineHeight: 0.85,
+              letterSpacing: "-0.03em",
+              width: "100%",
+              wordBreak: "break-word"
+            }}
+          >
+            {welcomes[currentWelcomeIndex]}
+          </div>
+        </div>
 
         {/* Контейнер Сетки (Scene 1) */}
         <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", zIndex: 2, overflow: "hidden" }}>
@@ -670,7 +667,6 @@ export default function Home() {
             alignItems: "center",
             padding: "0 clamp(20px, 6vw, 80px)",
             opacity: 0,
-            transform: "translate3d(0, 30px, 0)",
             willChange: "transform, opacity",
             pointerEvents: "none"
           }}
