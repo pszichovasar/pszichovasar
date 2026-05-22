@@ -89,7 +89,7 @@ export default function Home() {
     }
   }, []);
 
-  // Жесткий запуск видео iome.mp4 в Safari
+  // Жесткий запуск видео в Safari
   useEffect(() => {
     const video = videoRef.current;
     if (video) {
@@ -292,20 +292,15 @@ export default function Home() {
     border: "none",
     borderBottom: "1.5px solid #000",
     color: "#000",
-    fontSize: "clamp(12px, 1.5vw, 15px)",
+    fontSize: "clamp(13px, 1.5vw, 16px)",
     padding: "6px 0",
     outline: "none",
-    fontFamily: "'Arial Black', Arial, sans-serif",
-    textTransform: "uppercase",
     width: "100%",
   };
 
   const labelStyle: React.CSSProperties = {
     fontSize: "9px",
-    letterSpacing: "0.2em",
     color: "#000",
-    textTransform: "uppercase",
-    fontFamily: "'Arial Black', Arial, sans-serif",
   };
 
   return (
@@ -349,37 +344,85 @@ export default function Home() {
           transition: transform 0.1s ease-out;
         }
 
+        /* Текстовые линии главного экрана (ПК) */
         .text-line {
           font-family: 'Arial Black', Arial, sans-serif !important;
           font-weight: 900 !important;
-          letter-spacing: -0.04em;
-          line-height: 0.95;
+          letter-spacing: -0.05em;
+          line-height: 0.92;
           color: white;
+          -webkit-text-stroke: 2px white; 
+          paint-order: stroke fill;
         }
         
         .desktop-br { display: inline; }
         .mobile-br { display: none; }
 
+        /* Элементы выплывающей карточки (ПК) */
+        .card-title {
+          font-family: 'Arial Black', Arial, sans-serif !important;
+          font-weight: 900 !important;
+          letter-spacing: -0.04em;
+          -webkit-text-stroke: 1.2px #000;
+          paint-order: stroke fill;
+        }
+
+        .card-label {
+          font-family: 'Arial Black', Arial, sans-serif !important;
+          font-weight: 900 !important;
+          letter-spacing: 0.1em;
+          -webkit-text-stroke: 0.4px #000;
+          paint-order: stroke fill;
+        }
+
+        .card-input {
+          font-family: 'Arial Black', Arial, sans-serif !important;
+          font-weight: 900 !important;
+          letter-spacing: -0.02em;
+          -webkit-text-stroke: 0.6px #000;
+          paint-order: stroke fill;
+        }
+
+        .card-btn {
+          font-family: 'Arial Black', Arial, sans-serif !important;
+          font-weight: 900 !important;
+          letter-spacing: 0.15em;
+          -webkit-text-stroke: 0.5px #fff;
+          paint-order: stroke fill;
+        }
+
+        /* Адаптив под мобильные устройства (iPhone) */
         @media (max-width: 768px) {
           .desktop-br { display: none; }
           .mobile-br { display: block; }
           
           .text-line {
-            font-family: 'Arial Black', Arial, sans-serif !important;
-            font-weight: 900 !important;
             font-size: 8.5vw !important;
             letter-spacing: -0.05em;
-            /* Точечный хак микро-обводки для компенсации плотности Arial Black на iOS */
-            -webkit-text-stroke: 1px white;
+            -webkit-text-stroke: 1.2px white;
           }
           .contact-trigger {
             font-size: 8.5vw !important;
             margin-top: 1.2em !important;
           }
+
+          /* Синхронизация плотности букв карточки на экранах смартфонов */
+          .card-title {
+            -webkit-text-stroke: 0.8px #000;
+          }
+          .card-label {
+            -webkit-text-stroke: 0.3px #000;
+          }
+          .card-input {
+            -webkit-text-stroke: 0.4px #000;
+          }
+          .card-btn {
+            -webkit-text-stroke: 0.4px #fff;
+          }
         }
       `}</style>
 
-      {/* Модальное окно контактов */}
+      {/* МОДАЛЬНОЕ ОКНО КОНТАКТОВ */}
       {showContact && (
         <div
           onClick={(e) => e.target === e.currentTarget && !isSending && closeContact()}
@@ -404,7 +447,7 @@ export default function Home() {
             justifyContent: "space-between"
           }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", width: "100%" }}>
-              <div style={{ fontSize: "clamp(18px, 3.2vw, 28px)", fontWeight: 900, letterSpacing: "-0.01em", lineHeight: 1, color: "#000" }}>
+              <div className="card-title" style={{ fontSize: "clamp(18px, 3.2vw, 28px)", fontWeight: 900, letterSpacing: "-0.01em", lineHeight: 1, color: "#000" }}>
                 LET'S WORK
               </div>
               <button disabled={isSending} onClick={closeContact} style={{ background: "none", border: "none", color: "#000", fontSize: "24px", cursor: isSending ? "not-allowed" : "pointer", lineHeight: 1, padding: 0, marginTop: "-4px" }}>×</button>
@@ -416,9 +459,10 @@ export default function Home() {
                 { label: "EMAIL", key: "email" as const, type: "email" },
               ].map(({ label, key, type }) => (
                 <div key={key} style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-                  <label style={labelStyle}>{label}</label>
+                  <label className="card-label" style={labelStyle}>{label}</label>
                   <input
                     type={type}
+                    className="card-input"
                     disabled={isSending}
                     value={form[key]}
                     onChange={(e) => setForm({ ...form, [key]: e.target.value.toUpperCase() })}
@@ -428,21 +472,21 @@ export default function Home() {
               ))}
 
               <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-                <label style={labelStyle}>MESSAGE</label>
-                <textarea ref={textareaRef} disabled={isSending} value={form.message} onChange={handleMessageChange} rows={1} style={{ ...inputStyle, resize: "none", overflow: "hidden", lineHeight: "1.4", transition: "height 0.25s ease", display: "block", verticalAlign: "bottom" }} />
+                <label className="card-label" style={labelStyle}>MESSAGE</label>
+                <textarea ref={textareaRef} className="card-input" disabled={isSending} value={form.message} onChange={handleMessageChange} rows={1} style={{ ...inputStyle, resize: "none", overflow: "hidden", lineHeight: "1.4", transition: "height 0.25s ease", display: "block", verticalAlign: "bottom" }} />
               </div>
             </div>
 
             <button
               onClick={handleSubmit}
               disabled={isSending}
+              className="card-btn"
               style={{
                 background: "#000",
                 color: "#fff",
                 border: "none",
                 padding: "14px 32px",
                 fontSize: "10px",
-                letterSpacing: "0.2em",
                 fontWeight: 900,
                 cursor: isSending ? "not-allowed" : "pointer",
                 alignSelf: "flex-start",
@@ -458,7 +502,7 @@ export default function Home() {
       {/* ОСНОВНОЙ ФИКСИРОВАННЫЙ КОНТЕЙНЕР */}
       <main style={{ position: "fixed", width: "100vw", height: "100vh", top: 0, left: 0, overflow: "hidden", background: "black" }}>
 
-        {/* Видео заднего плана 'ME' / 'IOME' */}
+        {/* Видео заднего плана */}
         <video
           ref={videoRef}
           src={videoSrc}
@@ -474,10 +518,9 @@ export default function Home() {
             willChange: "opacity, filter"
           }}
         />
-        {/* Интерактивный слой затемнения поверх видео */}
         <div ref={videoOverlayRef} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.2)", zIndex: 1, pointerEvents: "none", transition: "background 0.1s ease-out" }} />
 
-        {/* Контейнер Сетки (Scene 1) */}
+        {/* Сетка картинок */}
         <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", zIndex: 2, overflow: "hidden" }}>
           <div ref={gridRef} className="masked-grid" style={{ gap: `${GAP}px`, willChange: "transform, opacity, filter" }}>
             {rows.map((images, rowIndex) => {
@@ -506,7 +549,7 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Сцена Текста (Scene 2) */}
+        {/* Текстовый слой */}
         <div
           ref={textRef}
           style={{
