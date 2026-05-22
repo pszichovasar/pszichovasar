@@ -295,7 +295,7 @@ export default function Home() {
     fontSize: "clamp(12px, 1.5vw, 15px)",
     padding: "6px 0",
     outline: "none",
-    fontFamily: "Impact, sans-serif",
+    fontFamily: "'Arial Black', Arial, sans-serif",
     textTransform: "uppercase",
     width: "100%",
   };
@@ -305,7 +305,7 @@ export default function Home() {
     letterSpacing: "0.2em",
     color: "#000",
     textTransform: "uppercase",
-    fontFamily: "Impact, sans-serif",
+    fontFamily: "'Arial Black', Arial, sans-serif",
   };
 
   return (
@@ -324,7 +324,7 @@ export default function Home() {
         }
 
         * {
-          font-family: Impact, Haettenschweiler, 'Arial Narrow Bold', sans-serif !important;
+          font-family: 'Arial Black', Arial, sans-serif !important;
           text-transform: uppercase !important;
           box-sizing: border-box;
         }
@@ -350,9 +350,9 @@ export default function Home() {
         }
 
         .text-line {
-          font-family: Impact, sans-serif !important;
-          font-weight: 400; /* У Impact нет градации веса, он плотный по умолчанию */
-          letter-spacing: 0.02em;
+          font-family: 'Arial Black', Arial, sans-serif !important;
+          font-weight: 900 !important;
+          letter-spacing: -0.04em;
           line-height: 0.95;
           color: white;
         }
@@ -365,9 +365,12 @@ export default function Home() {
           .mobile-br { display: block; }
           
           .text-line {
-            font-family: Impact, sans-serif !important;
+            font-family: 'Arial Black', Arial, sans-serif !important;
+            font-weight: 900 !important;
             font-size: 8.5vw !important;
-            letter-spacing: 0.02em;
+            letter-spacing: -0.05em;
+            /* Точечный хак микро-обводки для компенсации плотности Arial Black на iOS */
+            -webkit-text-stroke: 1px white;
           }
           .contact-trigger {
             font-size: 8.5vw !important;
