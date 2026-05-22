@@ -341,6 +341,7 @@ export default function Home() {
         }
 
         .text-line {
+          font-family: 'Arial Black', Gadget, sans-serif !important;
           font-weight: 900;
           letter-spacing: -0.01em;
           line-height: 1.0;
@@ -355,6 +356,7 @@ export default function Home() {
           .mobile-br { display: block; }
           
           .text-line {
+            font-family: 'Arial Black', Gadget, sans-serif !important;
             font-size: 8.5vw !important; 
           }
           .contact-trigger {
