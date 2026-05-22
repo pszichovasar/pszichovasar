@@ -3,12 +3,12 @@
 import React, { useEffect, useRef, useState } from "react";
 
 export default function Home() {
-  const [progress, setProgress] = useState(0); // Общий прогресс сайта от 0 до 1
+  const [progress, setProgress] = useState(0);
   const [videoSrc, setVideoSrc] = useState("/me.mp4");
   const [imgSize, setImgSize] = useState(140);
 
   const videoRef = useRef<HTMLVideoElement>(null);
-  const videoOverlayRef = useRef<HTMLDivElement>(null); // Реф для плавного затемнения фона под текстом
+  const videoOverlayRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -81,7 +81,7 @@ export default function Home() {
     }
   };
 
-  // Проверка на iOS устройства (оставляет me.mp4 или iome.mp4 в зависимости от ОС)
+  // Проверка на iOS устройства + установка правильного видео iome.mp4
   useEffect(() => {
     const isiPhone = /iPhone|iPad|iPod/i.test(navigator.userAgent);
     if (isiPhone) {
@@ -89,11 +89,24 @@ export default function Home() {
     }
   }, []);
 
+  // Жесткий запуск видео iome.mp4 в Safari
   useEffect(() => {
-    if (videoRef.current) videoRef.current.load();
+    const video = videoRef.current;
+    if (video) {
+      video.load();
+
+      const handleCanPlay = () => {
+        video.play().catch((err) => {
+          console.log("Воспроизведение ожидается после первого тача", err);
+        });
+      };
+
+      video.addEventListener('canplay', handleCanPlay);
+      return () => video.removeEventListener('canplay', handleCanPlay);
+    }
   }, [videoSrc]);
 
-  // Расчет размеров плиток + жесткая инициализация стартовой позиции треков
+  // Расчет размеров плиток
   useEffect(() => {
     const calcSize = () => {
       const vh = window.innerHeight;
@@ -140,6 +153,10 @@ export default function Home() {
     const handleTouchStart = (e: TouchEvent) => {
       if (showContact) return;
       touchStartRef.current = e.touches[0].clientY;
+
+      if (videoRef.current && videoRef.current.paused) {
+        videoRef.current.play().catch(() => { });
+      }
     };
 
     const handleTouchMove = (e: TouchEvent) => {
@@ -173,7 +190,6 @@ export default function Home() {
   useEffect(() => {
     const gridProgress = Math.min(progress / 0.65, 1);
 
-    // === 1. ИДЕАЛЬНО ПЛАВНЫЙ БЕСШОВНЫЙ СДВИГ РЯДОВ ===
     trackRefs.current.forEach((track, i) => {
       if (!track || !rows[i]) return;
       const loopWidth = (imgSize + GAP) * rows[i].length;
@@ -190,7 +206,6 @@ export default function Home() {
       gridRef.current.style.transform = `scale(${scale})`;
     }
 
-    // === 2. ИСЧЕЗНОВЕНИЕ СЕТКИ ЧЕРЕЗ БЛЮР И ОПАСИТИ (от 0.3 до 0.5) ===
     if (gridRef.current) {
       if (progress <= 0.3) {
         gridRef.current.style.opacity = "1";
@@ -205,7 +220,6 @@ export default function Home() {
       }
     }
 
-    // === 3. ПОЯВЛЕНИЕ И ПОСЛЕДУЮЩИЙ БЛЮР ВИДЕО ===
     if (videoRef.current) {
       let baseOpacity = 0;
       let baseBlur = 0;
@@ -214,21 +228,18 @@ export default function Home() {
         baseOpacity = 0;
         baseBlur = 0;
       } else if (progress > 0.5 && progress <= 0.65) {
-        // Проявление видео от 0.5 до 0.65
         baseOpacity = (progress - 0.5) / (0.65 - 0.5);
         baseBlur = 0;
       } else {
-        // Видео полностью проявлено, но начинает плавно размываться при появлении текста (от 0.65 до 1.0)
         baseOpacity = 1;
         const textStepProgress = Math.min((progress - 0.65) / (1.0 - 0.65), 1);
-        baseBlur = textStepProgress * 15; // Максимальный блюр 15px
+        baseBlur = textStepProgress * 15;
       }
 
       videoRef.current.style.opacity = baseOpacity.toString();
       videoRef.current.style.filter = `blur(${baseBlur}px)`;
     }
 
-    // === 4. УСИЛЕННОЕ ЗАТЕМНЕНИЕ ЧЕРЕЗ ОВЕРЛЕЙ (от 0.65 до 1.0) ===
     if (videoOverlayRef.current) {
       if (progress > 0.65) {
         const darkProgress = Math.min((progress - 0.65) / (1.0 - 0.65), 1);
@@ -238,7 +249,6 @@ export default function Home() {
       }
     }
 
-    // === 5. ПОЯВЛЕНИЕ ТЕКСТА (от 0.68 до 0.9) ===
     if (textRef.current) {
       if (progress > 0.68) {
         const textProgress = Math.min((progress - 0.68) / 0.22, 1);
@@ -253,7 +263,6 @@ export default function Home() {
     }
   }, [progress, imgSize]);
 
-  // Контакты и дополнительный блюр текста при открытии формы
   useEffect(() => {
     const textEl = textRef.current;
     if (!textEl) return;
@@ -286,7 +295,7 @@ export default function Home() {
     fontSize: "clamp(12px, 1.5vw, 15px)",
     padding: "6px 0",
     outline: "none",
-    fontFamily: "'Arial Black', Gadget, sans-serif",
+    fontFamily: "Impact, sans-serif",
     textTransform: "uppercase",
     width: "100%",
   };
@@ -296,7 +305,7 @@ export default function Home() {
     letterSpacing: "0.2em",
     color: "#000",
     textTransform: "uppercase",
-    fontFamily: "'Arial Black', Gadget, sans-serif",
+    fontFamily: "Impact, sans-serif",
   };
 
   return (
@@ -315,7 +324,7 @@ export default function Home() {
         }
 
         * {
-          font-family: 'Arial Black', Gadget, sans-serif !important;
+          font-family: Impact, Haettenschweiler, 'Arial Narrow Bold', sans-serif !important;
           text-transform: uppercase !important;
           box-sizing: border-box;
         }
@@ -341,10 +350,10 @@ export default function Home() {
         }
 
         .text-line {
-          font-family: 'Arial Black', Gadget, sans-serif !important;
-          font-weight: 900;
-          letter-spacing: -0.01em;
-          line-height: 1.0;
+          font-family: Impact, sans-serif !important;
+          font-weight: 400; /* У Impact нет градации веса, он плотный по умолчанию */
+          letter-spacing: 0.02em;
+          line-height: 0.95;
           color: white;
         }
         
@@ -356,8 +365,9 @@ export default function Home() {
           .mobile-br { display: block; }
           
           .text-line {
-            font-family: 'Arial Black', Gadget, sans-serif !important;
-            font-size: 8.5vw !important; 
+            font-family: Impact, sans-serif !important;
+            font-size: 8.5vw !important;
+            letter-spacing: 0.02em;
           }
           .contact-trigger {
             font-size: 8.5vw !important;
@@ -509,7 +519,6 @@ export default function Home() {
             pointerEvents: "none"
           }}
         >
-          {/* justifyTemplate изменен на justifyContent */}
           <div style={{ display: "flex", flexDirection: "column", justifyContent: "flex-start", width: "100%" }}>
             <div className="text-line" style={{ fontSize: "clamp(32px, 6.5vw, 88px)" }}>
               MY NAME <span className="mobile-br" />IS ARTEM
