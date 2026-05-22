@@ -507,7 +507,8 @@ export default function Home() {
             pointerEvents: "none"
           }}
         >
-          <div style={{ display: "flex", flexDirection: "column", justifyTemplate: "flex-start", width: "100%" }}>
+          {/* justifyTemplate изменен на justifyContent */}
+          <div style={{ display: "flex", flexDirection: "column", justifyContent: "flex-start", width: "100%" }}>
             <div className="text-line" style={{ fontSize: "clamp(32px, 6.5vw, 88px)" }}>
               MY NAME <span className="mobile-br" />IS ARTEM
             </div>
