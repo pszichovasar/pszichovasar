@@ -17,7 +17,7 @@ export default function Home() {
   const [shaking, setShaking] = useState(false);
   const [showContact, setShowContact] = useState(false);
   const [contactVisible, setContactVisible] = useState(false);
-  const [form, setForm] = useState({ name: "", email: "", message: "" });
+  const [form, setForm] = useState({ name: "", email: "", message: "", service: "ILLUSTRATION" });
   const [isSending, setIsSending] = useState(false);
 
   const touchStartRef = useRef(0);
@@ -68,7 +68,7 @@ export default function Home() {
       const data = await response.json();
       if (response.ok && data.success) {
         alert("MESSAGE SENT SUCCESSFULLY!");
-        setForm({ name: "", email: "", message: "" });
+        setForm({ name: "", email: "", message: "", service: "ILLUSTRATION" });
         closeContact();
       } else {
         alert(`ERROR: ${data.error || 'UNKNOWN_ERROR'}`);
@@ -407,65 +407,46 @@ export default function Home() {
           }}
         >
           <div style={{
-            background: "#fff",
-            color: "#000",
-            width: "min(520px, 90vw)",
-            aspectRatio: "1 / 1",
-            padding: "clamp(24px, 5vw, 40px)",
-            transform: contactVisible ? "translate3d(0, 0, 0)" : "translate3d(0, 60px, 0)",
-            opacity: contactVisible ? 1 : 0,
-            transition: "transform 0.5s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.5s ease",
-            display: "flex",
-            flexDirection: "column",
-            justifyContent: "space-between"
+            background: "#fff", color: "#000", width: "min(520px, 90vw)", aspectRatio: "1 / 1",
+            padding: "clamp(24px, 5vw, 40px)", transform: contactVisible ? "translate3d(0, 0, 0)" : "translate3d(0, 60px, 0)",
+            opacity: contactVisible ? 1 : 0, transition: "transform 0.5s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.5s ease",
+            display: "flex", flexDirection: "column", justifyContent: "space-between"
           }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", width: "100%" }}>
-              <div className="card-title" style={{ fontSize: "clamp(18px, 3.2vw, 28px)", fontWeight: 900, lineHeight: 1, color: "#000" }}>
-                LET'S WORK
-              </div>
-              <button disabled={isSending} onClick={closeContact} style={{ background: "none", border: "none", color: "#000", fontSize: "24px", cursor: isSending ? "not-allowed" : "pointer", lineHeight: 1, padding: 0, marginTop: "-4px" }}>×</button>
+              <div className="card-title" style={{ fontSize: "clamp(18px, 3.2vw, 28px)", fontWeight: 900, lineHeight: 1 }}>LET'S WORK</div>
+              <button disabled={isSending} onClick={closeContact} style={{ background: "none", border: "none", fontSize: "24px", cursor: isSending ? "not-allowed" : "pointer" }}>×</button>
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: "clamp(12px, 2.5vw, 20px)", flexGrow: 1, justifyContent: "center", margin: "16px 0" }}>
-              {[
-                { label: "YOUR NAME", key: "name" as const, type: "text" },
-                { label: "EMAIL", key: "email" as const, type: "email" },
-              ].map(({ label, key, type }) => (
-                <div key={key} style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "clamp(12px, 2vw, 15px)", flexGrow: 1, justifyContent: "center" }}>
+              {[{ label: "YOUR NAME", key: "name" as const, type: "text" }, { label: "EMAIL", key: "email" as const, type: "email" }].map(({ label, key, type }) => (
+                <div key={key}>
                   <label className="card-label" style={labelStyle}>{label}</label>
-                  <input
-                    type={type}
-                    className="card-input"
-                    disabled={isSending}
-                    value={form[key]}
-                    onChange={(e) => setForm({ ...form, [key]: e.target.value.toUpperCase() })}
-                    style={inputStyle}
-                  />
+                  <input type={type} className="card-input" disabled={isSending} value={form[key]} onChange={(e) => setForm({ ...form, [key]: e.target.value.toUpperCase() })} style={inputStyle} />
                 </div>
               ))}
 
-              <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+              <div>
+                <label className="card-label" style={labelStyle}>SERVICE</label>
+                <select
+                  className="card-input"
+                  style={{ ...inputStyle, cursor: "pointer", appearance: "none" }}
+                  value={form.service}
+                  onChange={(e) => setForm({ ...form, service: e.target.value })}
+                >
+                  <option>ILLUSTRATION</option>
+                  <option>LOGO</option>
+                  <option>MOTION</option>
+                  <option>ANIMATION</option>
+                </select>
+              </div>
+
+              <div>
                 <label className="card-label" style={labelStyle}>MESSAGE</label>
-                <textarea ref={textareaRef} className="card-input" disabled={isSending} value={form.message} onChange={handleMessageChange} rows={1} style={{ ...inputStyle, resize: "none", overflow: "hidden", lineHeight: "1.4", transition: "height 0.25s ease", display: "block", verticalAlign: "bottom" }} />
+                <textarea ref={textareaRef} className="card-input" disabled={isSending} value={form.message} onChange={handleMessageChange} rows={1} style={{ ...inputStyle, resize: "none" }} />
               </div>
             </div>
 
-            <button
-              onClick={handleSubmit}
-              disabled={isSending}
-              className="card-btn"
-              style={{
-                background: "#000",
-                color: "#fff",
-                border: "none",
-                padding: "14px 32px",
-                fontSize: "10px",
-                fontWeight: 900,
-                cursor: isSending ? "not-allowed" : "pointer",
-                alignSelf: "flex-start",
-                opacity: isSending ? 0.6 : 1
-              }}
-            >
+            <button onClick={handleSubmit} disabled={isSending} className="card-btn" style={{ background: "#000", color: "#fff", border: "none", padding: "14px 32px", fontSize: "10px", fontWeight: 900, cursor: isSending ? "not-allowed" : "pointer", alignSelf: "flex-start" }}>
               {isSending ? "SENDING..." : "SEND"}
             </button>
           </div>
