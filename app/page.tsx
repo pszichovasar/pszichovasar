@@ -46,10 +46,11 @@ export default function Home() {
 
   const handleMessageChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setForm({ ...form, message: e.target.value.toUpperCase() });
+
     const ta = textareaRef.current;
     if (ta) {
-      ta.style.height = "auto";
-      ta.style.height = ta.scrollHeight + "px";
+      ta.style.height = "auto"; // Сбрасываем высоту
+      ta.style.height = ta.scrollHeight + "px"; // Подстраиваем под текст
     }
   };
 
@@ -442,7 +443,23 @@ export default function Home() {
 
               <div>
                 <label className="card-label" style={labelStyle}>MESSAGE</label>
-                <textarea ref={textareaRef} className="card-input" disabled={isSending} value={form.message} onChange={handleMessageChange} rows={1} style={{ ...inputStyle, resize: "none" }} />
+                <textarea
+                  ref={textareaRef}
+                  className="card-input"
+                  disabled={isSending}
+                  value={form.message}
+                  onChange={handleMessageChange}
+                  rows={1}
+                  style={{
+                    ...inputStyle,
+                    resize: "none",        // Запрещает пользователю менять размер мышкой
+                    overflow: "hidden",    // Полностью скрывает скролл-бар
+                    lineHeight: "1.4",
+                    transition: "height 0.25s ease",
+                    display: "block",
+                    minHeight: "24px"      // Задает минимальную высоту, чтобы поле не схлопывалось
+                  }}
+                />
               </div>
             </div>
 
