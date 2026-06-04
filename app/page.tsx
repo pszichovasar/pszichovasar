@@ -220,11 +220,21 @@ export default function Home() {
       }
     }
 
-    // Видео плавно проявляется
+    // Видео плавно проявляется и размывается при появлении текста
     if (videoRef.current) {
-      // Видео начинает проявляться с 0.5 и становится полностью видимым к 0.7
+      // Видео проявляется от 0.5 до 0.7
       const vidOpacity = Math.min((progress - 0.5) / 0.2, 1);
       videoRef.current.style.opacity = progress > 0.5 ? vidOpacity.toString() : "0";
+
+      // Добавляем размытие:
+      // Начинает размываться, когда progress > 0.85 (когда появляется текст)
+      // Размытие доходит до 8px при максимальном progress (1.0)
+      if (progress > 0.85) {
+        const blurAmount = (progress - 0.85) / 0.15 * 8; // 8px — сила размытия
+        videoRef.current.style.filter = `blur(${blurAmount}px)`;
+      } else {
+        videoRef.current.style.filter = "blur(0px)";
+      }
     }
 
     // А вот здесь мы увеличили дистанцию для текста:
