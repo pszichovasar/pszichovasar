@@ -489,7 +489,7 @@ export default function Home() {
             willChange: "opacity, filter"
           }}
         />
-        <div ref={videoOverlayRef} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.2)", zIndex: 1, pointerEvents: "none", transition: "background 0.1s ease-out" }} />
+        <div ref={videoOverlayRef} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1, pointerEvents: "none", transition: "background 0.1s ease-out" }} />
 
         {/* Сетка картинок */}
         <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", zIndex: 2, overflow: "hidden" }}>
