@@ -296,7 +296,7 @@ export default function Home() {
           perspective: 1000px;
           transform-style: preserve-3d;
         }
-
+        
         * {
           font-family: 'Arial Black', Arial, sans-serif !important;
           text-transform: uppercase !important;
@@ -314,6 +314,19 @@ export default function Home() {
           100% { transform: translateY(0); }
         }
         .shakeY { animation: shakeY 0.4s ease forwards; }
+        @keyframes heartbeat {
+          0% { transform: scale(1); }
+          5% { transform: scale(1.03); }
+          10% { transform: scale(1); }
+          15% { transform: scale(1.03); }
+          20% { transform: scale(1); }
+          100% { transform: scale(1); }
+        }
+
+        .heartbeat {
+          animation: heartbeat 2s ease-in-out infinite;
+          display: inline-block; /* важно для работы transform */
+        }
         input::placeholder, textarea::placeholder { color: rgba(0,0,0,0.2); }
         
         .masked-grid {
@@ -394,6 +407,7 @@ export default function Home() {
             paint-order: stroke fill;
           }
         }
+          
       `}</style>
 
       {/* МОДАЛЬНОЕ ОКНО КОНТАКТОВ */}
@@ -546,7 +560,7 @@ export default function Home() {
             </div>
 
             <div
-              className={`text-line contact-trigger ${shaking ? "shakeY" : ""}`}
+              className={`text-line contact-trigger ${shaking ? "shakeY" : ""} heartbeat`} // <--- добавили heartbeat
               onMouseEnter={handleContactEnter}
               onMouseLeave={() => setContactHovered(false)}
               onClick={openContact}
@@ -554,7 +568,7 @@ export default function Home() {
                 fontSize: "clamp(32px, 6.5vw, 88px)",
                 marginTop: "1.6em",
                 cursor: "pointer",
-                display: "inline-block",
+                display: "inline-block", // это уже было, отлично
                 userSelect: "none"
               }}
             >
