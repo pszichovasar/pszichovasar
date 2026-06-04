@@ -323,12 +323,18 @@ export default function Home() {
           100% { transform: scale(1); }
         }
 
-        .heartbeat {
+        .heartbeat-wrapper {
+          display: inline-block;
+          transform-origin: center center; /* Фиксирует точку отсчета в центре текста */
           animation: heartbeat 2s ease-in-out infinite;
-          display: inline-block; /* важно для работы transform */
         }
         input::placeholder, textarea::placeholder { color: rgba(0,0,0,0.2); }
         
+        .heartbeat-wrapper {
+          display: inline-block;
+          transform-origin: center center; /* Указываем, что точка пульсации — центр */
+          animation: heartbeat 2s ease-in-out infinite;
+        }
         .masked-grid {
           display: flex;
           flex-direction: column;
@@ -560,7 +566,7 @@ export default function Home() {
             </div>
 
             <div
-              className={`text-line contact-trigger ${shaking ? "shakeY" : ""} heartbeat`} // <--- добавили heartbeat
+              className={`text-line contact-trigger ${shaking ? "shakeY" : ""}`}
               onMouseEnter={handleContactEnter}
               onMouseLeave={() => setContactHovered(false)}
               onClick={openContact}
@@ -568,11 +574,13 @@ export default function Home() {
                 fontSize: "clamp(32px, 6.5vw, 88px)",
                 marginTop: "1.6em",
                 cursor: "pointer",
-                display: "inline-block", // это уже было, отлично
+                display: "inline-block",
                 userSelect: "none"
               }}
             >
-              {contactHovered ? "GET YOUR BEST DESIGN EVER" : "CONTACT ME"}
+              <span className="heartbeat-wrapper">
+                {contactHovered ? "GET YOUR BEST DESIGN EVER" : "CONTACT ME"}
+              </span>
             </div>
           </div>
         </div>
