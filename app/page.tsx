@@ -280,7 +280,6 @@ export default function Home() {
           box-sizing: border-box;
         }
 
-        /* Добавленные стили навигации */
         .nav-logo { font-size: 11px; font-weight: 700; letter-spacing: 0.18em; color: #e29ea9; text-decoration: none; }
         .nav-links { display: flex; gap: 40px; list-style: none; }
         .nav-links a { font-size: 10px; letter-spacing: 0.22em; color: #e29ea9; text-decoration: none; font-weight: 600; }
@@ -389,7 +388,6 @@ export default function Home() {
           
       `}</style>
 
-      {/* МОДАЛЬНОЕ ОКНО КОНТАКТОВ */}
       {showContact && (
         <div
           onClick={(e) => e.target === e.currentTarget && !isSending && closeContact()}
@@ -463,10 +461,8 @@ export default function Home() {
         </div>
       )}
 
-      {/* ОСНОВНОЙ ФИКСИРОВАННЫЙ КОНТЕЙНЕР */}
       <main style={{ position: "fixed", width: "100vw", height: "100vh", top: 0, left: 0, overflow: "hidden", background: "black" }}>
 
-        {/* НАВИГАЦИЯ (РОЗОВАЯ СЕКЦИЯ) */}
         <nav style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 100, padding: "28px 48px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <a className="nav-logo" href="#intro">Artem</a>
           <ul className="nav-links">
@@ -477,7 +473,6 @@ export default function Home() {
           </ul>
         </nav>
 
-        {/* Видео заднего плана */}
         <video
           ref={videoRef}
           src={videoSrc}
@@ -495,7 +490,9 @@ export default function Home() {
         />
         <div ref={videoOverlayRef} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1, pointerEvents: "none", transition: "background 0.1s ease-out" }} />
 
-        {/* Сетка картинок */}
+        {/* НОВАЯ РОЗОВАЯ СЕКЦИЯ */}
+        <div style={{ position: "absolute", inset: 0, zIndex: 1, background: "#ffbbc6" }} />
+
         <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", zIndex: 2, overflow: "hidden" }}>
           <div ref={gridRef} className="masked-grid" style={{ gap: `${GAP}px`, willChange: "transform, opacity, filter" }}>
             {rows.map((images, rowIndex) => {
@@ -524,7 +521,6 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Текстовый слой */}
         <div
           ref={textRef}
           style={{
