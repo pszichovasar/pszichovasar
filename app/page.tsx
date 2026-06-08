@@ -6,11 +6,12 @@ export default function Home() {
   const [progress, setProgress] = useState(0);
   const [videoSrc, setVideoSrc] = useState("/me.mp4");
   const [imgSize, setImgSize] = useState(140);
+  const [menuColor, setMenuColor] = useState("#e29ea9");
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const videoOverlayRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
-  const pinkSectionRef = useRef<HTMLDivElement>(null); // Реф для новой розовой секции
+  const pinkSectionRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -50,8 +51,8 @@ export default function Home() {
 
     const ta = textareaRef.current;
     if (ta) {
-      ta.style.height = "auto"; // Сбрасываем высоту
-      ta.style.height = ta.scrollHeight + "px"; // Подстраиваем под текст
+      ta.style.height = "auto";
+      ta.style.height = ta.scrollHeight + "px";
     }
   };
 
@@ -83,7 +84,6 @@ export default function Home() {
     }
   };
 
-  // Проверка на iOS устройства + установка правильного видео iome.mp4
   useEffect(() => {
     const isiPhone = /iPhone|iPad|iPod/i.test(navigator.userAgent);
     if (isiPhone) {
@@ -91,7 +91,6 @@ export default function Home() {
     }
   }, []);
 
-  // Жесткий запуск видео в Safari
   useEffect(() => {
     const video = videoRef.current;
     if (video) {
@@ -108,7 +107,6 @@ export default function Home() {
     }
   }, [videoSrc]);
 
-  // Расчет размеров плиток
   useEffect(() => {
     const calcSize = () => {
       const vh = window.innerHeight;
@@ -138,7 +136,6 @@ export default function Home() {
     };
   }, []);
 
-  // Виртуальный скролл
   useEffect(() => {
     const handleWheel = (e: WheelEvent) => {
       if (showContact) return;
@@ -150,6 +147,9 @@ export default function Home() {
       next = Math.min(Math.max(next, 0), 1);
       currentProgressRef.current = next;
       setProgress(next);
+
+      // Логика цвета меню: розовый на старте, белый на контенте
+      setMenuColor(next < 0.2 ? "#e29ea9" : "#ffffff");
     };
 
     const handleTouchStart = (e: TouchEvent) => {
@@ -175,6 +175,7 @@ export default function Home() {
       next = Math.min(Math.max(next, 0), 1);
       currentProgressRef.current = next;
       setProgress(next);
+      setMenuColor(next < 0.2 ? "#e29ea9" : "#ffffff");
     };
 
     window.addEventListener("wheel", handleWheel, { passive: false });
@@ -188,10 +189,7 @@ export default function Home() {
     };
   }, [showContact]);
 
-  // Интерактивный таймлайн анимаций
   useEffect(() => {
-    // 1. Анимация розовой секции (Intro)
-    // Она исчезает в диапазоне прогресса от 0 до 0.2
     if (pinkSectionRef.current) {
       const pinkFadeProgress = Math.min(progress / 0.2, 1);
       pinkSectionRef.current.style.opacity = (1 - pinkFadeProgress).toString();
@@ -199,33 +197,39 @@ export default function Home() {
       pinkSectionRef.current.style.pointerEvents = progress < 0.2 ? "auto" : "none";
     }
 
-    // 2. Сетка (Grid)
-    // Сетка начинает движение и появление только после того, как розовая секция начнет исчезать (с 0.1)
     const gridProgress = Math.min(progress / 0.65, 1);
 
     trackRefs.current.forEach((track, i) => {
       if (!track || !rows[i]) return;
       const loopWidth = (imgSize + GAP) * rows[i].length;
 
-      if (directions[i]) {
-        track.style.transform = `translate3d(${-gridProgress * loopWidth}px, 0, 0)`;
-      } else {
-        track.style.transform = `translate3d(${-loopWidth + gridProgress * loopWidth}px, 0, 0)`;
+      let currentX = directions[i] ? -gridProgress * loopWidth : -loopWidth + gridProgress * loopWidth;
+
+      let currentY = 0;
+      if (progress >= 0.1 && progress <= 0.35) {
+        const appearProgress = (progress - 0.1) / 0.25;
+        const startOffsets = [100, -100, 150, -150, 200];
+        const offset = startOffsets[i];
+        currentY = offset * (1 - appearProgress);
+      } else if (progress < 0.1) {
+        const startOffsets = [100, -100, 150, -150, 200];
+        currentY = startOffsets[i];
       }
+
+      track.style.transform = `translate3d(${currentX}px, ${currentY}px, 0)`;
     });
 
     if (gridRef.current) {
       const scale = 1 - gridProgress * 0.05;
       gridRef.current.style.transform = `scale(${scale})`;
 
-      // Появление сетки из небытия
       if (progress < 0.1) {
         gridRef.current.style.opacity = "0";
-        gridRef.current.style.filter = "blur(10px)";
+        gridRef.current.style.filter = "blur(0px)";
       } else if (progress >= 0.1 && progress <= 0.35) {
         const appear = (progress - 0.1) / 0.25;
         gridRef.current.style.opacity = appear.toString();
-        gridRef.current.style.filter = `blur(${(1 - appear) * 10}px)`;
+        gridRef.current.style.filter = "blur(0px)";
       } else if (progress > 0.35 && progress <= 0.5) {
         gridRef.current.style.opacity = "1";
         gridRef.current.style.filter = "blur(0px)";
@@ -239,14 +243,11 @@ export default function Home() {
       }
     }
 
-    // 3. Видео плавно проявляется
     if (videoRef.current) {
-      // Видео начинает проявляться с 0.6 и становится полностью видимым к 0.8
       const vidOpacity = Math.min(Math.max((progress - 0.6) / 0.2, 0), 1);
       videoRef.current.style.opacity = vidOpacity.toString();
     }
 
-    // 4. Финальный текст
     if (textRef.current) {
       if (progress > 0.85) {
         const textProgress = Math.min((progress - 0.85) / 0.15, 1);
@@ -363,6 +364,13 @@ export default function Home() {
           color: white;
         }
         
+        .nav-item {
+            cursor: pointer;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            transition: opacity 0.3s ease;
+        }
+        .nav-item:hover { opacity: 0.6; }
+
         .desktop-br { display: inline; }
         .mobile-br { display: none; }
 
@@ -422,10 +430,22 @@ export default function Home() {
             paint-order: stroke fill;
           }
         }
-          
       `}</style>
 
-      {/* МОДАЛЬНОЕ ОКНО КОНТАКТОВ */}
+      {/* STICKY MENU */}
+      <nav style={{
+        position: "fixed", top: 0, left: 0, right: 0, zIndex: 9999,
+        padding: "40px 80px", display: "flex", justifyContent: "space-between",
+        color: menuColor, fontSize: "11px", letterSpacing: "0.2em", transition: "color 0.4s ease"
+      }}>
+        <div style={{ fontWeight: 900 }}>ARTEM.DESIGN</div>
+        <div style={{ display: "flex", gap: "40px", fontWeight: 700 }}>
+          {["WORK", "PROCESS", "ABOUT", "CONTACT"].map(item => (
+            <span key={item} className="nav-item" onClick={item === "CONTACT" ? openContact : undefined}>{item}</span>
+          ))}
+        </div>
+      </nav>
+
       {showContact && (
         <div
           onClick={(e) => e.target === e.currentTarget && !isSending && closeContact()}
@@ -499,16 +519,14 @@ export default function Home() {
         </div>
       )}
 
-      {/* ОСНОВНОЙ ФИКСИРОВАННЫЙ КОНТЕЙНЕР */}
       <main style={{ position: "fixed", width: "100vw", height: "100vh", top: 0, left: 0, overflow: "hidden", background: "black" }}>
 
-        {/* 1. РОЗОВАЯ СЕКЦИЯ (ПЕРВЫЙ ЭКРАН) */}
         <div
           ref={pinkSectionRef}
           style={{
             position: "absolute",
             inset: 0,
-            zIndex: 100, // Выше всего в начале
+            zIndex: 100,
             background: "#ffbbc6",
             display: "flex",
             alignItems: "center",
@@ -517,7 +535,6 @@ export default function Home() {
           }}
         />
 
-        {/* 2. Видео заднего плана */}
         <video
           ref={videoRef}
           src={videoSrc}
@@ -535,7 +552,6 @@ export default function Home() {
         />
         <div ref={videoOverlayRef} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1, pointerEvents: "none", transition: "background 0.1s ease-out" }} />
 
-        {/* 3. Сетка картинок */}
         <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", zIndex: 2, overflow: "hidden" }}>
           <div ref={gridRef} className="masked-grid" style={{ gap: `${GAP}px`, willChange: "transform, opacity, filter", opacity: 0 }}>
             {rows.map((images, rowIndex) => {
@@ -564,7 +580,6 @@ export default function Home() {
           </div>
         </div>
 
-        {/* 4. Текстовый слой (появляется в самом конце) */}
         <div
           ref={textRef}
           style={{
@@ -608,7 +623,6 @@ export default function Home() {
             </div>
           </div>
         </div>
-
       </main>
     </>
   );
