@@ -225,12 +225,12 @@ export default function Home() {
       const isEven = i % 2 === 0;
       const direction = isEven ? 1 : -1;
 
-      // Появление: от 50% до 0%, исчезновение: от 0% обратно до 50%
-      const assembleOffset = (1 - gridAssemblyProgress) * 50 * direction;
-      const dismissOffset = gridDismissProgress * 50 * direction;
+      // Появление: от 120vw до 0, исчезновение: от 0 обратно до 120vw
+      const assembleOffset = (1 - gridAssemblyProgress) * 120 * direction;
+      const dismissOffset = gridDismissProgress * 120 * direction;
       const offset = assembleOffset + dismissOffset;
 
-      track.style.transform = `translateX(${offset}%)`;
+      track.style.transform = `translateX(${offset}vw)`;
     });
 
     // Сбрасываем opacity и blur с сетки (теперь она исчезает только разъездом)
