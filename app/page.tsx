@@ -192,50 +192,37 @@ export default function Home() {
     const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1200;
 
     // 1. ЛОГИКА СЕТКИ
-    // activeProgress учитывает только то время, когда сетка "жива" (после 0.33)
-    const activeProgress = Math.max(0, progress - 0.33);
+    // Мы ограничиваем прогресс сетки диапазоном 0.33 - 0.8
+    // Это делает её движение предсказуемым и равномерным
+    const gridActiveStart = 0.33;
+    const gridActiveEnd = 0.8;
+    const gridProgress = Math.min(Math.max((progress - gridActiveStart) / (gridActiveEnd - gridActiveStart), 0), 1);
 
     trackRefs.current.forEach((track, i) => {
       if (!track || !rows[i]) return;
       const loopWidth = (imgSize + GAP) * rows[i].length;
 
-      // Базовое движение теперь привязано к activeProgress
-      // Оно начинается с 0, когда progress = 0.33
+      // Равномерное движение: все ряды проходят одинаковое расстояние
+      // Мы используем gridProgress (0 -> 1) для всей анимации
+      const scrollSpeed = 0.8; // Регулируйте этот коэффициент для общей скорости
       const baseScroll = directions[i]
-        ? -activeProgress * loopWidth * 1.5
-        : -loopWidth + activeProgress * loopWidth * 1.5;
+        ? -gridProgress * loopWidth * scrollSpeed
+        : -loopWidth + (gridProgress * loopWidth * scrollSpeed);
 
-      let extraOffset = 0;
-
-      // Фаза появления (0.33 - 0.5)
-      if (progress >= 0.33 && progress < 0.5) {
-        const entryPhase = (progress - 0.33) / 0.17; // 0 -> 1
-        extraOffset = directions[i]
-          ? (1 - entryPhase) * screenWidth
-          : -(1 - entryPhase) * screenWidth;
-      }
-      // Фаза исчезновения (0.8 - 1.0)
-      else if (progress > 0.8) {
-        const exitPhase = (progress - 0.8) / 0.2; // 0 -> 1
-        extraOffset = directions[i]
-          ? -exitPhase * screenWidth
-          : exitPhase * screenWidth;
-      }
-      // Если progress < 0.33, сетка должна быть строго off-screen
-      else if (progress < 0.33) {
-        extraOffset = directions[i] ? screenWidth : -screenWidth;
+      // Плавное появление и исчезновение (Fade in/out через позиционирование)
+      // Сетка плавно входит при progress 0.33 и уходит при 0.8
+      let entranceOffset = 0;
+      if (progress < gridActiveStart) {
+        entranceOffset = directions[i] ? screenWidth : -screenWidth;
+      } else if (progress > gridActiveEnd) {
+        entranceOffset = directions[i] ? -screenWidth : screenWidth;
       }
 
-      track.style.transform = `translate3d(${baseScroll + extraOffset}px, 0, 0)`;
+      track.style.transform = `translate3d(${baseScroll + entranceOffset}px, 0, 0)`;
+      track.style.transition = "transform 0.1s linear"; // Мягкое сглаживание
     });
 
-    if (gridRef.current) {
-      gridRef.current.style.transform = `scale(1)`;
-      gridRef.current.style.filter = "blur(0px)";
-      gridRef.current.style.opacity = "1";
-    }
-
-    // 2. Видео и Текст (активируются к концу скролла)
+    // 2. Видео и Текст
     const finalSectionProgress = Math.min(Math.max((progress - 0.7) / 0.3, 0), 1);
 
     if (videoRef.current) {
