@@ -192,41 +192,43 @@ export default function Home() {
     const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1200;
 
     // 1. ЛОГИКА СЕТКИ
-    // Сетка активна на всем протяжении скролла от 0 до 1
-    const gridProgress = progress;
+    // Сетка работает от 0.0 до 0.7. После 0.7 она полностью уходит.
+    const gridActiveStart = 0;
+    const gridActiveEnd = 0.7;
+    const gridProgress = Math.min(Math.max((progress - gridActiveStart) / (gridActiveEnd - gridActiveStart), 0), 1);
 
     trackRefs.current.forEach((track, i) => {
       if (!track || !rows[i]) return;
       const loopWidth = (imgSize + GAP) * rows[i].length;
 
-      // Равномерная скорость: сетка проходит полный цикл своей длины
-      // Коэффициент 0.8 можно менять для подстройки скорости
+      // РАВНОМЕРНОЕ ДВИЖЕНИЕ:
+      // Базовая скорость теперь строго линейна относительно gridProgress
+      const scrollSpeed = 0.5;
       const baseScroll = directions[i]
-        ? -gridProgress * loopWidth * 0.8
-        : -loopWidth + (gridProgress * loopWidth * 0.8);
+        ? -gridProgress * loopWidth * scrollSpeed
+        : -loopWidth + (gridProgress * loopWidth * scrollSpeed);
 
-      // ЛОГИКА ПОЯВЛЕНИЯ И ИСЧЕЗНОВЕНИЯ:
-      // В самом начале (progress 0) сетка за пределами экрана
-      // В самом конце (progress 1) сетка уходит за экран
+      // ВХОД И ВЫХОД:
+      // Сетка начинает движение из-за экрана (вход) и уходит за экран (выход)
+      // Используем smoothstep-подобную логику для мягкости
       let entranceOffset = 0;
+      const margin = screenWidth * 1.2;
 
-      const startMargin = screenWidth * 0.5; // Запас для плавного входа
-
-      if (progress < 0.1) {
-        // Вход: от смещения к 0
-        const entry = (1 - progress / 0.1);
-        entranceOffset = directions[i] ? entry * startMargin : -entry * startMargin;
-      } else if (progress > 0.6) {
-        // Выход: от 0 к смещению
-        const exit = (progress - 0.6) / 0.4;
-        entranceOffset = directions[i] ? -exit * startMargin : exit * startMargin;
+      if (gridProgress < 0.2) {
+        // Плавный вход
+        const entry = 1 - (gridProgress / 0.2);
+        entranceOffset = directions[i] ? entry * margin : -entry * margin;
+      } else if (gridProgress > 0.8) {
+        // Плавный выход
+        const exit = (gridProgress - 0.8) / 0.2;
+        entranceOffset = directions[i] ? -exit * margin : exit * margin;
       }
 
       track.style.transform = `translate3d(${baseScroll + entranceOffset}px, 0, 0)`;
-      track.style.transition = "transform 0.05s linear";
+      track.style.transition = "none"; // Убираем transition для мгновенного отклика
     });
 
-    // 2. Видео и Текст (активируются только в конце)
+    // 2. Видео и Текст (активируются только ПОСЛЕ сетки, т.е. после 0.7)
     const finalSectionProgress = Math.min(Math.max((progress - 0.7) / 0.3, 0), 1);
 
     if (videoRef.current) {
@@ -235,7 +237,8 @@ export default function Home() {
 
     if (textRef.current) {
       textRef.current.style.opacity = finalSectionProgress.toString();
-      textRef.current.style.transform = `translate3d(0, ${(1 - finalSectionProgress) * 30}px, 0)`;
+      // Текст плавно поднимается вверх
+      textRef.current.style.transform = `translate3d(0, ${(1 - finalSectionProgress) * 50}px, 0)`;
       textRef.current.style.pointerEvents = finalSectionProgress > 0.5 ? "auto" : "none";
     }
   }, [progress, imgSize]);
