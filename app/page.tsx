@@ -49,8 +49,8 @@ export default function Home() {
 
     const ta = textareaRef.current;
     if (ta) {
-      ta.style.height = "auto"; // Сбрасываем высоту
-      ta.style.height = ta.scrollHeight + "px"; // Подстраиваем под текст
+      ta.style.height = "auto";
+      ta.style.height = ta.scrollHeight + "px";
     }
   };
 
@@ -82,7 +82,6 @@ export default function Home() {
     }
   };
 
-  // Проверка на iOS устройства + установка правильного видео iome.mp4
   useEffect(() => {
     const isiPhone = /iPhone|iPad|iPod/i.test(navigator.userAgent);
     if (isiPhone) {
@@ -90,24 +89,20 @@ export default function Home() {
     }
   }, []);
 
-  // Жесткий запуск видео в Safari
   useEffect(() => {
     const video = videoRef.current;
     if (video) {
       video.load();
-
       const handleCanPlay = () => {
         video.play().catch((err) => {
           console.log("Воспроизведение ожидается после первого тача", err);
         });
       };
-
       video.addEventListener('canplay', handleCanPlay);
       return () => video.removeEventListener('canplay', handleCanPlay);
     }
   }, [videoSrc]);
 
-  // Расчет размеров плиток
   useEffect(() => {
     const calcSize = () => {
       const vh = window.innerHeight;
@@ -128,7 +123,6 @@ export default function Home() {
     calcSize();
     const timer1 = setTimeout(calcSize, 50);
     const timer2 = setTimeout(calcSize, 300);
-
     window.addEventListener("resize", calcSize);
     return () => {
       window.removeEventListener("resize", calcSize);
@@ -137,15 +131,12 @@ export default function Home() {
     };
   }, []);
 
-  // Виртуальный скролл
   useEffect(() => {
     const handleWheel = (e: WheelEvent) => {
       if (showContact) return;
       e.preventDefault();
-
       const speed = 0.0015;
       let next = currentProgressRef.current + e.deltaY * speed;
-
       next = Math.min(Math.max(next, 0), 1);
       currentProgressRef.current = next;
       setProgress(next);
@@ -154,7 +145,6 @@ export default function Home() {
     const handleTouchStart = (e: TouchEvent) => {
       if (showContact) return;
       touchStartRef.current = e.touches[0].clientY;
-
       if (videoRef.current && videoRef.current.paused) {
         videoRef.current.play().catch(() => { });
       }
@@ -163,14 +153,11 @@ export default function Home() {
     const handleTouchMove = (e: TouchEvent) => {
       if (showContact) return;
       e.preventDefault();
-
       const currentY = e.touches[0].clientY;
       const deltaY = touchStartRef.current - currentY;
       touchStartRef.current = currentY;
-
       const speed = 0.002;
       let next = currentProgressRef.current + deltaY * speed;
-
       next = Math.min(Math.max(next, 0), 1);
       currentProgressRef.current = next;
       setProgress(next);
@@ -179,7 +166,6 @@ export default function Home() {
     window.addEventListener("wheel", handleWheel, { passive: false });
     window.addEventListener("touchstart", handleTouchStart, { passive: true });
     window.addEventListener("touchmove", handleTouchMove, { passive: false });
-
     return () => {
       window.removeEventListener("wheel", handleWheel);
       window.removeEventListener("touchstart", handleTouchStart);
@@ -187,15 +173,11 @@ export default function Home() {
     };
   }, [showContact]);
 
-  // Интерактивный таймлайн анимаций
   useEffect(() => {
-    // Сетка остается без изменений (как была)
     const gridProgress = Math.min(progress / 0.65, 1);
-
     trackRefs.current.forEach((track, i) => {
       if (!track || !rows[i]) return;
       const loopWidth = (imgSize + GAP) * rows[i].length;
-
       if (directions[i]) {
         track.style.transform = `translate3d(${-gridProgress * loopWidth}px, 0, 0)`;
       } else {
@@ -206,7 +188,6 @@ export default function Home() {
     if (gridRef.current) {
       const scale = 1 - gridProgress * 0.05;
       gridRef.current.style.transform = `scale(${scale})`;
-
       if (progress <= 0.3) {
         gridRef.current.style.opacity = "1";
         gridRef.current.style.filter = "blur(0px)";
@@ -220,15 +201,11 @@ export default function Home() {
       }
     }
 
-    // Видео плавно проявляется
     if (videoRef.current) {
-      // Видео начинает проявляться с 0.5 и становится полностью видимым к 0.7
       const vidOpacity = Math.min((progress - 0.5) / 0.2, 1);
       videoRef.current.style.opacity = progress > 0.5 ? vidOpacity.toString() : "0";
     }
 
-    // А вот здесь мы увеличили дистанцию для текста:
-    // Он начинает появляться только после 0.85 (вместо 0.68)
     if (textRef.current) {
       if (progress > 0.85) {
         const textProgress = Math.min((progress - 0.85) / 0.15, 1);
@@ -250,7 +227,7 @@ export default function Home() {
       textEl.style.transition = "opacity 0.4s ease, filter 0.4s ease";
       textEl.style.opacity = "0";
       textEl.style.filter = "blur(12px)";
-    } else if (progress > 0.85) { // Обновили триггер здесь
+    } else if (progress > 0.85) {
       textEl.style.transition = "opacity 0.4s ease, filter 0.4s ease";
       textEl.style.opacity = "1";
       textEl.style.filter = "blur(0px)";
@@ -303,6 +280,11 @@ export default function Home() {
           box-sizing: border-box;
         }
 
+        /* Добавленные стили навигации */
+        .nav-logo { font-size: 11px; font-weight: 700; letter-spacing: 0.18em; color: #e29ea9; text-decoration: none; }
+        .nav-links { display: flex; gap: 40px; list-style: none; }
+        .nav-links a { font-size: 10px; letter-spacing: 0.22em; color: #e29ea9; text-decoration: none; font-weight: 600; }
+
         @keyframes shakeY {
           0%   { transform: translateY(0); }
           15%  { transform: translateY(-8px); }
@@ -325,16 +307,11 @@ export default function Home() {
 
         .heartbeat-wrapper {
           display: inline-block;
-          transform-origin: center center; /* Фиксирует точку отсчета в центре текста */
+          transform-origin: center center;
           animation: heartbeat 2s ease-in-out infinite;
         }
         input::placeholder, textarea::placeholder { color: rgba(0,0,0,0.2); }
         
-        .heartbeat-wrapper {
-          display: inline-block;
-          transform-origin: center center; /* Указываем, что точка пульсации — центр */
-          animation: heartbeat 2s ease-in-out infinite;
-        }
         .masked-grid {
           display: flex;
           flex-direction: column;
@@ -342,7 +319,6 @@ export default function Home() {
           transition: transform 0.1s ease-out;
         }
 
-        /* Текстовые линии главного экрана на Компьютере (чистый Arial Black без обводки) */
         .text-line {
           font-family: 'Arial Black', Arial, sans-serif !important;
           font-weight: 900 !important;
@@ -354,7 +330,6 @@ export default function Home() {
         .desktop-br { display: inline; }
         .mobile-br { display: none; }
 
-        /* Элементы выплывающей карточки на Компьютере (чистые) */
         .card-title {
           font-family: 'Arial Black', Arial, sans-serif !important;
           font-weight: 900 !important;
@@ -379,7 +354,6 @@ export default function Home() {
           letter-spacing: 0.15em;
         }
 
-        /* Адаптив под мобильные устройства (iPhone) — хак с обводкой остается только тут */
         @media (max-width: 768px) {
           .desktop-br { display: none; }
           .mobile-br { display: block; }
@@ -395,7 +369,6 @@ export default function Home() {
             margin-top: 1.2em !important;
           }
 
-          /* Карточка на мобилке: делаем шрифт жирнее через stroke */
           .card-title {
             -webkit-text-stroke: 0.8px #000;
             paint-order: stroke fill;
@@ -472,12 +445,12 @@ export default function Home() {
                   rows={1}
                   style={{
                     ...inputStyle,
-                    resize: "none",        // Запрещает пользователю менять размер мышкой
-                    overflow: "hidden",    // Полностью скрывает скролл-бар
+                    resize: "none",
+                    overflow: "hidden",
                     lineHeight: "1.4",
                     transition: "height 0.25s ease",
                     display: "block",
-                    minHeight: "24px"      // Задает минимальную высоту, чтобы поле не схлопывалось
+                    minHeight: "24px"
                   }}
                 />
               </div>
@@ -492,6 +465,17 @@ export default function Home() {
 
       {/* ОСНОВНОЙ ФИКСИРОВАННЫЙ КОНТЕЙНЕР */}
       <main style={{ position: "fixed", width: "100vw", height: "100vh", top: 0, left: 0, overflow: "hidden", background: "black" }}>
+
+        {/* НАВИГАЦИЯ (РОЗОВАЯ СЕКЦИЯ) */}
+        <nav style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 100, padding: "28px 48px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <a className="nav-logo" href="#intro">Artem</a>
+          <ul className="nav-links">
+            <li><a href="#about">About</a></li>
+            <li><a href="#work">Work</a></li>
+            <li><a href="#process">Process</a></li>
+            <li><a href="mailto:contact@artem.design">Contact</a></li>
+          </ul>
+        </nav>
 
         {/* Видео заднего плана */}
         <video
