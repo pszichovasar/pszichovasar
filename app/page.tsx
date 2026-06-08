@@ -10,6 +10,7 @@ export default function Home() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const videoOverlayRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
+  const pinkSectionRef = useRef<HTMLDivElement>(null); // Реф для новой розовой секции
   const textRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -49,8 +50,8 @@ export default function Home() {
 
     const ta = textareaRef.current;
     if (ta) {
-      ta.style.height = "auto";
-      ta.style.height = ta.scrollHeight + "px";
+      ta.style.height = "auto"; // Сбрасываем высоту
+      ta.style.height = ta.scrollHeight + "px"; // Подстраиваем под текст
     }
   };
 
@@ -82,6 +83,7 @@ export default function Home() {
     }
   };
 
+  // Проверка на iOS устройства + установка правильного видео iome.mp4
   useEffect(() => {
     const isiPhone = /iPhone|iPad|iPod/i.test(navigator.userAgent);
     if (isiPhone) {
@@ -89,20 +91,24 @@ export default function Home() {
     }
   }, []);
 
+  // Жесткий запуск видео в Safari
   useEffect(() => {
     const video = videoRef.current;
     if (video) {
       video.load();
+
       const handleCanPlay = () => {
         video.play().catch((err) => {
           console.log("Воспроизведение ожидается после первого тача", err);
         });
       };
+
       video.addEventListener('canplay', handleCanPlay);
       return () => video.removeEventListener('canplay', handleCanPlay);
     }
   }, [videoSrc]);
 
+  // Расчет размеров плиток
   useEffect(() => {
     const calcSize = () => {
       const vh = window.innerHeight;
@@ -123,6 +129,7 @@ export default function Home() {
     calcSize();
     const timer1 = setTimeout(calcSize, 50);
     const timer2 = setTimeout(calcSize, 300);
+
     window.addEventListener("resize", calcSize);
     return () => {
       window.removeEventListener("resize", calcSize);
@@ -131,12 +138,15 @@ export default function Home() {
     };
   }, []);
 
+  // Виртуальный скролл
   useEffect(() => {
     const handleWheel = (e: WheelEvent) => {
       if (showContact) return;
       e.preventDefault();
+
       const speed = 0.0015;
       let next = currentProgressRef.current + e.deltaY * speed;
+
       next = Math.min(Math.max(next, 0), 1);
       currentProgressRef.current = next;
       setProgress(next);
@@ -145,6 +155,7 @@ export default function Home() {
     const handleTouchStart = (e: TouchEvent) => {
       if (showContact) return;
       touchStartRef.current = e.touches[0].clientY;
+
       if (videoRef.current && videoRef.current.paused) {
         videoRef.current.play().catch(() => { });
       }
@@ -153,11 +164,14 @@ export default function Home() {
     const handleTouchMove = (e: TouchEvent) => {
       if (showContact) return;
       e.preventDefault();
+
       const currentY = e.touches[0].clientY;
       const deltaY = touchStartRef.current - currentY;
       touchStartRef.current = currentY;
+
       const speed = 0.002;
       let next = currentProgressRef.current + deltaY * speed;
+
       next = Math.min(Math.max(next, 0), 1);
       currentProgressRef.current = next;
       setProgress(next);
@@ -166,6 +180,7 @@ export default function Home() {
     window.addEventListener("wheel", handleWheel, { passive: false });
     window.addEventListener("touchstart", handleTouchStart, { passive: true });
     window.addEventListener("touchmove", handleTouchMove, { passive: false });
+
     return () => {
       window.removeEventListener("wheel", handleWheel);
       window.removeEventListener("touchstart", handleTouchStart);
@@ -173,11 +188,25 @@ export default function Home() {
     };
   }, [showContact]);
 
+  // Интерактивный таймлайн анимаций
   useEffect(() => {
+    // 1. Анимация розовой секции (Intro)
+    // Она исчезает в диапазоне прогресса от 0 до 0.2
+    if (pinkSectionRef.current) {
+      const pinkFadeProgress = Math.min(progress / 0.2, 1);
+      pinkSectionRef.current.style.opacity = (1 - pinkFadeProgress).toString();
+      pinkSectionRef.current.style.transform = `translate3d(0, ${-pinkFadeProgress * 40}px, 0)`;
+      pinkSectionRef.current.style.pointerEvents = progress < 0.2 ? "auto" : "none";
+    }
+
+    // 2. Сетка (Grid)
+    // Сетка начинает движение и появление только после того, как розовая секция начнет исчезать (с 0.1)
     const gridProgress = Math.min(progress / 0.65, 1);
+
     trackRefs.current.forEach((track, i) => {
       if (!track || !rows[i]) return;
       const loopWidth = (imgSize + GAP) * rows[i].length;
+
       if (directions[i]) {
         track.style.transform = `translate3d(${-gridProgress * loopWidth}px, 0, 0)`;
       } else {
@@ -188,24 +217,36 @@ export default function Home() {
     if (gridRef.current) {
       const scale = 1 - gridProgress * 0.05;
       gridRef.current.style.transform = `scale(${scale})`;
-      if (progress <= 0.3) {
+
+      // Появление сетки из небытия
+      if (progress < 0.1) {
+        gridRef.current.style.opacity = "0";
+        gridRef.current.style.filter = "blur(10px)";
+      } else if (progress >= 0.1 && progress <= 0.35) {
+        const appear = (progress - 0.1) / 0.25;
+        gridRef.current.style.opacity = appear.toString();
+        gridRef.current.style.filter = `blur(${(1 - appear) * 10}px)`;
+      } else if (progress > 0.35 && progress <= 0.5) {
         gridRef.current.style.opacity = "1";
         gridRef.current.style.filter = "blur(0px)";
-      } else if (progress > 0.5) {
-        gridRef.current.style.opacity = "0";
-        gridRef.current.style.filter = "blur(30px)";
-      } else {
-        const gridFade = (progress - 0.3) / (0.5 - 0.3);
+      } else if (progress > 0.5 && progress <= 0.7) {
+        const gridFade = (progress - 0.5) / 0.2;
         gridRef.current.style.opacity = (1 - gridFade).toString();
         gridRef.current.style.filter = `blur(${gridFade * 30}px)`;
+      } else {
+        gridRef.current.style.opacity = "0";
+        gridRef.current.style.filter = "blur(30px)";
       }
     }
 
+    // 3. Видео плавно проявляется
     if (videoRef.current) {
-      const vidOpacity = Math.min((progress - 0.5) / 0.2, 1);
-      videoRef.current.style.opacity = progress > 0.5 ? vidOpacity.toString() : "0";
+      // Видео начинает проявляться с 0.6 и становится полностью видимым к 0.8
+      const vidOpacity = Math.min(Math.max((progress - 0.6) / 0.2, 0), 1);
+      videoRef.current.style.opacity = vidOpacity.toString();
     }
 
+    // 4. Финальный текст
     if (textRef.current) {
       if (progress > 0.85) {
         const textProgress = Math.min((progress - 0.85) / 0.15, 1);
@@ -279,10 +320,6 @@ export default function Home() {
           text-transform: uppercase !important;
           box-sizing: border-box;
         }
-
-        .nav-logo { font-size: 11px; font-weight: 700; letter-spacing: 0.18em; color: #e29ea9; text-decoration: none; }
-        .nav-links { display: flex; gap: 40px; list-style: none; }
-        .nav-links a { font-size: 10px; letter-spacing: 0.22em; color: #e29ea9; text-decoration: none; font-weight: 600; }
 
         @keyframes shakeY {
           0%   { transform: translateY(0); }
@@ -388,6 +425,7 @@ export default function Home() {
           
       `}</style>
 
+      {/* МОДАЛЬНОЕ ОКНО КОНТАКТОВ */}
       {showContact && (
         <div
           onClick={(e) => e.target === e.currentTarget && !isSending && closeContact()}
@@ -461,18 +499,25 @@ export default function Home() {
         </div>
       )}
 
+      {/* ОСНОВНОЙ ФИКСИРОВАННЫЙ КОНТЕЙНЕР */}
       <main style={{ position: "fixed", width: "100vw", height: "100vh", top: 0, left: 0, overflow: "hidden", background: "black" }}>
 
-        <nav style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 100, padding: "28px 48px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <a className="nav-logo" href="#intro">Artem</a>
-          <ul className="nav-links">
-            <li><a href="#about">About</a></li>
-            <li><a href="#work">Work</a></li>
-            <li><a href="#process">Process</a></li>
-            <li><a href="mailto:contact@artem.design">Contact</a></li>
-          </ul>
-        </nav>
+        {/* 1. РОЗОВАЯ СЕКЦИЯ (ПЕРВЫЙ ЭКРАН) */}
+        <div
+          ref={pinkSectionRef}
+          style={{
+            position: "absolute",
+            inset: 0,
+            zIndex: 100, // Выше всего в начале
+            background: "#ffbbc6",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            willChange: "opacity, transform"
+          }}
+        />
 
+        {/* 2. Видео заднего плана */}
         <video
           ref={videoRef}
           src={videoSrc}
@@ -485,16 +530,14 @@ export default function Home() {
             width: "100vw", height: "100vh",
             objectFit: "cover", zIndex: 0,
             opacity: 0,
-            willChange: "opacity, filter"
+            willChange: "opacity"
           }}
         />
         <div ref={videoOverlayRef} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1, pointerEvents: "none", transition: "background 0.1s ease-out" }} />
 
-        {/* НОВАЯ РОЗОВАЯ СЕКЦИЯ */}
-        <div style={{ position: "absolute", inset: 0, zIndex: 1, background: "#ffbbc6" }} />
-
+        {/* 3. Сетка картинок */}
         <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", zIndex: 2, overflow: "hidden" }}>
-          <div ref={gridRef} className="masked-grid" style={{ gap: `${GAP}px`, willChange: "transform, opacity, filter" }}>
+          <div ref={gridRef} className="masked-grid" style={{ gap: `${GAP}px`, willChange: "transform, opacity, filter", opacity: 0 }}>
             {rows.map((images, rowIndex) => {
               const looped = [...images, ...images];
               return (
@@ -521,6 +564,7 @@ export default function Home() {
           </div>
         </div>
 
+        {/* 4. Текстовый слой (появляется в самом конце) */}
         <div
           ref={textRef}
           style={{
