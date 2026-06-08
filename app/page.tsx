@@ -6,12 +6,15 @@ export default function Home() {
   const [progress, setProgress] = useState(0);
   const [videoSrc, setVideoSrc] = useState("/me.mp4");
   const [imgSize, setImgSize] = useState(140);
-  const [menuColor, setMenuColor] = useState("#e29ea9");
+
+  // Состояния для розового экрана с ошибкой
+  const [statusText, setStatusText] = useState("ERROR 404: LOADING FAILED");
+  const [showOverlay, setShowOverlay] = useState(true);
+  const [fadeOverlay, setFadeOverlay] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const videoOverlayRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
-  const pinkSectionRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -36,6 +39,19 @@ export default function Home() {
   const trackRefs = useRef<(HTMLDivElement | null)[]>([null, null, null, null, null]);
   const GAP = 20;
 
+  // Логика смены текста и исчезновения розового экрана
+  useEffect(() => {
+    const errorTimer = setTimeout(() => {
+      setStatusText("WELCOME");
+      const fadeTimer = setTimeout(() => {
+        setFadeOverlay(true);
+        setTimeout(() => setShowOverlay(false), 500);
+      }, 1000);
+      return () => clearTimeout(fadeTimer);
+    }, 1000);
+    return () => clearTimeout(errorTimer);
+  }, []);
+
   const openContact = () => {
     setShowContact(true);
     requestAnimationFrame(() => requestAnimationFrame(() => setContactVisible(true)));
@@ -51,8 +67,8 @@ export default function Home() {
 
     const ta = textareaRef.current;
     if (ta) {
-      ta.style.height = "auto";
-      ta.style.height = ta.scrollHeight + "px";
+      ta.style.height = "auto"; // Сбрасываем высоту
+      ta.style.height = ta.scrollHeight + "px"; // Подстраиваем под текст
     }
   };
 
@@ -84,6 +100,7 @@ export default function Home() {
     }
   };
 
+  // Проверка на iOS устройства + установка правильного видео iome.mp4
   useEffect(() => {
     const isiPhone = /iPhone|iPad|iPod/i.test(navigator.userAgent);
     if (isiPhone) {
@@ -91,6 +108,7 @@ export default function Home() {
     }
   }, []);
 
+  // Жесткий запуск видео в Safari
   useEffect(() => {
     const video = videoRef.current;
     if (video) {
@@ -107,6 +125,7 @@ export default function Home() {
     }
   }, [videoSrc]);
 
+  // Расчет размеров плиток
   useEffect(() => {
     const calcSize = () => {
       const vh = window.innerHeight;
@@ -136,9 +155,10 @@ export default function Home() {
     };
   }, []);
 
+  // Виртуальный скролл
   useEffect(() => {
     const handleWheel = (e: WheelEvent) => {
-      if (showContact) return;
+      if (showContact || showOverlay) return; // Блокируем скролл, пока висит загрузка
       e.preventDefault();
 
       const speed = 0.0015;
@@ -147,13 +167,10 @@ export default function Home() {
       next = Math.min(Math.max(next, 0), 1);
       currentProgressRef.current = next;
       setProgress(next);
-
-      // Логика цвета меню: розовый на старте, белый на контенте
-      setMenuColor(next < 0.2 ? "#e29ea9" : "#ffffff");
     };
 
     const handleTouchStart = (e: TouchEvent) => {
-      if (showContact) return;
+      if (showContact || showOverlay) return;
       touchStartRef.current = e.touches[0].clientY;
 
       if (videoRef.current && videoRef.current.paused) {
@@ -162,7 +179,7 @@ export default function Home() {
     };
 
     const handleTouchMove = (e: TouchEvent) => {
-      if (showContact) return;
+      if (showContact || showOverlay) return;
       e.preventDefault();
 
       const currentY = e.touches[0].clientY;
@@ -175,7 +192,6 @@ export default function Home() {
       next = Math.min(Math.max(next, 0), 1);
       currentProgressRef.current = next;
       setProgress(next);
-      setMenuColor(next < 0.2 ? "#e29ea9" : "#ffffff");
     };
 
     window.addEventListener("wheel", handleWheel, { passive: false });
@@ -187,45 +203,50 @@ export default function Home() {
       window.removeEventListener("touchstart", handleTouchStart);
       window.removeEventListener("touchmove", handleTouchMove);
     };
-  }, [showContact]);
+  }, [showContact, showOverlay]);
 
+  // Интерактивный таймлайн анимаций
   useEffect(() => {
-    // 1. Анимация розовой секции
-    if (pinkSectionRef.current) {
-      const pinkFadeProgress = Math.min(progress / 0.2, 1);
-      pinkSectionRef.current.style.opacity = (1 - pinkFadeProgress).toString();
-      pinkSectionRef.current.style.transform = `translate3d(0, ${-pinkFadeProgress * 40}px, 0)`;
-      pinkSectionRef.current.style.pointerEvents = progress < 0.2 ? "auto" : "none";
-    }
-
-    // 2. Логика сетки (Grid) - исправлено появление и движение
+    // Сетка остается без изменений (как была)
     const gridProgress = Math.min(progress / 0.65, 1);
 
     trackRefs.current.forEach((track, i) => {
       if (!track || !rows[i]) return;
       const loopWidth = (imgSize + GAP) * rows[i].length;
 
-      // Сетка плавно едет горизонтально в зависимости от прогресса
-      const offset = directions[i] ? -gridProgress * loopWidth : -loopWidth + gridProgress * loopWidth;
-
-      // Появление: сетка просто выезжает из "невидимости" без Y-смещений
-      track.style.transform = `translate3d(${offset}px, 0, 0)`;
+      if (directions[i]) {
+        track.style.transform = `translate3d(${-gridProgress * loopWidth}px, 0, 0)`;
+      } else {
+        track.style.transform = `translate3d(${-loopWidth + gridProgress * loopWidth}px, 0, 0)`;
+      }
     });
 
     if (gridRef.current) {
-      // Плавное появление сетки от 0.1 до 0.35 прогресса
-      const opacity = progress < 0.1 ? 0 : progress > 0.35 ? 1 : (progress - 0.1) / 0.25;
-      gridRef.current.style.opacity = opacity.toString();
-      gridRef.current.style.filter = progress > 0.5 ? `blur(${(progress - 0.5) * 100}px)` : "blur(0px)";
-      gridRef.current.style.transform = `scale(${1 - gridProgress * 0.02})`;
+      const scale = 1 - gridProgress * 0.05;
+      gridRef.current.style.transform = `scale(${scale})`;
+
+      if (progress <= 0.3) {
+        gridRef.current.style.opacity = "1";
+        gridRef.current.style.filter = "blur(0px)";
+      } else if (progress > 0.5) {
+        gridRef.current.style.opacity = "0";
+        gridRef.current.style.filter = "blur(30px)";
+      } else {
+        const gridFade = (progress - 0.3) / (0.5 - 0.3);
+        gridRef.current.style.opacity = (1 - gridFade).toString();
+        gridRef.current.style.filter = `blur(${gridFade * 30}px)`;
+      }
     }
 
-    // 3. Видео и текст
+    // Видео плавно проявляется
     if (videoRef.current) {
-      const vidOpacity = Math.min(Math.max((progress - 0.6) / 0.2, 0), 1);
-      videoRef.current.style.opacity = vidOpacity.toString();
+      // Видео начинает проявляться с 0.5 и становится полностью видимым к 0.7
+      const vidOpacity = Math.min((progress - 0.5) / 0.2, 1);
+      videoRef.current.style.opacity = progress > 0.5 ? vidOpacity.toString() : "0";
     }
 
+    // А вот здесь мы увеличили дистанцию для текста:
+    // Он начинает появляться только после 0.85 (вместо 0.68)
     if (textRef.current) {
       if (progress > 0.85) {
         const textProgress = Math.min((progress - 0.85) / 0.15, 1);
@@ -234,6 +255,7 @@ export default function Home() {
         textRef.current.style.pointerEvents = "auto";
       } else {
         textRef.current.style.opacity = "0";
+        textRef.current.style.transform = "translate3d(0, 30px, 0)";
         textRef.current.style.pointerEvents = "none";
       }
     }
@@ -246,7 +268,7 @@ export default function Home() {
       textEl.style.transition = "opacity 0.4s ease, filter 0.4s ease";
       textEl.style.opacity = "0";
       textEl.style.filter = "blur(12px)";
-    } else if (progress > 0.85) {
+    } else if (progress > 0.85) { // Обновили триггер здесь
       textEl.style.transition = "opacity 0.4s ease, filter 0.4s ease";
       textEl.style.opacity = "1";
       textEl.style.filter = "blur(0px)";
@@ -321,7 +343,7 @@ export default function Home() {
 
         .heartbeat-wrapper {
           display: inline-block;
-          transform-origin: center center;
+          transform-origin: center center; /* Фиксирует точку отсчета в центре текста */
           animation: heartbeat 2s ease-in-out infinite;
         }
         input::placeholder, textarea::placeholder { color: rgba(0,0,0,0.2); }
@@ -333,6 +355,7 @@ export default function Home() {
           transition: transform 0.1s ease-out;
         }
 
+        /* Текстовые линии главного экрана на Компьютере (чистый Arial Black без обводки) */
         .text-line {
           font-family: 'Arial Black', Arial, sans-serif !important;
           font-weight: 900 !important;
@@ -341,16 +364,10 @@ export default function Home() {
           color: white;
         }
         
-        .nav-item {
-            cursor: pointer;
-            text-shadow: 0 2px 4px rgba(0,0,0,0.2);
-            transition: opacity 0.3s ease;
-        }
-        .nav-item:hover { opacity: 0.6; }
-
         .desktop-br { display: inline; }
         .mobile-br { display: none; }
 
+        /* Элементы выплывающей карточки на Компьютере (чистые) */
         .card-title {
           font-family: 'Arial Black', Arial, sans-serif !important;
           font-weight: 900 !important;
@@ -375,6 +392,7 @@ export default function Home() {
           letter-spacing: 0.15em;
         }
 
+        /* Адаптив под мобильные устройства (iPhone) — хак с обводкой остается только тут */
         @media (max-width: 768px) {
           .desktop-br { display: none; }
           .mobile-br { display: block; }
@@ -390,6 +408,7 @@ export default function Home() {
             margin-top: 1.2em !important;
           }
 
+          /* Карточка на мобилке: делаем шрифт жирнее через stroke */
           .card-title {
             -webkit-text-stroke: 0.8px #000;
             paint-order: stroke fill;
@@ -407,22 +426,30 @@ export default function Home() {
             paint-order: stroke fill;
           }
         }
+
+        /* Стили для розового экрана загрузки */
+        .pink-overlay {
+          position: absolute;
+          inset: 0;
+          z-index: 20000;
+          background: #ffbbc6;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: opacity 0.5s ease;
+          pointer-events: none;
+        }
+
+        .error-text {
+          font-family: 'Arial Black', Arial, sans-serif !important;
+          font-size: 5vw;
+          color: #000;
+          font-weight: 900;
+        }
+          
       `}</style>
 
-      {/* STICKY MENU */}
-      <nav style={{
-        position: "fixed", top: 0, left: 0, right: 0, zIndex: 9999,
-        padding: "40px 80px", display: "flex", justifyContent: "space-between",
-        color: menuColor, fontSize: "11px", letterSpacing: "0.2em", transition: "color 0.4s ease"
-      }}>
-        <div style={{ fontWeight: 900 }}>ARTEM.DESIGN</div>
-        <div style={{ display: "flex", gap: "40px", fontWeight: 700 }}>
-          {["WORK", "PROCESS", "ABOUT", "CONTACT"].map(item => (
-            <span key={item} className="nav-item" onClick={item === "CONTACT" ? openContact : undefined}>{item}</span>
-          ))}
-        </div>
-      </nav>
-
+      {/* МОДАЛЬНОЕ ОКНО КОНТАКТОВ */}
       {showContact && (
         <div
           onClick={(e) => e.target === e.currentTarget && !isSending && closeContact()}
@@ -478,12 +505,12 @@ export default function Home() {
                   rows={1}
                   style={{
                     ...inputStyle,
-                    resize: "none",
-                    overflow: "hidden",
+                    resize: "none",        // Запрещает пользователю менять размер мышкой
+                    overflow: "hidden",    // Полностью скрывает скролл-бар
                     lineHeight: "1.4",
                     transition: "height 0.25s ease",
                     display: "block",
-                    minHeight: "24px"
+                    minHeight: "24px"      // Задает минимальную высоту, чтобы поле не схлопывалось
                   }}
                 />
               </div>
@@ -496,22 +523,17 @@ export default function Home() {
         </div>
       )}
 
+      {/* ОСНОВНОЙ ФИКСИРОВАННЫЙ КОНТЕЙНЕР */}
       <main style={{ position: "fixed", width: "100vw", height: "100vh", top: 0, left: 0, overflow: "hidden", background: "black" }}>
 
-        <div
-          ref={pinkSectionRef}
-          style={{
-            position: "absolute",
-            inset: 0,
-            zIndex: 100,
-            background: "#ffbbc6",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            willChange: "opacity, transform"
-          }}
-        />
+        {/* РОЗОВЫЙ ЭКРАН ПРИВЕТСТВИЯ/ОШИБКИ */}
+        {showOverlay && (
+          <div className="pink-overlay" style={{ opacity: fadeOverlay ? 0 : 1 }}>
+            <div className="error-text">{statusText}</div>
+          </div>
+        )}
 
+        {/* Видео заднего плана */}
         <video
           ref={videoRef}
           src={videoSrc}
@@ -524,13 +546,14 @@ export default function Home() {
             width: "100vw", height: "100vh",
             objectFit: "cover", zIndex: 0,
             opacity: 0,
-            willChange: "opacity"
+            willChange: "opacity, filter"
           }}
         />
         <div ref={videoOverlayRef} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1, pointerEvents: "none", transition: "background 0.1s ease-out" }} />
 
+        {/* Сетка картинок */}
         <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", zIndex: 2, overflow: "hidden" }}>
-          <div ref={gridRef} className="masked-grid" style={{ gap: `${GAP}px`, willChange: "transform, opacity, filter", opacity: 0 }}>
+          <div ref={gridRef} className="masked-grid" style={{ gap: `${GAP}px`, willChange: "transform, opacity, filter" }}>
             {rows.map((images, rowIndex) => {
               const looped = [...images, ...images];
               return (
@@ -557,6 +580,7 @@ export default function Home() {
           </div>
         </div>
 
+        {/* Текстовый слой */}
         <div
           ref={textRef}
           style={{
@@ -600,6 +624,7 @@ export default function Home() {
             </div>
           </div>
         </div>
+
       </main>
     </>
   );
