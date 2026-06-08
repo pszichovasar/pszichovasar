@@ -195,8 +195,8 @@ export default function Home() {
   }, [showContact]);
 
   /**
-   * Эффект: Анимационный движок (Таймлайн)
-   */
+  * Эффект: Анимационный движок (Таймлайн)
+  */
   useEffect(() => {
     const p = progress; // Прогресс для удобства
 
@@ -219,7 +219,7 @@ export default function Home() {
 
       // Четные ряды (0, 2, 4) начинают слева, нечетные (1, 3) справа
       const isEven = i % 2 === 0;
-      const direction = isEven ? -1 : 1;
+      const direction = isEven ? 1 : -1;
 
       // Считаем смещение: от 50% экрана до 0%
       const offset = (1 - gridAssemblyProgress) * 50 * direction;
@@ -266,8 +266,8 @@ export default function Home() {
   }, [progress]);
 
   /**
-   * Эффект: Анимация при переключении видимости модального окна
-   */
+  * Эффект: Анимация при переключении видимости модального окна
+  */
   useEffect(() => {
     const textEl = textRef.current;
     if (!textEl) return;
@@ -373,90 +373,90 @@ export default function Home() {
     <>
       {/* Глобальные стили для всей страницы */}
       <style>{`
-        html, body { 
-          margin: 0; padding: 0; 
-          width: 100vw; height: 100vh; 
-          overflow: hidden; 
-          background: #ffbbc6; 
-          font-family: 'Arial Black', Arial, sans-serif !important;
-        }
-        * { box-sizing: border-box; text-transform: uppercase !important; }
-        
-        .pink-overlay {
-          position: fixed;
-          inset: 0;
-          z-index: 0;
-          background: #ffbbc6;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
+          html, body { 
+            margin: 0; padding: 0; 
+            width: 100vw; height: 100vh; 
+            overflow: hidden; 
+            background: #ffbbc6; 
+            font-family: 'Arial Black', Arial, sans-serif !important;
+          }
+          * { box-sizing: border-box; text-transform: uppercase !important; }
+          
+          .pink-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+            background: #ffbbc6;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+          }
 
-        .welcome-text {
-          font-size: 5vw;
-          color: #000;
-          font-weight: 900;
-          will-change: opacity, filter;
-        }
+          .welcome-text {
+            font-size: 5vw;
+            color: #000;
+            font-weight: 900;
+            will-change: opacity, filter;
+          }
 
-        .main-container {
-          position: fixed;
-          width: 100vw; height: 100vh;
-          top: 0; left: 0;
-          z-index: 1;
-        }
+          .main-container {
+            position: fixed;
+            width: 100vw; height: 100vh;
+            top: 0; left: 0;
+            z-index: 1;
+          }
 
-        .masked-grid {
-          display: flex;
-          flex-direction: column;
-          gap: ${GRID_GAP}px;
-          will-change: transform, opacity;
-        }
+          .masked-grid {
+            display: flex;
+            flex-direction: column;
+            gap: ${GRID_GAP}px;
+            will-change: transform, opacity;
+          }
 
-        .row-track {
-          display: flex;
-          gap: ${GRID_GAP}px;
-          width: max-content;
-          will-change: transform;
-        }
+          .row-track {
+            display: flex;
+            gap: ${GRID_GAP}px;
+            width: max-content;
+            will-change: transform;
+          }
 
-        @keyframes shakeY {
-          0% { transform: translateY(0); }
-          15% { transform: translateY(-8px); }
-          30% { transform: translateY(8px); }
-          45% { transform: translateY(-6px); }
-          60% { transform: translateY(6px); }
-          75% { transform: translateY(-3px); }
-          90% { transform: translateY(3px); }
-          100% { transform: translateY(0); }
-        }
-        .shakeY { animation: shakeY 0.4s ease forwards; }
+          @keyframes shakeY {
+            0% { transform: translateY(0); }
+            15% { transform: translateY(-8px); }
+            30% { transform: translateY(8px); }
+            45% { transform: translateY(-6px); }
+            60% { transform: translateY(6px); }
+            75% { transform: translateY(-3px); }
+            90% { transform: translateY(3px); }
+            100% { transform: translateY(0); }
+          }
+          .shakeY { animation: shakeY 0.4s ease forwards; }
 
-        @keyframes heartbeat {
-          0% { transform: scale(1); }
-          5% { transform: scale(1.03); }
-          10% { transform: scale(1); }
-          15% { transform: scale(1.03); }
-          20% { transform: scale(1); }
-          100% { transform: scale(1); }
-        }
-        .heartbeat-wrapper { 
-          display: inline-block; 
-          transform-origin: center center; 
-          animation: heartbeat 2s ease-in-out infinite; 
-        }
-        
-        .text-line { 
-          font-weight: 900 !important; 
-          letter-spacing: -0.03em; 
-          line-height: 0.92; 
-          color: white; 
-        }
-        
-        @media (max-width: 768px) {
-          .text-line { font-size: 8.5vw !important; -webkit-text-stroke: 1.2px white; }
-        }
-      `}</style>
+          @keyframes heartbeat {
+            0% { transform: scale(1); }
+            5% { transform: scale(1.03); }
+            10% { transform: scale(1); }
+            15% { transform: scale(1.03); }
+            20% { transform: scale(1); }
+            100% { transform: scale(1); }
+          }
+          .heartbeat-wrapper { 
+            display: inline-block; 
+            transform-origin: center center; 
+            animation: heartbeat 2s ease-in-out infinite; 
+          }
+          
+          .text-line { 
+            font-weight: 900 !important; 
+            letter-spacing: -0.03em; 
+            line-height: 0.92; 
+            color: white; 
+          }
+          
+          @media (max-width: 768px) {
+            .text-line { font-size: 8.5vw !important; -webkit-text-stroke: 1.2px white; }
+          }
+        `}</style>
 
       {/* 1. РОЗОВЫЙ СЛОЙ (Статичный) */}
       <div className="pink-overlay">
