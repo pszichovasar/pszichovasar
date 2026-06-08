@@ -189,13 +189,12 @@ export default function Home() {
 
   // Интерактивный таймлайн анимаций
   useEffect(() => {
-    // Сетка остается без изменений (как была)
-    const gridProgress = Math.min(progress / 0.65, 1);
+    // 1. Логика сетки (теперь работает с 0.33 до 0.66)
+    const gridProgress = Math.min(Math.max((progress - 0.33) / 0.33, 0), 1);
 
     trackRefs.current.forEach((track, i) => {
       if (!track || !rows[i]) return;
       const loopWidth = (imgSize + GAP) * rows[i].length;
-
       if (directions[i]) {
         track.style.transform = `translate3d(${-gridProgress * loopWidth}px, 0, 0)`;
       } else {
@@ -206,40 +205,21 @@ export default function Home() {
     if (gridRef.current) {
       const scale = 1 - gridProgress * 0.05;
       gridRef.current.style.transform = `scale(${scale})`;
-
-      if (progress <= 0.3) {
-        gridRef.current.style.opacity = "1";
-        gridRef.current.style.filter = "blur(0px)";
-      } else if (progress > 0.5) {
-        gridRef.current.style.opacity = "0";
-        gridRef.current.style.filter = "blur(30px)";
-      } else {
-        const gridFade = (progress - 0.3) / (0.5 - 0.3);
-        gridRef.current.style.opacity = (1 - gridFade).toString();
-        gridRef.current.style.filter = `blur(${gridFade * 30}px)`;
-      }
+      // Сетка появляется плавно с 0.33
+      gridRef.current.style.opacity = gridProgress > 0 ? "1" : "0";
     }
 
-    // Видео плавно проявляется
+    // 2. Видео и Текст (теперь работают с 0.66 до 1.0)
+    const finalSectionProgress = Math.min(Math.max((progress - 0.66) / 0.34, 0), 1);
+
     if (videoRef.current) {
-      // Видео начинает проявляться с 0.5 и становится полностью видимым к 0.7
-      const vidOpacity = Math.min((progress - 0.5) / 0.2, 1);
-      videoRef.current.style.opacity = progress > 0.5 ? vidOpacity.toString() : "0";
+      videoRef.current.style.opacity = finalSectionProgress.toString();
     }
 
-    // А вот здесь мы увеличили дистанцию для текста:
-    // Он начинает появляться только после 0.85 (вместо 0.68)
     if (textRef.current) {
-      if (progress > 0.85) {
-        const textProgress = Math.min((progress - 0.85) / 0.15, 1);
-        textRef.current.style.opacity = textProgress.toString();
-        textRef.current.style.transform = `translate3d(0, ${(1 - textProgress) * 30}px, 0)`;
-        textRef.current.style.pointerEvents = "auto";
-      } else {
-        textRef.current.style.opacity = "0";
-        textRef.current.style.transform = "translate3d(0, 30px, 0)";
-        textRef.current.style.pointerEvents = "none";
-      }
+      textRef.current.style.opacity = finalSectionProgress.toString();
+      textRef.current.style.transform = `translate3d(0, ${(1 - finalSectionProgress) * 30}px, 0)`;
+      textRef.current.style.pointerEvents = finalSectionProgress > 0.5 ? "auto" : "none";
     }
   }, [progress, imgSize]);
 
@@ -492,7 +472,18 @@ export default function Home() {
 
       {/* ОСНОВНОЙ ФИКСИРОВАННЫЙ КОНТЕЙНЕР */}
       <main style={{ position: "fixed", width: "100vw", height: "100vh", top: 0, left: 0, overflow: "hidden", background: "black" }}>
-
+        {/* 1. РОЗОВАЯ СЕКЦИЯ */}
+        <div style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          width: "100vw",
+          height: "100vh",
+          background: "#ffc0cb", // Розовый цвет
+          zIndex: 20, // Поверх всего
+          transform: `translate3d(0, ${progress < 0.33 ? -progress * 300 : -100}vh, 0)`,
+          transition: "transform 0.1s linear"
+        }} />
         {/* Видео заднего плана */}
         <video
           ref={videoRef}
