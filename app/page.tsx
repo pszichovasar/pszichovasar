@@ -7,11 +7,10 @@ export default function Home() {
   const [videoSrc, setVideoSrc] = useState("/me.mp4");
   const [imgSize, setImgSize] = useState(140);
 
-  // Состояния для розового экрана с ошибкой
+  // Состояние только для смены текста на розовом фоне (сам фон больше не исчезает)
   const [statusText, setStatusText] = useState("ERROR 404: LOADING FAILED");
-  const [showOverlay, setShowOverlay] = useState(true);
-  const [fadeOverlay, setFadeOverlay] = useState(false);
 
+  const mainRef = useRef<HTMLElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const videoOverlayRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -39,15 +38,10 @@ export default function Home() {
   const trackRefs = useRef<(HTMLDivElement | null)[]>([null, null, null, null, null]);
   const GAP = 20;
 
-  // Логика смены текста и исчезновения розового экрана
+  // Логика смены текста (без скрытия самого экрана)
   useEffect(() => {
     const errorTimer = setTimeout(() => {
       setStatusText("WELCOME");
-      const fadeTimer = setTimeout(() => {
-        setFadeOverlay(true);
-        setTimeout(() => setShowOverlay(false), 500);
-      }, 1000);
-      return () => clearTimeout(fadeTimer);
     }, 1000);
     return () => clearTimeout(errorTimer);
   }, []);
@@ -67,8 +61,8 @@ export default function Home() {
 
     const ta = textareaRef.current;
     if (ta) {
-      ta.style.height = "auto"; // Сбрасываем высоту
-      ta.style.height = ta.scrollHeight + "px"; // Подстраиваем под текст
+      ta.style.height = "auto";
+      ta.style.height = ta.scrollHeight + "px";
     }
   };
 
@@ -158,7 +152,7 @@ export default function Home() {
   // Виртуальный скролл
   useEffect(() => {
     const handleWheel = (e: WheelEvent) => {
-      if (showContact || showOverlay) return; // Блокируем скролл, пока висит загрузка
+      if (showContact) return;
       e.preventDefault();
 
       const speed = 0.0015;
@@ -170,7 +164,7 @@ export default function Home() {
     };
 
     const handleTouchStart = (e: TouchEvent) => {
-      if (showContact || showOverlay) return;
+      if (showContact) return;
       touchStartRef.current = e.touches[0].clientY;
 
       if (videoRef.current && videoRef.current.paused) {
@@ -179,7 +173,7 @@ export default function Home() {
     };
 
     const handleTouchMove = (e: TouchEvent) => {
-      if (showContact || showOverlay) return;
+      if (showContact) return;
       e.preventDefault();
 
       const currentY = e.touches[0].clientY;
@@ -203,11 +197,18 @@ export default function Home() {
       window.removeEventListener("touchstart", handleTouchStart);
       window.removeEventListener("touchmove", handleTouchMove);
     };
-  }, [showContact, showOverlay]);
+  }, [showContact]);
 
   // Интерактивный таймлайн анимаций
   useEffect(() => {
-    // Сетка остается без изменений (как была)
+    // 1. Появление всего сайта снизу вверх из-за границ экрана
+    if (mainRef.current) {
+      // За первые 25% скролла контейнер поднимается с 100vh до 0
+      const slideUpProgress = Math.min(progress / 0.25, 1);
+      mainRef.current.style.transform = `translate3d(0, ${(1 - slideUpProgress) * 100}vh, 0)`;
+    }
+
+    // 2. Движение рядов сетки
     const gridProgress = Math.min(progress / 0.65, 1);
 
     trackRefs.current.forEach((track, i) => {
@@ -221,41 +222,42 @@ export default function Home() {
       }
     });
 
+    // 3. Легкое размытие и затемнение сетки при доскролливании до текста
     if (gridRef.current) {
       const scale = 1 - gridProgress * 0.05;
       gridRef.current.style.transform = `scale(${scale})`;
 
-      if (progress <= 0.3) {
+      if (progress <= 0.35) {
         gridRef.current.style.opacity = "1";
-        gridRef.current.style.filter = "blur(0px)";
-      } else if (progress > 0.5) {
+        gridRef.current.style.filter = "blur(0px) brightness(1)";
+      } else if (progress > 0.65) {
         gridRef.current.style.opacity = "0";
-        gridRef.current.style.filter = "blur(30px)";
+        gridRef.current.style.filter = "blur(30px) brightness(0.2)";
       } else {
-        const gridFade = (progress - 0.3) / (0.5 - 0.3);
+        const gridFade = (progress - 0.35) / (0.65 - 0.35);
         gridRef.current.style.opacity = (1 - gridFade).toString();
-        gridRef.current.style.filter = `blur(${gridFade * 30}px)`;
+        // Размываем и плавно затемняем саму сетку
+        gridRef.current.style.filter = `blur(${gridFade * 30}px) brightness(${1 - gridFade * 0.8})`;
       }
     }
 
-    // Видео плавно проявляется
+    // 4. Появление видео на фоне
     if (videoRef.current) {
-      // Видео начинает проявляться с 0.5 и становится полностью видимым к 0.7
-      const vidOpacity = Math.min((progress - 0.5) / 0.2, 1);
-      videoRef.current.style.opacity = progress > 0.5 ? vidOpacity.toString() : "0";
+      const vidOpacity = Math.min(Math.max((progress - 0.4) / 0.25, 0), 1);
+      videoRef.current.style.opacity = vidOpacity.toString();
     }
 
-    // А вот здесь мы увеличили дистанцию для текста:
-    // Он начинает появляться только после 0.85 (вместо 0.68)
+    // 5. Физическое доскролливание до текста (текст выезжает снизу)
     if (textRef.current) {
-      if (progress > 0.85) {
-        const textProgress = Math.min((progress - 0.85) / 0.15, 1);
+      if (progress > 0.7) {
+        const textProgress = Math.min((progress - 0.7) / 0.3, 1);
         textRef.current.style.opacity = textProgress.toString();
-        textRef.current.style.transform = `translate3d(0, ${(1 - textProgress) * 30}px, 0)`;
+        // Текст поднимается на 150px вверх, создавая ощущение скролла
+        textRef.current.style.transform = `translate3d(0, ${(1 - textProgress) * 150}px, 0)`;
         textRef.current.style.pointerEvents = "auto";
       } else {
         textRef.current.style.opacity = "0";
-        textRef.current.style.transform = "translate3d(0, 30px, 0)";
+        textRef.current.style.transform = "translate3d(0, 150px, 0)";
         textRef.current.style.pointerEvents = "none";
       }
     }
@@ -268,7 +270,7 @@ export default function Home() {
       textEl.style.transition = "opacity 0.4s ease, filter 0.4s ease";
       textEl.style.opacity = "0";
       textEl.style.filter = "blur(12px)";
-    } else if (progress > 0.85) { // Обновили триггер здесь
+    } else if (progress > 0.7) {
       textEl.style.transition = "opacity 0.4s ease, filter 0.4s ease";
       textEl.style.opacity = "1";
       textEl.style.filter = "blur(0px)";
@@ -343,7 +345,7 @@ export default function Home() {
 
         .heartbeat-wrapper {
           display: inline-block;
-          transform-origin: center center; /* Фиксирует точку отсчета в центре текста */
+          transform-origin: center center; 
           animation: heartbeat 2s ease-in-out infinite;
         }
         input::placeholder, textarea::placeholder { color: rgba(0,0,0,0.2); }
@@ -355,7 +357,7 @@ export default function Home() {
           transition: transform 0.1s ease-out;
         }
 
-        /* Текстовые линии главного экрана на Компьютере (чистый Arial Black без обводки) */
+        /* Текстовые линии главного экрана на Компьютере */
         .text-line {
           font-family: 'Arial Black', Arial, sans-serif !important;
           font-weight: 900 !important;
@@ -367,7 +369,7 @@ export default function Home() {
         .desktop-br { display: inline; }
         .mobile-br { display: none; }
 
-        /* Элементы выплывающей карточки на Компьютере (чистые) */
+        /* Элементы выплывающей карточки на Компьютере */
         .card-title {
           font-family: 'Arial Black', Arial, sans-serif !important;
           font-weight: 900 !important;
@@ -392,7 +394,7 @@ export default function Home() {
           letter-spacing: 0.15em;
         }
 
-        /* Адаптив под мобильные устройства (iPhone) — хак с обводкой остается только тут */
+        /* Адаптив под мобильные устройства (iPhone) */
         @media (max-width: 768px) {
           .desktop-br { display: none; }
           .mobile-br { display: block; }
@@ -408,7 +410,6 @@ export default function Home() {
             margin-top: 1.2em !important;
           }
 
-          /* Карточка на мобилке: делаем шрифт жирнее через stroke */
           .card-title {
             -webkit-text-stroke: 0.8px #000;
             paint-order: stroke fill;
@@ -427,16 +428,15 @@ export default function Home() {
           }
         }
 
-        /* Стили для розового экрана загрузки */
+        /* Стили для розового экрана (теперь статичный фон позади всего) */
         .pink-overlay {
-          position: absolute;
+          position: fixed;
           inset: 0;
-          z-index: 20000;
+          z-index: 0;
           background: #ffbbc6;
           display: flex;
           align-items: center;
           justify-content: center;
-          transition: opacity 0.5s ease;
           pointer-events: none;
         }
 
@@ -448,6 +448,11 @@ export default function Home() {
         }
           
       `}</style>
+
+      {/* РОЗОВЫЙ ФОН ПРИВЕТСТВИЯ/ОШИБКИ */}
+      <div className="pink-overlay">
+        <div className="error-text">{statusText}</div>
+      </div>
 
       {/* МОДАЛЬНОЕ ОКНО КОНТАКТОВ */}
       {showContact && (
@@ -505,12 +510,12 @@ export default function Home() {
                   rows={1}
                   style={{
                     ...inputStyle,
-                    resize: "none",        // Запрещает пользователю менять размер мышкой
-                    overflow: "hidden",    // Полностью скрывает скролл-бар
+                    resize: "none",
+                    overflow: "hidden",
                     lineHeight: "1.4",
                     transition: "height 0.25s ease",
                     display: "block",
-                    minHeight: "24px"      // Задает минимальную высоту, чтобы поле не схлопывалось
+                    minHeight: "24px"
                   }}
                 />
               </div>
@@ -523,15 +528,8 @@ export default function Home() {
         </div>
       )}
 
-      {/* ОСНОВНОЙ ФИКСИРОВАННЫЙ КОНТЕЙНЕР */}
-      <main style={{ position: "fixed", width: "100vw", height: "100vh", top: 0, left: 0, overflow: "hidden", background: "black" }}>
-
-        {/* РОЗОВЫЙ ЭКРАН ПРИВЕТСТВИЯ/ОШИБКИ */}
-        {showOverlay && (
-          <div className="pink-overlay" style={{ opacity: fadeOverlay ? 0 : 1 }}>
-            <div className="error-text">{statusText}</div>
-          </div>
-        )}
+      {/* ОСНОВНОЙ ФИКСИРОВАННЫЙ КОНТЕЙНЕР (Выезжает снизу при скролле) */}
+      <main ref={mainRef} style={{ position: "fixed", width: "100vw", height: "100vh", top: 0, left: 0, overflow: "hidden", background: "black", zIndex: 1, willChange: "transform", transform: "translate3d(0, 100vh, 0)" }}>
 
         {/* Видео заднего плана */}
         <video
@@ -591,7 +589,7 @@ export default function Home() {
             alignItems: "center",
             padding: "0 clamp(20px, 6vw, 80px)",
             opacity: 0,
-            transform: "translate3d(0, 30px, 0)",
+            transform: "translate3d(0, 150px, 0)",
             willChange: "transform, opacity",
             pointerEvents: "none"
           }}
