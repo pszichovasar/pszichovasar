@@ -190,6 +190,7 @@ export default function Home() {
   }, [showContact]);
 
   useEffect(() => {
+    // 1. Анимация розовой секции
     if (pinkSectionRef.current) {
       const pinkFadeProgress = Math.min(progress / 0.2, 1);
       pinkSectionRef.current.style.opacity = (1 - pinkFadeProgress).toString();
@@ -197,52 +198,29 @@ export default function Home() {
       pinkSectionRef.current.style.pointerEvents = progress < 0.2 ? "auto" : "none";
     }
 
+    // 2. Логика сетки (Grid) - исправлено появление и движение
     const gridProgress = Math.min(progress / 0.65, 1);
 
     trackRefs.current.forEach((track, i) => {
       if (!track || !rows[i]) return;
       const loopWidth = (imgSize + GAP) * rows[i].length;
 
-      let currentX = directions[i] ? -gridProgress * loopWidth : -loopWidth + gridProgress * loopWidth;
+      // Сетка плавно едет горизонтально в зависимости от прогресса
+      const offset = directions[i] ? -gridProgress * loopWidth : -loopWidth + gridProgress * loopWidth;
 
-      let currentY = 0;
-      if (progress >= 0.1 && progress <= 0.35) {
-        const appearProgress = (progress - 0.1) / 0.25;
-        const startOffsets = [100, -100, 150, -150, 200];
-        const offset = startOffsets[i];
-        currentY = offset * (1 - appearProgress);
-      } else if (progress < 0.1) {
-        const startOffsets = [100, -100, 150, -150, 200];
-        currentY = startOffsets[i];
-      }
-
-      track.style.transform = `translate3d(${currentX}px, ${currentY}px, 0)`;
+      // Появление: сетка просто выезжает из "невидимости" без Y-смещений
+      track.style.transform = `translate3d(${offset}px, 0, 0)`;
     });
 
     if (gridRef.current) {
-      const scale = 1 - gridProgress * 0.05;
-      gridRef.current.style.transform = `scale(${scale})`;
-
-      if (progress < 0.1) {
-        gridRef.current.style.opacity = "0";
-        gridRef.current.style.filter = "blur(0px)";
-      } else if (progress >= 0.1 && progress <= 0.35) {
-        const appear = (progress - 0.1) / 0.25;
-        gridRef.current.style.opacity = appear.toString();
-        gridRef.current.style.filter = "blur(0px)";
-      } else if (progress > 0.35 && progress <= 0.5) {
-        gridRef.current.style.opacity = "1";
-        gridRef.current.style.filter = "blur(0px)";
-      } else if (progress > 0.5 && progress <= 0.7) {
-        const gridFade = (progress - 0.5) / 0.2;
-        gridRef.current.style.opacity = (1 - gridFade).toString();
-        gridRef.current.style.filter = `blur(${gridFade * 30}px)`;
-      } else {
-        gridRef.current.style.opacity = "0";
-        gridRef.current.style.filter = "blur(30px)";
-      }
+      // Плавное появление сетки от 0.1 до 0.35 прогресса
+      const opacity = progress < 0.1 ? 0 : progress > 0.35 ? 1 : (progress - 0.1) / 0.25;
+      gridRef.current.style.opacity = opacity.toString();
+      gridRef.current.style.filter = progress > 0.5 ? `blur(${(progress - 0.5) * 100}px)` : "blur(0px)";
+      gridRef.current.style.transform = `scale(${1 - gridProgress * 0.02})`;
     }
 
+    // 3. Видео и текст
     if (videoRef.current) {
       const vidOpacity = Math.min(Math.max((progress - 0.6) / 0.2, 0), 1);
       videoRef.current.style.opacity = vidOpacity.toString();
@@ -256,7 +234,6 @@ export default function Home() {
         textRef.current.style.pointerEvents = "auto";
       } else {
         textRef.current.style.opacity = "0";
-        textRef.current.style.transform = "translate3d(0, 30px, 0)";
         textRef.current.style.pointerEvents = "none";
       }
     }
