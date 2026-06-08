@@ -189,40 +189,52 @@ export default function Home() {
 
   // Интерактивный таймлайн анимаций
   // Интерактивный таймлайн анимаций
+  // Интерактивный таймлайн анимаций
   useEffect(() => {
-    // 1. Логика сетки (появляется в диапазоне прогресса 0.33 – 0.66)
-    const gridProgress = Math.min(Math.max((progress - 0.33) / 0.33, 0), 1);
-
-    // Вычисляем ширину экрана для эффекта выезда из-за границ
     const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1200;
 
+    // 1. ЛОГИКА СЕТКИ
     trackRefs.current.forEach((track, i) => {
       if (!track || !rows[i]) return;
       const loopWidth = (imgSize + GAP) * rows[i].length;
 
-      // Базовое движение (бесконечный скролл)
-      const baseMove = directions[i]
-        ? -gridProgress * loopWidth
-        : -loopWidth + gridProgress * loopWidth;
+      // Базовое бесконечное движение (всегда активно)
+      const baseScroll = directions[i]
+        ? -progress * loopWidth * 1.5 // Скорость движения сетки
+        : -loopWidth + progress * loopWidth * 1.5;
 
-      // Добавляем эффект выезда из-за экрана (вход)
-      // Если направление true (влево) -> заходит справа (+ отступ)
-      // Если направление false (вправо) -> заходит слева (- отступ)
-      const entryOffset = directions[i]
-        ? (1 - gridProgress) * screenWidth
-        : -(1 - gridProgress) * screenWidth;
+      let extraOffset = 0;
 
-      track.style.transform = `translate3d(${baseMove + entryOffset}px, 0, 0)`;
+      // Фаза появления (0.33 - 0.5)
+      if (progress >= 0.33 && progress < 0.5) {
+        const entryPhase = (progress - 0.33) / 0.17; // 0 -> 1
+        // Если true (лево) -> заходит справа (+ отступ), если false (право) -> заходит слева (- отступ)
+        extraOffset = directions[i]
+          ? (1 - entryPhase) * screenWidth
+          : -(1 - entryPhase) * screenWidth;
+      }
+      // Фаза исчезновения (0.8 - 1.0)
+      else if (progress > 0.8) {
+        const exitPhase = (progress - 0.8) / 0.2; // 0 -> 1
+        // Продолжает движение в ту же сторону (улетает за экран)
+        extraOffset = directions[i]
+          ? -exitPhase * screenWidth
+          : exitPhase * screenWidth;
+      }
+      // Фаза статичного движения (0.5 - 0.8) -> extraOffset = 0
+
+      track.style.transform = `translate3d(${baseScroll + extraOffset}px, 0, 0)`;
     });
 
+    // Сброс фильтров сетки (убрали opacity)
     if (gridRef.current) {
-      const scale = 1 - (1 - gridProgress) * 0.1; // Небольшой эффект приближения при появлении
-      gridRef.current.style.transform = `scale(${scale})`;
-      gridRef.current.style.opacity = gridProgress.toString();
+      gridRef.current.style.transform = `scale(1)`;
+      gridRef.current.style.filter = "blur(0px)";
+      gridRef.current.style.opacity = "1";
     }
 
-    // 2. Видео и Текст (активируются после 0.66)
-    const finalSectionProgress = Math.min(Math.max((progress - 0.66) / 0.34, 0), 1);
+    // 2. Видео и Текст (активируются к концу скролла)
+    const finalSectionProgress = Math.min(Math.max((progress - 0.7) / 0.3, 0), 1);
 
     if (videoRef.current) {
       videoRef.current.style.opacity = finalSectionProgress.toString();
