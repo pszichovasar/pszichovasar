@@ -192,37 +192,41 @@ export default function Home() {
     const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1200;
 
     // 1. ЛОГИКА СЕТКИ
-    // Мы ограничиваем прогресс сетки диапазоном 0.33 - 0.8
-    // Это делает её движение предсказуемым и равномерным
-    const gridActiveStart = 0.33;
-    const gridActiveEnd = 0.8;
-    const gridProgress = Math.min(Math.max((progress - gridActiveStart) / (gridActiveEnd - gridActiveStart), 0), 1);
+    // Сетка активна на всем протяжении скролла от 0 до 1
+    const gridProgress = progress;
 
     trackRefs.current.forEach((track, i) => {
       if (!track || !rows[i]) return;
       const loopWidth = (imgSize + GAP) * rows[i].length;
 
-      // Равномерное движение: все ряды проходят одинаковое расстояние
-      // Мы используем gridProgress (0 -> 1) для всей анимации
-      const scrollSpeed = 0.8; // Регулируйте этот коэффициент для общей скорости
+      // Равномерная скорость: сетка проходит полный цикл своей длины
+      // Коэффициент 0.8 можно менять для подстройки скорости
       const baseScroll = directions[i]
-        ? -gridProgress * loopWidth * scrollSpeed
-        : -loopWidth + (gridProgress * loopWidth * scrollSpeed);
+        ? -gridProgress * loopWidth * 0.8
+        : -loopWidth + (gridProgress * loopWidth * 0.8);
 
-      // Плавное появление и исчезновение (Fade in/out через позиционирование)
-      // Сетка плавно входит при progress 0.33 и уходит при 0.8
+      // ЛОГИКА ПОЯВЛЕНИЯ И ИСЧЕЗНОВЕНИЯ:
+      // В самом начале (progress 0) сетка за пределами экрана
+      // В самом конце (progress 1) сетка уходит за экран
       let entranceOffset = 0;
-      if (progress < gridActiveStart) {
-        entranceOffset = directions[i] ? screenWidth : -screenWidth;
-      } else if (progress > gridActiveEnd) {
-        entranceOffset = directions[i] ? -screenWidth : screenWidth;
+
+      const startMargin = screenWidth * 0.5; // Запас для плавного входа
+
+      if (progress < 0.1) {
+        // Вход: от смещения к 0
+        const entry = (1 - progress / 0.1);
+        entranceOffset = directions[i] ? entry * startMargin : -entry * startMargin;
+      } else if (progress > 0.6) {
+        // Выход: от 0 к смещению
+        const exit = (progress - 0.6) / 0.4;
+        entranceOffset = directions[i] ? -exit * startMargin : exit * startMargin;
       }
 
       track.style.transform = `translate3d(${baseScroll + entranceOffset}px, 0, 0)`;
-      track.style.transition = "transform 0.1s linear"; // Мягкое сглаживание
+      track.style.transition = "transform 0.05s linear";
     });
 
-    // 2. Видео и Текст
+    // 2. Видео и Текст (активируются только в конце)
     const finalSectionProgress = Math.min(Math.max((progress - 0.7) / 0.3, 0), 1);
 
     if (videoRef.current) {
