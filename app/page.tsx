@@ -188,27 +188,28 @@ export default function Home() {
   }, [showContact]);
 
   // Интерактивный таймлайн анимаций
-  // Интерактивный таймлайн анимаций
-  // Интерактивный таймлайн анимаций
   useEffect(() => {
     const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1200;
 
     // 1. ЛОГИКА СЕТКИ
+    // activeProgress учитывает только то время, когда сетка "жива" (после 0.33)
+    const activeProgress = Math.max(0, progress - 0.33);
+
     trackRefs.current.forEach((track, i) => {
       if (!track || !rows[i]) return;
       const loopWidth = (imgSize + GAP) * rows[i].length;
 
-      // Базовое бесконечное движение (всегда активно)
+      // Базовое движение теперь привязано к activeProgress
+      // Оно начинается с 0, когда progress = 0.33
       const baseScroll = directions[i]
-        ? -progress * loopWidth * 1.5 // Скорость движения сетки
-        : -loopWidth + progress * loopWidth * 1.5;
+        ? -activeProgress * loopWidth * 1.5
+        : -loopWidth + activeProgress * loopWidth * 1.5;
 
       let extraOffset = 0;
 
       // Фаза появления (0.33 - 0.5)
       if (progress >= 0.33 && progress < 0.5) {
         const entryPhase = (progress - 0.33) / 0.17; // 0 -> 1
-        // Если true (лево) -> заходит справа (+ отступ), если false (право) -> заходит слева (- отступ)
         extraOffset = directions[i]
           ? (1 - entryPhase) * screenWidth
           : -(1 - entryPhase) * screenWidth;
@@ -216,17 +217,18 @@ export default function Home() {
       // Фаза исчезновения (0.8 - 1.0)
       else if (progress > 0.8) {
         const exitPhase = (progress - 0.8) / 0.2; // 0 -> 1
-        // Продолжает движение в ту же сторону (улетает за экран)
         extraOffset = directions[i]
           ? -exitPhase * screenWidth
           : exitPhase * screenWidth;
       }
-      // Фаза статичного движения (0.5 - 0.8) -> extraOffset = 0
+      // Если progress < 0.33, сетка должна быть строго off-screen
+      else if (progress < 0.33) {
+        extraOffset = directions[i] ? screenWidth : -screenWidth;
+      }
 
       track.style.transform = `translate3d(${baseScroll + extraOffset}px, 0, 0)`;
     });
 
-    // Сброс фильтров сетки (убрали opacity)
     if (gridRef.current) {
       gridRef.current.style.transform = `scale(1)`;
       gridRef.current.style.filter = "blur(0px)";
