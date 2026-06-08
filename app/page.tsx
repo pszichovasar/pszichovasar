@@ -209,37 +209,37 @@ export default function Home() {
     }
 
     // 2. Анимация сетки (Схождение рядов "как пальцы")
-    // Прогресс 0.05 - 0.55
-    const gridLimitStart = 0.05;
-    const gridLimitEnd = 0.55;
+    // Прогресс 0.2 - 0.65
+    const gridLimitStart = 0.2;
+    const gridLimitEnd = 0.65;
     const gridAssemblyProgress = Math.min(Math.max((p - gridLimitStart) / (gridLimitEnd - gridLimitStart), 0), 1);
+
+    // Прогресс разъезда: 0.65 - 0.8
+    const gridDismissStart = 0.65;
+    const gridDismissEnd = 0.8;
+    const gridDismissProgress = Math.min(Math.max((p - gridDismissStart) / (gridDismissEnd - gridDismissStart), 0), 1);
 
     trackRefs.current.forEach((track, i) => {
       if (!track) return;
 
-      // Четные ряды (0, 2, 4) начинают слева, нечетные (1, 3) справа
       const isEven = i % 2 === 0;
       const direction = isEven ? 1 : -1;
 
-      // Считаем смещение: от 50% экрана до 0%
-      const offset = (1 - gridAssemblyProgress) * 50 * direction;
+      // Появление: от 50% до 0%, исчезновение: от 0% обратно до 50%
+      const assembleOffset = (1 - gridAssemblyProgress) * 50 * direction;
+      const dismissOffset = gridDismissProgress * 50 * direction;
+      const offset = assembleOffset + dismissOffset;
 
       track.style.transform = `translateX(${offset}%)`;
     });
 
-    // 3. Анимация исчезновения сетки (затемнение и размытие)
+    // Сбрасываем opacity и blur с сетки (теперь она исчезает только разъездом)
     if (gridRef.current) {
-      if (p > 0.6) {
-        gridRef.current.style.opacity = "0";
-        gridRef.current.style.filter = "blur(30px)";
-      } else {
-        const gridFadeStart = 0.4;
-        const gridFadeEnd = 0.6;
-        const gridFade = Math.max(0, (p - gridFadeStart) / (gridFadeEnd - gridFadeStart));
-        gridRef.current.style.opacity = (1 - gridFade).toString();
-        gridRef.current.style.filter = `blur(${gridFade * 30}px)`;
-      }
+      gridRef.current.style.opacity = "1";
+      gridRef.current.style.filter = "blur(0px)";
     }
+
+
 
     // 4. Появление видео на фоне
     if (videoRef.current) {
