@@ -188,28 +188,40 @@ export default function Home() {
   }, [showContact]);
 
   // Интерактивный таймлайн анимаций
+  // Интерактивный таймлайн анимаций
   useEffect(() => {
-    // 1. Логика сетки (теперь работает с 0.33 до 0.66)
+    // 1. Логика сетки (появляется в диапазоне прогресса 0.33 – 0.66)
     const gridProgress = Math.min(Math.max((progress - 0.33) / 0.33, 0), 1);
+
+    // Вычисляем ширину экрана для эффекта выезда из-за границ
+    const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1200;
 
     trackRefs.current.forEach((track, i) => {
       if (!track || !rows[i]) return;
       const loopWidth = (imgSize + GAP) * rows[i].length;
-      if (directions[i]) {
-        track.style.transform = `translate3d(${-gridProgress * loopWidth}px, 0, 0)`;
-      } else {
-        track.style.transform = `translate3d(${-loopWidth + gridProgress * loopWidth}px, 0, 0)`;
-      }
+
+      // Базовое движение (бесконечный скролл)
+      const baseMove = directions[i]
+        ? -gridProgress * loopWidth
+        : -loopWidth + gridProgress * loopWidth;
+
+      // Добавляем эффект выезда из-за экрана (вход)
+      // Если направление true (влево) -> заходит справа (+ отступ)
+      // Если направление false (вправо) -> заходит слева (- отступ)
+      const entryOffset = directions[i]
+        ? (1 - gridProgress) * screenWidth
+        : -(1 - gridProgress) * screenWidth;
+
+      track.style.transform = `translate3d(${baseMove + entryOffset}px, 0, 0)`;
     });
 
     if (gridRef.current) {
-      const scale = 1 - gridProgress * 0.05;
+      const scale = 1 - (1 - gridProgress) * 0.1; // Небольшой эффект приближения при появлении
       gridRef.current.style.transform = `scale(${scale})`;
-      // Сетка появляется плавно с 0.33
-      gridRef.current.style.opacity = gridProgress > 0 ? "1" : "0";
+      gridRef.current.style.opacity = gridProgress.toString();
     }
 
-    // 2. Видео и Текст (теперь работают с 0.66 до 1.0)
+    // 2. Видео и Текст (активируются после 0.66)
     const finalSectionProgress = Math.min(Math.max((progress - 0.66) / 0.34, 0), 1);
 
     if (videoRef.current) {
