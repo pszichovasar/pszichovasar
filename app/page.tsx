@@ -2,194 +2,37 @@
 
 import React, { useEffect, useRef, useState } from "react";
 
-// ─── ДАННЫЕ ───────────────────────────────────────────────────────────────────
-
-const ROW_DATA_0 = ["/1.jpg", "/2.jpg", "/3.jpg", "/4.jpg", "/5.jpg", "/6.jpg", "/7.jpg", "/8.jpg", "/9.jpg", "/10.jpg"];
-const ROW_DATA_1 = ["/11.jpg", "/12.jpg", "/13.jpg", "/14.jpg", "/15.jpg", "/16.jpg", "/17.jpg", "/18.jpg", "/19.jpg", "/20.jpg"];
-const ROW_DATA_2 = ["/10.jpg", "/9.jpg", "/8.jpg", "/7.jpg", "/6.jpg", "/5.jpg", "/4.jpg", "/3.jpg", "/2.jpg", "/1.jpg"];
-const ROW_DATA_3 = ["/20.jpg", "/19.jpg", "/18.jpg", "/17.jpg", "/16.jpg", "/15.jpg", "/14.jpg", "/13.jpg", "/12.jpg", "/11.jpg"];
-const ROW_DATA_4 = ["/5.jpg", "/15.jpg", "/2.jpg", "/12.jpg", "/8.jpg", "/18.jpg", "/4.jpg", "/14.jpg", "/9.jpg", "/19.jpg"];
-
-const ROWS = [ROW_DATA_0, ROW_DATA_1, ROW_DATA_2, ROW_DATA_3, ROW_DATA_4];
-const GRID_GAP = 20;
-
-// ─── ТАЙМЛАЙН ─────────────────────────────────────────────────────────────────
-//
-//  0.00 – 0.15  →  розовая страница: текст исчезает
-//  0.15 – 0.55  →  сетка въезжает из краёв экрана
-//  0.55 – 0.75  →  сетка разъезжается обратно за края
-//  0.75 – 1.00  →  видео + текст появляются
-//
-// ─────────────────────────────────────────────────────────────────────────────
-
-function lerp(a: number, b: number, t: number) {
-  return a + (b - a) * Math.min(Math.max(t, 0), 1);
-}
-
-function invlerp(a: number, b: number, v: number) {
-  return Math.min(Math.max((v - a) / (b - a), 0), 1);
-}
-
 export default function Home() {
-
-  // ── СОСТОЯНИЯ ───────────────────────────────────────────────────────────────
-
-  const [progress, setProgress] = useState<number>(0);
-  const [videoSrc, setVideoSrc] = useState<string>("/me.mp4");
-  const [imgSize, setImgSize] = useState<number>(140);
-  const [statusText, setStatusText] = useState<string>("ERROR 404: LOADING FAILED");
-  const [contactHovered, setContactHovered] = useState<boolean>(false);
-  const [shaking, setShaking] = useState<boolean>(false);
-  const [showContact, setShowContact] = useState<boolean>(false);
-  const [contactVisible, setContactVisible] = useState<boolean>(false);
-  const [isSending, setIsSending] = useState<boolean>(false);
-  const [form, setForm] = useState({
-    name: "", email: "", message: "", service: "ILLUSTRATION"
-  });
-
-  // ── РЕФЫ ────────────────────────────────────────────────────────────────────
+  const [progress, setProgress] = useState(0);
+  const [videoSrc, setVideoSrc] = useState("/me.mp4");
+  const [imgSize, setImgSize] = useState(140);
 
   const videoRef = useRef<HTMLVideoElement>(null);
+  const videoOverlayRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const welcomeTextRef = useRef<HTMLDivElement>(null);
+
+  const [contactHovered, setContactHovered] = useState(false);
+  const [shaking, setShaking] = useState(false);
+  const [showContact, setShowContact] = useState(false);
+  const [contactVisible, setContactVisible] = useState(false);
+  const [form, setForm] = useState({ name: "", email: "", message: "", service: "ILLUSTRATION" });
+  const [isSending, setIsSending] = useState(false);
+
+  const touchStartRef = useRef(0);
+  const currentProgressRef = useRef(0);
+
+  const row0 = ["/1.jpg", "/2.jpg", "/3.jpg", "/4.jpg", "/5.jpg", "/6.jpg", "/7.jpg", "/8.jpg", "/9.jpg", "/10.jpg"];
+  const row1 = ["/11.jpg", "/12.jpg", "/13.jpg", "/14.jpg", "/15.jpg", "/16.jpg", "/17.jpg", "/18.jpg", "/19.jpg", "/20.jpg"];
+  const row2 = ["/10.jpg", "/9.jpg", "/8.jpg", "/7.jpg", "/6.jpg", "/5.jpg", "/4.jpg", "/3.jpg", "/2.jpg", "/1.jpg"];
+  const row3 = ["/20.jpg", "/19.jpg", "/18.jpg", "/17.jpg", "/16.jpg", "/15.jpg", "/14.jpg", "/13.jpg", "/12.jpg", "/11.jpg"];
+  const row4 = ["/5.jpg", "/15.jpg", "/2.jpg", "/12.jpg", "/8.jpg", "/18.jpg", "/4.jpg", "/14.jpg", "/9.jpg", "/19.jpg"];
+
+  const rows = [row0, row1, row2, row3, row4];
+  const directions = [true, false, true, false, true];
   const trackRefs = useRef<(HTMLDivElement | null)[]>([null, null, null, null, null]);
-  const touchStartRef = useRef<number>(0);
-  const progressRef = useRef<number>(0);
-
-  // ── ЭФФЕКТЫ ─────────────────────────────────────────────────────────────────
-
-  // Смена текста WELCOME через 1 сек
-  useEffect(() => {
-    const t = setTimeout(() => setStatusText("WELCOME"), 1000);
-    return () => clearTimeout(t);
-  }, []);
-
-  // Детекция iPhone
-  useEffect(() => {
-    const ua = navigator.userAgent || navigator.vendor || (window as any).opera;
-    if (/iPhone|iPad|iPod/i.test(ua)) setVideoSrc("/iome.mp4");
-  }, []);
-
-  // Автоплей видео
-  useEffect(() => {
-    const el = videoRef.current;
-    if (!el) return;
-    el.load();
-    const onCanPlay = () => el.play().catch(() => { });
-    el.addEventListener("canplay", onCanPlay);
-    return () => el.removeEventListener("canplay", onCanPlay);
-  }, [videoSrc]);
-
-  // Размер плиток сетки по высоте окна
-  useEffect(() => {
-    const calc = () => {
-      setImgSize(Math.floor((window.innerHeight - GRID_GAP * 6) / 5));
-    };
-    calc();
-    window.addEventListener("resize", calc);
-    return () => window.removeEventListener("resize", calc);
-  }, []);
-
-  // Скролл — колесо и тач
-  useEffect(() => {
-    const onWheel = (e: WheelEvent) => {
-      if (showContact) return;
-      e.preventDefault();
-      let next = progressRef.current + e.deltaY * 0.0015;
-      next = Math.min(Math.max(next, 0), 1);
-      progressRef.current = next;
-      setProgress(next);
-    };
-
-    const onTouchStart = (e: TouchEvent) => {
-      if (showContact) return;
-      touchStartRef.current = e.touches[0].clientY;
-      if (videoRef.current?.paused) videoRef.current.play().catch(() => { });
-    };
-
-    const onTouchMove = (e: TouchEvent) => {
-      if (showContact) return;
-      e.preventDefault();
-      const dy = touchStartRef.current - e.touches[0].clientY;
-      touchStartRef.current = e.touches[0].clientY;
-      let next = progressRef.current + dy * 0.002;
-      next = Math.min(Math.max(next, 0), 1);
-      progressRef.current = next;
-      setProgress(next);
-    };
-
-    window.addEventListener("wheel", onWheel, { passive: false });
-    window.addEventListener("touchstart", onTouchStart, { passive: true });
-    window.addEventListener("touchmove", onTouchMove, { passive: false });
-    return () => {
-      window.removeEventListener("wheel", onWheel);
-      window.removeEventListener("touchstart", onTouchStart);
-      window.removeEventListener("touchmove", onTouchMove);
-    };
-  }, [showContact]);
-
-  // ── АНИМАЦИОННЫЙ ДВИЖОК ─────────────────────────────────────────────────────
-  useEffect(() => {
-    const p = progress;
-
-    // 1. РОЗОВАЯ СТРАНИЦА — текст исчезает 0.0 → 0.15
-    if (welcomeTextRef.current) {
-      const t = invlerp(0, 0.15, p);
-      welcomeTextRef.current.style.opacity = (1 - t).toString();
-      welcomeTextRef.current.style.filter = `blur(${t * 20}px)`;
-    }
-
-    // 2. СЕТКА — въезд 0.15 → 0.55 / разъезд 0.55 → 0.75
-    const assembleT = invlerp(0.15, 0.55, p);   // 0→1 при въезде
-    const dismissT = invlerp(0.55, 0.75, p);   // 0→1 при разъезде
-
-    trackRefs.current.forEach((track, i) => {
-      if (!track) return;
-      // Чётные (0,2,4) — слева, нечётные (1,3) — справа
-      const dir = i % 2 === 0 ? -1 : 1;
-      const assembleOffset = (1 - assembleT) * 120 * dir;   // 120vw → 0
-      const dismissOffset = dismissT * 120 * dir; // 0 → 120vw
-      track.style.transform = `translateX(${assembleOffset + dismissOffset}vw)`;
-    });
-
-    // Видимость всего контейнера сетки (скрываем когда полностью уехала)
-    if (gridRef.current) {
-      gridRef.current.style.visibility = p > 0.76 ? "hidden" : "visible";
-    }
-
-    // 3. ВИДЕО — появляется 0.75 → 0.92
-    if (videoRef.current) {
-      videoRef.current.style.opacity = invlerp(0.75, 0.92, p).toString();
-    }
-
-    // 4. ТЕКСТ — выезжает снизу 0.80 → 1.0
-    if (textRef.current) {
-      const t = invlerp(0.80, 1.0, p);
-      textRef.current.style.opacity = t.toString();
-      textRef.current.style.transform = `translate3d(0, ${(1 - t) * 150}px, 0)`;
-      textRef.current.style.pointerEvents = t > 0 ? "auto" : "none";
-    }
-
-  }, [progress]);
-
-  // Блюр текста когда открыт контакт
-  useEffect(() => {
-    const el = textRef.current;
-    if (!el) return;
-    if (contactVisible) {
-      el.style.transition = "opacity 0.4s ease, filter 0.4s ease";
-      el.style.opacity = "0";
-      el.style.filter = "blur(12px)";
-    } else if (progress > 0.80) {
-      el.style.transition = "opacity 0.4s ease, filter 0.4s ease";
-      el.style.opacity = "1";
-      el.style.filter = "blur(0px)";
-    }
-  }, [contactVisible, progress]);
-
-  // ── ХЭНДЛЕРЫ ────────────────────────────────────────────────────────────────
+  const GAP = 20;
 
   const openContact = () => {
     setShowContact(true);
@@ -203,8 +46,12 @@ export default function Home() {
 
   const handleMessageChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setForm({ ...form, message: e.target.value.toUpperCase() });
+
     const ta = textareaRef.current;
-    if (ta) { ta.style.height = "auto"; ta.style.height = ta.scrollHeight + "px"; }
+    if (ta) {
+      ta.style.height = "auto"; // Сбрасываем высоту
+      ta.style.height = ta.scrollHeight + "px"; // Подстраиваем под текст
+    }
   };
 
   const handleSubmit = async () => {
@@ -214,33 +61,210 @@ export default function Home() {
     }
     setIsSending(true);
     try {
-      const res = await fetch("/api/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+      const response = await fetch('/api/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
       });
-      const data = await res.json();
-      if (res.ok && data.success) {
+      const data = await response.json();
+      if (response.ok && data.success) {
         alert("MESSAGE SENT SUCCESSFULLY!");
         setForm({ name: "", email: "", message: "", service: "ILLUSTRATION" });
         closeContact();
       } else {
-        alert(`ERROR: ${data.error || "UNKNOWN_ERROR"}`);
+        alert(`ERROR: ${data.error || 'UNKNOWN_ERROR'}`);
       }
-    } catch (err: any) {
-      alert(`FETCH_FAILED: ${err?.message || "SERVER_UNREACHABLE"}`);
+    } catch (error: any) {
+      console.error(error);
+      alert(`FETCH_FAILED: ${error?.message || 'SERVER_UNREACHABLE'}`);
     } finally {
       setIsSending(false);
     }
   };
 
+  // Проверка на iOS устройства + установка правильного видео iome.mp4
+  useEffect(() => {
+    const isiPhone = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    if (isiPhone) {
+      setVideoSrc("/iome.mp4");
+    }
+  }, []);
+
+  // Жесткий запуск видео в Safari
+  useEffect(() => {
+    const video = videoRef.current;
+    if (video) {
+      video.load();
+
+      const handleCanPlay = () => {
+        video.play().catch((err) => {
+          console.log("Воспроизведение ожидается после первого тача", err);
+        });
+      };
+
+      video.addEventListener('canplay', handleCanPlay);
+      return () => video.removeEventListener('canplay', handleCanPlay);
+    }
+  }, [videoSrc]);
+
+  // Расчет размеров плиток
+  useEffect(() => {
+    const calcSize = () => {
+      const vh = window.innerHeight;
+      const computedSize = Math.floor((vh - GAP * 6) / 5);
+      setImgSize(computedSize);
+
+      trackRefs.current.forEach((track, i) => {
+        if (!track || !rows[i]) return;
+        const loopWidth = (computedSize + GAP) * rows[i].length;
+        if (directions[i]) {
+          track.style.transform = `translate3d(0px, 0, 0)`;
+        } else {
+          track.style.transform = `translate3d(${-loopWidth}px, 0, 0)`;
+        }
+      });
+    };
+
+    calcSize();
+    const timer1 = setTimeout(calcSize, 50);
+    const timer2 = setTimeout(calcSize, 300);
+
+    window.addEventListener("resize", calcSize);
+    return () => {
+      window.removeEventListener("resize", calcSize);
+      clearTimeout(timer1);
+      clearTimeout(timer2);
+    };
+  }, []);
+
+  // Виртуальный скролл
+  useEffect(() => {
+    const handleWheel = (e: WheelEvent) => {
+      if (showContact) return;
+      e.preventDefault();
+
+      const speed = 0.0015;
+      let next = currentProgressRef.current + e.deltaY * speed;
+
+      next = Math.min(Math.max(next, 0), 1);
+      currentProgressRef.current = next;
+      setProgress(next);
+    };
+
+    const handleTouchStart = (e: TouchEvent) => {
+      if (showContact) return;
+      touchStartRef.current = e.touches[0].clientY;
+
+      if (videoRef.current && videoRef.current.paused) {
+        videoRef.current.play().catch(() => { });
+      }
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (showContact) return;
+      e.preventDefault();
+
+      const currentY = e.touches[0].clientY;
+      const deltaY = touchStartRef.current - currentY;
+      touchStartRef.current = currentY;
+
+      const speed = 0.002;
+      let next = currentProgressRef.current + deltaY * speed;
+
+      next = Math.min(Math.max(next, 0), 1);
+      currentProgressRef.current = next;
+      setProgress(next);
+    };
+
+    window.addEventListener("wheel", handleWheel, { passive: false });
+    window.addEventListener("touchstart", handleTouchStart, { passive: true });
+    window.addEventListener("touchmove", handleTouchMove, { passive: false });
+
+    return () => {
+      window.removeEventListener("wheel", handleWheel);
+      window.removeEventListener("touchstart", handleTouchStart);
+      window.removeEventListener("touchmove", handleTouchMove);
+    };
+  }, [showContact]);
+
+  // Интерактивный таймлайн анимаций
+  useEffect(() => {
+    // Сетка остается без изменений (как была)
+    const gridProgress = Math.min(progress / 0.65, 1);
+
+    trackRefs.current.forEach((track, i) => {
+      if (!track || !rows[i]) return;
+      const loopWidth = (imgSize + GAP) * rows[i].length;
+
+      if (directions[i]) {
+        track.style.transform = `translate3d(${-gridProgress * loopWidth}px, 0, 0)`;
+      } else {
+        track.style.transform = `translate3d(${-loopWidth + gridProgress * loopWidth}px, 0, 0)`;
+      }
+    });
+
+    if (gridRef.current) {
+      const scale = 1 - gridProgress * 0.05;
+      gridRef.current.style.transform = `scale(${scale})`;
+
+      if (progress <= 0.3) {
+        gridRef.current.style.opacity = "1";
+        gridRef.current.style.filter = "blur(0px)";
+      } else if (progress > 0.5) {
+        gridRef.current.style.opacity = "0";
+        gridRef.current.style.filter = "blur(30px)";
+      } else {
+        const gridFade = (progress - 0.3) / (0.5 - 0.3);
+        gridRef.current.style.opacity = (1 - gridFade).toString();
+        gridRef.current.style.filter = `blur(${gridFade * 30}px)`;
+      }
+    }
+
+    // Видео плавно проявляется
+    if (videoRef.current) {
+      // Видео начинает проявляться с 0.5 и становится полностью видимым к 0.7
+      const vidOpacity = Math.min((progress - 0.5) / 0.2, 1);
+      videoRef.current.style.opacity = progress > 0.5 ? vidOpacity.toString() : "0";
+    }
+
+    // А вот здесь мы увеличили дистанцию для текста:
+    // Он начинает появляться только после 0.85 (вместо 0.68)
+    if (textRef.current) {
+      if (progress > 0.85) {
+        const textProgress = Math.min((progress - 0.85) / 0.15, 1);
+        textRef.current.style.opacity = textProgress.toString();
+        textRef.current.style.transform = `translate3d(0, ${(1 - textProgress) * 30}px, 0)`;
+        textRef.current.style.pointerEvents = "auto";
+      } else {
+        textRef.current.style.opacity = "0";
+        textRef.current.style.transform = "translate3d(0, 30px, 0)";
+        textRef.current.style.pointerEvents = "none";
+      }
+    }
+  }, [progress, imgSize]);
+
+  useEffect(() => {
+    const textEl = textRef.current;
+    if (!textEl) return;
+    if (contactVisible) {
+      textEl.style.transition = "opacity 0.4s ease, filter 0.4s ease";
+      textEl.style.opacity = "0";
+      textEl.style.filter = "blur(12px)";
+    } else if (progress > 0.85) { // Обновили триггер здесь
+      textEl.style.transition = "opacity 0.4s ease, filter 0.4s ease";
+      textEl.style.opacity = "1";
+      textEl.style.filter = "blur(0px)";
+    }
+  }, [contactVisible, progress]);
+
   const handleContactEnter = () => {
     if (shaking) return;
     setShaking(true);
-    setTimeout(() => { setShaking(false); setContactHovered(true); }, 400);
+    setTimeout(() => {
+      setShaking(false);
+      setContactHovered(true);
+    }, 400);
   };
-
-  // ── СТИЛИ ───────────────────────────────────────────────────────────────────
 
   const inputStyle: React.CSSProperties = {
     background: "transparent",
@@ -251,84 +275,34 @@ export default function Home() {
     padding: "6px 0",
     outline: "none",
     width: "100%",
-    marginTop: "8px",
   };
 
-  // ── JSX ─────────────────────────────────────────────────────────────────────
+  const labelStyle: React.CSSProperties = {
+    fontSize: "9px",
+    color: "#000",
+  };
 
   return (
     <>
       <style>{`
         html, body {
-          margin: 0; padding: 0;
-          width: 100vw; height: 100vh;
+          margin: 0;
+          padding: 0;
+          width: 100vw;
+          height: 100vh;
           overflow: hidden;
-          background: #ffbbc6;
+          background: black;
+          position: fixed;
+          perspective: 1000px;
+          transform-style: preserve-3d;
+        }
+        
+        * {
           font-family: 'Arial Black', Arial, sans-serif !important;
-        }
-        * { box-sizing: border-box; text-transform: uppercase !important; }
-
-        /* ── СЛОЙ 1: розовый фон ── */
-        .pink-overlay {
-          position: fixed; inset: 0; z-index: 0;
-          background: #ffbbc6;
-          display: flex; align-items: center; justify-content: center;
-        }
-        .welcome-text {
-          font-size: 5vw; color: #000; font-weight: 900;
-          will-change: opacity, filter;
+          text-transform: uppercase !important;
+          box-sizing: border-box;
         }
 
-        /* ── СЛОЙ 2: сетка ── */
-        .grid-layer {
-          position: fixed; inset: 0; z-index: 1;
-          display: flex; align-items: center;
-          overflow: hidden;
-          background: #ffbbc6;
-        }
-        .masked-grid {
-          display: flex; flex-direction: column;
-          gap: ${GRID_GAP}px;
-        }
-        .row-track {
-          display: flex; gap: ${GRID_GAP}px;
-          width: max-content;
-          will-change: transform;
-          padding: 0 ${GRID_GAP}px;
-        }
-
-        /* ── СЛОЙ 3: видео + текст ── */
-        .video-layer {
-          position: fixed; inset: 0; z-index: 2;
-          pointer-events: none;
-        }
-        .video-overlay {
-          position: absolute; inset: 0;
-          background: rgba(0, 0, 0, 0.4);
-          z-index: 1;
-        }
-
-        /* ── ТЕКСТ ── */
-        .text-layer {
-          position: fixed; inset: 0; z-index: 3;
-          display: flex; align-items: center;
-          padding: 0 80px;
-          opacity: 0;
-          pointer-events: none;
-          will-change: opacity, transform;
-        }
-        .text-line {
-          font-weight: 900 !important;
-          letter-spacing: -0.03em;
-          line-height: 0.92;
-          color: white;
-        }
-        @media (max-width: 768px) {
-          .text-line { font-size: 8.5vw !important; -webkit-text-stroke: 1.2px white; }
-          .text-layer { padding: 0 24px; }
-        }
-
-        /* ── АНИМАЦИИ ── */
         @keyframes shakeY {
           0%   { transform: translateY(0); }
           15%  { transform: translateY(-8px); }
@@ -340,161 +314,145 @@ export default function Home() {
           100% { transform: translateY(0); }
         }
         .shakeY { animation: shakeY 0.4s ease forwards; }
-
         @keyframes heartbeat {
-          0%   { transform: scale(1); }
-          5%   { transform: scale(1.03); }
-          10%  { transform: scale(1); }
-          15%  { transform: scale(1.03); }
-          20%  { transform: scale(1); }
+          0% { transform: scale(1); }
+          5% { transform: scale(1.03); }
+          10% { transform: scale(1); }
+          15% { transform: scale(1.03); }
+          20% { transform: scale(1); }
           100% { transform: scale(1); }
         }
+
         .heartbeat-wrapper {
           display: inline-block;
-          transform-origin: center center;
+          transform-origin: center center; /* Фиксирует точку отсчета в центре текста */
           animation: heartbeat 2s ease-in-out infinite;
         }
+        input::placeholder, textarea::placeholder { color: rgba(0,0,0,0.2); }
+        
+        .heartbeat-wrapper {
+          display: inline-block;
+          transform-origin: center center; /* Указываем, что точка пульсации — центр */
+          animation: heartbeat 2s ease-in-out infinite;
+        }
+        .masked-grid {
+          display: flex;
+          flex-direction: column;
+          position: relative;
+          transition: transform 0.1s ease-out;
+        }
+
+        /* Текстовые линии главного экрана на Компьютере (чистый Arial Black без обводки) */
+        .text-line {
+          font-family: 'Arial Black', Arial, sans-serif !important;
+          font-weight: 900 !important;
+          letter-spacing: -0.03em;
+          line-height: 0.92;
+          color: white;
+        }
+        
+        .desktop-br { display: inline; }
+        .mobile-br { display: none; }
+
+        /* Элементы выплывающей карточки на Компьютере (чистые) */
+        .card-title {
+          font-family: 'Arial Black', Arial, sans-serif !important;
+          font-weight: 900 !important;
+          letter-spacing: -0.02em;
+        }
+
+        .card-label {
+          font-family: 'Arial Black', Arial, sans-serif !important;
+          font-weight: 900 !important;
+          letter-spacing: 0.1em;
+        }
+
+        .card-input {
+          font-family: 'Arial Black', Arial, sans-serif !important;
+          font-weight: 900 !important;
+          letter-spacing: -0.02em;
+        }
+
+        .card-btn {
+          font-family: 'Arial Black', Arial, sans-serif !important;
+          font-weight: 900 !important;
+          letter-spacing: 0.15em;
+        }
+
+        /* Адаптив под мобильные устройства (iPhone) — хак с обводкой остается только тут */
+        @media (max-width: 768px) {
+          .desktop-br { display: none; }
+          .mobile-br { display: block; }
+          
+          .text-line {
+            font-size: 8.5vw !important;
+            letter-spacing: -0.05em;
+            -webkit-text-stroke: 1.2px white;
+            paint-order: stroke fill;
+          }
+          .contact-trigger {
+            font-size: 8.5vw !important;
+            margin-top: 1.2em !important;
+          }
+
+          /* Карточка на мобилке: делаем шрифт жирнее через stroke */
+          .card-title {
+            -webkit-text-stroke: 0.8px #000;
+            paint-order: stroke fill;
+          }
+          .card-label {
+            -webkit-text-stroke: 0.3px #000;
+            paint-order: stroke fill;
+          }
+          .card-input {
+            -webkit-text-stroke: 0.4px #000;
+            paint-order: stroke fill;
+          }
+          .card-btn {
+            -webkit-text-stroke: 0.4px #fff;
+            paint-order: stroke fill;
+          }
+        }
+          
       `}</style>
 
-      {/* ── СЛОЙ 1: РОЗОВЫЙ ФОН ─────────────────────────────────────────────── */}
-      <div className="pink-overlay">
-        <div ref={welcomeTextRef} className="welcome-text">
-          {statusText}
-        </div>
-      </div>
-
-      {/* ── СЛОЙ 2: СЕТКА ───────────────────────────────────────────────────── */}
-      <div className="grid-layer">
-        <div ref={gridRef} className="masked-grid">
-          {ROWS.map((images, rowIndex) => (
-            <div
-              key={rowIndex}
-              ref={(el) => { trackRefs.current[rowIndex] = el; }}
-              className="row-track"
-            >
-              {[...images, ...images].map((img, i) => (
-                <div
-                  key={i}
-                  style={{
-                    width: `${imgSize}px`,
-                    height: `${imgSize}px`,
-                    borderRadius: "12px",
-                    flexShrink: 0,
-                    overflow: "hidden",
-                  }}
-                >
-                  <img
-                    src={img}
-                    alt="gallery"
-                    style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                  />
-                </div>
-              ))}
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* ── СЛОЙ 3: ВИДЕО ───────────────────────────────────────────────────── */}
-      <div className="video-layer">
-        <video
-          ref={videoRef}
-          src={videoSrc}
-          muted loop autoPlay playsInline
-          style={{
-            position: "absolute", inset: 0,
-            width: "100%", height: "100%",
-            objectFit: "cover",
-            opacity: 0,
-            willChange: "opacity",
-          }}
-        />
-        {/* Чёрная прослойка 40% между видео и текстом */}
-        <div className="video-overlay" />
-      </div>
-
-      {/* ── СЛОЙ 4: ТЕКСТ ───────────────────────────────────────────────────── */}
-      <div ref={textRef} className="text-layer">
-        <div style={{ display: "flex", flexDirection: "column", width: "100%" }}>
-
-          <div className="text-line" style={{ fontSize: "88px" }}>
-            MY NAME IS ARTEM
-          </div>
-          <div className="text-line" style={{ fontSize: "88px", marginTop: "0.15em" }}>
-            I'M A DESIGNER
-          </div>
-
-          <div
-            className={`text-line ${shaking ? "shakeY" : ""}`}
-            onClick={openContact}
-            onMouseEnter={handleContactEnter}
-            style={{
-              fontSize: "88px",
-              marginTop: "1.6em",
-              cursor: "pointer",
-              display: "inline-block",
-            }}
-          >
-            <span className="heartbeat-wrapper">
-              {contactHovered ? "GET YOUR BEST DESIGN EVER" : "CONTACT ME"}
-            </span>
-          </div>
-
-        </div>
-      </div>
-
-      {/* ── МОДАЛЬНОЕ ОКНО ──────────────────────────────────────────────────── */}
+      {/* МОДАЛЬНОЕ ОКНО КОНТАКТОВ */}
       {showContact && (
         <div
           onClick={(e) => e.target === e.currentTarget && !isSending && closeContact()}
           style={{
             position: "fixed", inset: 0, zIndex: 10000,
-            background: "rgba(0,0,0,0.5)",
+            background: contactVisible ? "rgba(0,0,0,0.5)" : "rgba(0,0,0,0)",
+            transition: "background 0.5s ease",
             display: "flex", alignItems: "center", justifyContent: "center",
           }}
         >
-          <div
-            style={{
-              background: "#fff", color: "#000",
-              width: "min(520px, 90vw)", aspectRatio: "1 / 1",
-              padding: "clamp(24px, 5vw, 40px)",
-              transform: contactVisible ? "translate3d(0,0,0)" : "translate3d(0,60px,0)",
-              opacity: contactVisible ? 1 : 0,
-              transition: "transform 0.5s cubic-bezier(0.32,0.72,0,1), opacity 0.5s ease",
-              display: "flex", flexDirection: "column", justifyContent: "space-between",
-            }}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-              <div style={{ fontSize: "28px", fontWeight: 900 }}>LET'S WORK</div>
-              <button
-                onClick={closeContact}
-                style={{ background: "none", border: "none", fontSize: "24px", cursor: "pointer" }}
-              >×</button>
+          <div style={{
+            background: "#fff", color: "#000", width: "min(520px, 90vw)", aspectRatio: "1 / 1",
+            padding: "clamp(24px, 5vw, 40px)", transform: contactVisible ? "translate3d(0, 0, 0)" : "translate3d(0, 60px, 0)",
+            opacity: contactVisible ? 1 : 0, transition: "transform 0.5s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.5s ease",
+            display: "flex", flexDirection: "column", justifyContent: "space-between"
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", width: "100%" }}>
+              <div className="card-title" style={{ fontSize: "clamp(18px, 3.2vw, 28px)", fontWeight: 900, lineHeight: 1 }}>LET'S WORK</div>
+              <button disabled={isSending} onClick={closeContact} style={{ background: "none", border: "none", fontSize: "24px", cursor: isSending ? "not-allowed" : "pointer" }}>×</button>
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: "15px" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "clamp(12px, 2vw, 15px)", flexGrow: 1, justifyContent: "center" }}>
+              {[{ label: "YOUR NAME", key: "name" as const, type: "text" }, { label: "EMAIL", key: "email" as const, type: "email" }].map(({ label, key, type }) => (
+                <div key={key}>
+                  <label className="card-label" style={labelStyle}>{label}</label>
+                  <input type={type} className="card-input" disabled={isSending} value={form[key]} onChange={(e) => setForm({ ...form, [key]: e.target.value.toUpperCase() })} style={inputStyle} />
+                </div>
+              ))}
+
               <div>
-                <label style={{ fontSize: "9px" }}>YOUR NAME</label>
-                <input
-                  type="text" value={form.name}
-                  onChange={(e) => setForm({ ...form, name: e.target.value.toUpperCase() })}
-                  style={inputStyle}
-                />
-              </div>
-              <div>
-                <label style={{ fontSize: "9px" }}>EMAIL</label>
-                <input
-                  type="email" value={form.email}
-                  onChange={(e) => setForm({ ...form, email: e.target.value.toUpperCase() })}
-                  style={inputStyle}
-                />
-              </div>
-              <div>
-                <label style={{ fontSize: "9px" }}>SERVICE</label>
+                <label className="card-label" style={labelStyle}>SERVICE</label>
                 <select
+                  className="card-input"
+                  style={{ ...inputStyle, cursor: "pointer", appearance: "none" }}
                   value={form.service}
                   onChange={(e) => setForm({ ...form, service: e.target.value })}
-                  style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
                 >
                   <option>ILLUSTRATION</option>
                   <option>LOGO</option>
@@ -502,30 +460,132 @@ export default function Home() {
                   <option>ANIMATION</option>
                 </select>
               </div>
+
               <div>
-                <label style={{ fontSize: "9px" }}>MESSAGE</label>
+                <label className="card-label" style={labelStyle}>MESSAGE</label>
                 <textarea
-                  ref={textareaRef} value={form.message}
+                  ref={textareaRef}
+                  className="card-input"
+                  disabled={isSending}
+                  value={form.message}
                   onChange={handleMessageChange}
-                  style={{ ...inputStyle, resize: "none", minHeight: "50px" }}
+                  rows={1}
+                  style={{
+                    ...inputStyle,
+                    resize: "none",        // Запрещает пользователю менять размер мышкой
+                    overflow: "hidden",    // Полностью скрывает скролл-бар
+                    lineHeight: "1.4",
+                    transition: "height 0.25s ease",
+                    display: "block",
+                    minHeight: "24px"      // Задает минимальную высоту, чтобы поле не схлопывалось
+                  }}
                 />
               </div>
             </div>
 
-            <button
-              onClick={handleSubmit}
-              style={{
-                background: "#000", color: "#fff",
-                border: "none", padding: "14px 32px",
-                fontSize: "10px", fontWeight: 900,
-                cursor: "pointer", alignSelf: "flex-start",
-              }}
-            >
+            <button onClick={handleSubmit} disabled={isSending} className="card-btn" style={{ background: "#000", color: "#fff", border: "none", padding: "14px 32px", fontSize: "10px", fontWeight: 900, cursor: isSending ? "not-allowed" : "pointer", alignSelf: "flex-start" }}>
               {isSending ? "SENDING..." : "SEND"}
             </button>
           </div>
         </div>
       )}
+
+      {/* ОСНОВНОЙ ФИКСИРОВАННЫЙ КОНТЕЙНЕР */}
+      <main style={{ position: "fixed", width: "100vw", height: "100vh", top: 0, left: 0, overflow: "hidden", background: "black" }}>
+
+        {/* Видео заднего плана */}
+        <video
+          ref={videoRef}
+          src={videoSrc}
+          muted
+          loop
+          autoPlay
+          playsInline
+          style={{
+            position: "absolute", top: 0, left: 0,
+            width: "100vw", height: "100vh",
+            objectFit: "cover", zIndex: 0,
+            opacity: 0,
+            willChange: "opacity, filter"
+          }}
+        />
+        <div ref={videoOverlayRef} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1, pointerEvents: "none", transition: "background 0.1s ease-out" }} />
+
+        {/* Сетка картинок */}
+        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", zIndex: 2, overflow: "hidden" }}>
+          <div ref={gridRef} className="masked-grid" style={{ gap: `${GAP}px`, willChange: "transform, opacity, filter" }}>
+            {rows.map((images, rowIndex) => {
+              const looped = [...images, ...images];
+              return (
+                <div
+                  key={rowIndex}
+                  ref={(el) => { trackRefs.current[rowIndex] = el; }}
+                  style={{
+                    display: "flex",
+                    gap: `${GAP}px`,
+                    width: "max-content",
+                    paddingLeft: `${GAP}px`,
+                    paddingRight: `${GAP}px`,
+                    willChange: "transform"
+                  }}
+                >
+                  {looped.map((img, i) => (
+                    <div key={rowIndex + "-" + i} style={{ width: `${imgSize}px`, height: `${imgSize}px`, borderRadius: "12px", flexShrink: 0, position: "relative", overflow: "hidden" }}>
+                      <img src={img} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Текстовый слой */}
+        <div
+          ref={textRef}
+          style={{
+            position: "absolute",
+            inset: 0,
+            zIndex: 10,
+            display: "flex",
+            alignItems: "center",
+            padding: "0 clamp(20px, 6vw, 80px)",
+            opacity: 0,
+            transform: "translate3d(0, 30px, 0)",
+            willChange: "transform, opacity",
+            pointerEvents: "none"
+          }}
+        >
+          <div style={{ display: "flex", flexDirection: "column", justifyContent: "flex-start", width: "100%" }}>
+            <div className="text-line" style={{ fontSize: "clamp(32px, 6.5vw, 88px)" }}>
+              MY NAME <span className="mobile-br" />IS ARTEM
+            </div>
+
+            <div className="text-line" style={{ fontSize: "clamp(32px, 6.5vw, 88px)", marginTop: "0.15em" }}>
+              I'M A <span className="mobile-br" />DESIGNER
+            </div>
+
+            <div
+              className={`text-line contact-trigger ${shaking ? "shakeY" : ""}`}
+              onMouseEnter={handleContactEnter}
+              onMouseLeave={() => setContactHovered(false)}
+              onClick={openContact}
+              style={{
+                fontSize: "clamp(32px, 6.5vw, 88px)",
+                marginTop: "1.6em",
+                cursor: "pointer",
+                display: "inline-block",
+                userSelect: "none"
+              }}
+            >
+              <span className="heartbeat-wrapper">
+                {contactHovered ? "GET YOUR BEST DESIGN EVER" : "CONTACT ME"}
+              </span>
+            </div>
+          </div>
+        </div>
+
+      </main>
     </>
   );
 }
