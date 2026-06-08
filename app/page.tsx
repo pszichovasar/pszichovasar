@@ -187,49 +187,33 @@ export default function Home() {
     };
   }, [showContact]);
 
-  // Интерактивный таймлайн анимаций
   useEffect(() => {
     const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1200;
 
-    // 1. ЛОГИКА СЕТКИ
-    // Сетка работает от 0.0 до 0.7. После 0.7 она полностью уходит.
-    const gridActiveStart = 0;
-    const gridActiveEnd = 0.7;
-    const gridProgress = Math.min(Math.max((progress - gridActiveStart) / (gridActiveEnd - gridActiveStart), 0), 1);
+    // 1. ЛОГИКА СЕТКИ (Активна от 0 до 0.6)
+    // Линейная зависимость: никакого ускорения
+    const gridProgress = Math.min(Math.max(progress / 0.6, 0), 1);
 
     trackRefs.current.forEach((track, i) => {
       if (!track || !rows[i]) return;
       const loopWidth = (imgSize + GAP) * rows[i].length;
 
-      // РАВНОМЕРНОЕ ДВИЖЕНИЕ:
-      // Базовая скорость теперь строго линейна относительно gridProgress
-      const scrollSpeed = 0.5;
+      // Строго линейное движение
       const baseScroll = directions[i]
-        ? -gridProgress * loopWidth * scrollSpeed
-        : -loopWidth + (gridProgress * loopWidth * scrollSpeed);
+        ? -gridProgress * loopWidth
+        : -loopWidth + (gridProgress * loopWidth);
 
-      // ВХОД И ВЫХОД:
-      // Сетка начинает движение из-за экрана (вход) и уходит за экран (выход)
-      // Используем smoothstep-подобную логику для мягкости
-      let entranceOffset = 0;
-      const margin = screenWidth * 1.2;
+      // Сдвиг за пределы экрана
+      const offset = directions[i] ? screenWidth : -screenWidth;
+      // В начале (progress 0) сетка выезжает, в конце (0.6) уезжает
+      const entrance = (1 - gridProgress) * offset;
 
-      if (gridProgress < 0.2) {
-        // Плавный вход
-        const entry = 1 - (gridProgress / 0.2);
-        entranceOffset = directions[i] ? entry * margin : -entry * margin;
-      } else if (gridProgress > 0.8) {
-        // Плавный выход
-        const exit = (gridProgress - 0.8) / 0.2;
-        entranceOffset = directions[i] ? -exit * margin : exit * margin;
-      }
-
-      track.style.transform = `translate3d(${baseScroll + entranceOffset}px, 0, 0)`;
-      track.style.transition = "none"; // Убираем transition для мгновенного отклика
+      track.style.transform = `translate3d(${baseScroll + entrance}px, 0, 0)`;
+      track.style.transition = "none";
     });
 
-    // 2. Видео и Текст (активируются только ПОСЛЕ сетки, т.е. после 0.7)
-    const finalSectionProgress = Math.min(Math.max((progress - 0.7) / 0.3, 0), 1);
+    // 2. Видео и Текст (Появляются после того, как сетка ушла, после 0.6)
+    const finalSectionProgress = Math.min(Math.max((progress - 0.6) / 0.4, 0), 1);
 
     if (videoRef.current) {
       videoRef.current.style.opacity = finalSectionProgress.toString();
@@ -237,8 +221,7 @@ export default function Home() {
 
     if (textRef.current) {
       textRef.current.style.opacity = finalSectionProgress.toString();
-      // Текст плавно поднимается вверх
-      textRef.current.style.transform = `translate3d(0, ${(1 - finalSectionProgress) * 50}px, 0)`;
+      textRef.current.style.transform = `translate3d(0, ${(1 - finalSectionProgress) * 30}px, 0)`;
       textRef.current.style.pointerEvents = finalSectionProgress > 0.5 ? "auto" : "none";
     }
   }, [progress, imgSize]);
@@ -499,102 +482,98 @@ export default function Home() {
           left: 0,
           width: "100vw",
           height: "100vh",
-          background: "#ffc0cb", // Розовый цвет
-          zIndex: 20, // Поверх всего
-          transform: `translate3d(0, ${progress < 0.33 ? -progress * 300 : -100}vh, 0)`,
-          transition: "transform 0.1s linear"
+          background: "#ffc0cb",
+          zIndex: 20,
+          // Линейно уводим розовый блок вверх: от 0 до -100vh по мере роста прогресса до 0.6
+          // progress * 1.66 позволяет розовому блоку уйти ровно к 0.6 прогрессу
+          transform: `translate3d(0, ${Math.min(progress * 1.66, 1) * -100}vh, 0)`,
+          transition: "none"
         }} />
-        {/* Видео заднего плана */}
-        <video
-          ref={videoRef}
-          src={videoSrc}
-          muted
-          loop
-          autoPlay
-          playsInline
-          style={{
-            position: "absolute", top: 0, left: 0,
-            width: "100vw", height: "100vh",
-            objectFit: "cover", zIndex: 0,
-            opacity: 0,
-            willChange: "opacity, filter"
-          }}
-        />
-        <div ref={videoOverlayRef} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1, pointerEvents: "none", transition: "background 0.1s ease-out" }} />
 
         {/* Сетка картинок */}
-        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", zIndex: 2, overflow: "hidden" }}>
-          <div ref={gridRef} className="masked-grid" style={{ gap: `${GAP}px`, willChange: "transform, opacity, filter" }}>
-            {rows.map((images, rowIndex) => {
-              const looped = [...images, ...images];
-              return (
-                <div
-                  key={rowIndex}
-                  ref={(el) => { trackRefs.current[rowIndex] = el; }}
-                  style={{
-                    display: "flex",
-                    gap: `${GAP}px`,
-                    width: "max-content",
-                    paddingLeft: `${GAP}px`,
-                    paddingRight: `${GAP}px`,
-                    willChange: "transform"
-                  }}
-                >
-                  {looped.map((img, i) => (
-                    <div key={rowIndex + "-" + i} style={{ width: `${imgSize}px`, height: `${imgSize}px`, borderRadius: "12px", flexShrink: 0, position: "relative", overflow: "hidden" }}>
-                      <img src={img} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-                    </div>
-                  ))}
-                </div>
-              );
-            })}
-          </div>
-        </div>
+        <div style={{
+          position: "absolute",
+          inset: 0,
+          display: "flex",
+          alignItems: "center",
+          zIndex: 25, // Теперь точно выше розового блока
+          overflow: "hidden"
+        }}>
+          <div ref={videoOverlayRef} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1, pointerEvents: "none", transition: "background 0.1s ease-out" }} />
 
-        {/* Текстовый слой */}
-        <div
-          ref={textRef}
-          style={{
-            position: "absolute",
-            inset: 0,
-            zIndex: 10,
-            display: "flex",
-            alignItems: "center",
-            padding: "0 clamp(20px, 6vw, 80px)",
-            opacity: 0,
-            transform: "translate3d(0, 30px, 0)",
-            willChange: "transform, opacity",
-            pointerEvents: "none"
-          }}
-        >
-          <div style={{ display: "flex", flexDirection: "column", justifyContent: "flex-start", width: "100%" }}>
-            <div className="text-line" style={{ fontSize: "clamp(32px, 6.5vw, 88px)" }}>
-              MY NAME <span className="mobile-br" />IS ARTEM
-            </div>
-
-            <div className="text-line" style={{ fontSize: "clamp(32px, 6.5vw, 88px)", marginTop: "0.15em" }}>
-              I'M A <span className="mobile-br" />DESIGNER
-            </div>
-
-            <div
-              className={`text-line contact-trigger ${shaking ? "shakeY" : ""}`}
-              onMouseEnter={handleContactEnter}
-              onMouseLeave={() => setContactHovered(false)}
-              onClick={openContact}
-              style={{
-                fontSize: "clamp(32px, 6.5vw, 88px)",
-                marginTop: "1.6em",
-                cursor: "pointer",
-                display: "inline-block",
-                userSelect: "none"
-              }}
-            >
-              <span className="heartbeat-wrapper">
-                {contactHovered ? "GET YOUR BEST DESIGN EVER" : "CONTACT ME"}
-              </span>
+          {/* Сетка картинок */}
+          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", zIndex: 2, overflow: "hidden" }}>
+            <div ref={gridRef} className="masked-grid" style={{ gap: `${GAP}px`, willChange: "transform, opacity, filter" }}>
+              {rows.map((images, rowIndex) => {
+                const looped = [...images, ...images];
+                return (
+                  <div
+                    key={rowIndex}
+                    ref={(el) => { trackRefs.current[rowIndex] = el; }}
+                    style={{
+                      display: "flex",
+                      gap: `${GAP}px`,
+                      width: "max-content",
+                      paddingLeft: `${GAP}px`,
+                      paddingRight: `${GAP}px`,
+                      willChange: "transform"
+                    }}
+                  >
+                    {looped.map((img, i) => (
+                      <div key={rowIndex + "-" + i} style={{ width: `${imgSize}px`, height: `${imgSize}px`, borderRadius: "12px", flexShrink: 0, position: "relative", overflow: "hidden" }}>
+                        <img src={img} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
             </div>
           </div>
-        </div>
+
+          {/* Текстовый слой */}
+          <div
+            ref={textRef}
+            style={{
+              position: "absolute",
+              inset: 0,
+              zIndex: 10,
+              display: "flex",
+              alignItems: "center",
+              padding: "0 clamp(20px, 6vw, 80px)",
+              opacity: 0,
+              transform: "translate3d(0, 30px, 0)",
+              willChange: "transform, opacity",
+              pointerEvents: "none"
+            }}
+          >
+            <div style={{ display: "flex", flexDirection: "column", justifyContent: "flex-start", width: "100%" }}>
+              <div className="text-line" style={{ fontSize: "clamp(32px, 6.5vw, 88px)" }}>
+                MY NAME <span className="mobile-br" />IS ARTEM
+              </div>
+
+              <div className="text-line" style={{ fontSize: "clamp(32px, 6.5vw, 88px)", marginTop: "0.15em" }}>
+                I'M A <span className="mobile-br" />DESIGNER
+              </div>
+
+              <div
+                className={`text-line contact-trigger ${shaking ? "shakeY" : ""}`}
+                onMouseEnter={handleContactEnter}
+                onMouseLeave={() => setContactHovered(false)}
+                onClick={openContact}
+                style={{
+                  fontSize: "clamp(32px, 6.5vw, 88px)",
+                  marginTop: "1.6em",
+                  cursor: "pointer",
+                  display: "inline-block",
+                  userSelect: "none"
+                }}
+              >
+                <span className="heartbeat-wrapper">
+                  {contactHovered ? "GET YOUR BEST DESIGN EVER" : "CONTACT ME"}
+                </span>
+              </div>
+            </div>
+          </div>
 
       </main>
     </>
