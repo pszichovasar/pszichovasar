@@ -1,6 +1,18 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useMemo } from "react";
+
+// Перемешивание массива (Fisher-Yates) с сидом — чтобы порядок был стабильным при рендере
+function shuffleWithSeed(arr: string[], seed: number): string[] {
+  const a = [...arr];
+  let s = seed;
+  for (let i = a.length - 1; i > 0; i--) {
+    s = (s * 1664525 + 1013904223) & 0xffffffff;
+    const j = Math.abs(s) % (i + 1);
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
 
 export default function Home() {
   const [videoSrc, setVideoSrc] = useState("/me.mp4");
@@ -24,19 +36,24 @@ export default function Home() {
   const [videoOpacity, setVideoOpacity] = useState(0);
 
   const GAP = 20;
-
-  // 5 рядов по 20 уникальных картинок
-  const ROWS = [
-    ["/1.jpg", "/2.jpg", "/3.jpg", "/4.jpg", "/5.jpg", "/6.jpg", "/7.jpg", "/8.jpg", "/9.jpg", "/10.jpg", "/11.jpg", "/12.jpg", "/13.jpg", "/14.jpg", "/15.jpg", "/16.jpg", "/17.jpg", "/18.jpg", "/19.jpg", "/20.jpg"],
-    ["/21.jpg", "/22.jpg", "/23.jpg", "/24.jpg", "/25.jpg", "/26.jpg", "/27.jpg", "/28.jpg", "/29.jpg", "/30.jpg", "/31.jpg", "/32.jpg", "/33.jpg", "/34.jpg", "/35.jpg", "/36.jpg", "/37.jpg", "/38.jpg", "/39.jpg", "/40.jpg"],
-    ["/41.jpg", "/42.jpg", "/43.jpg", "/44.jpg", "/45.jpg", "/46.jpg", "/47.jpg", "/48.jpg", "/49.jpg", "/50.jpg", "/51.jpg", "/52.jpg", "/53.jpg", "/54.jpg", "/55.jpg", "/56.jpg", "/57.jpg", "/58.jpg", "/59.jpg", "/60.jpg"],
-    ["/61.jpg", "/62.jpg", "/63.jpg", "/64.jpg", "/65.jpg", "/66.jpg", "/67.jpg", "/68.jpg", "/69.jpg", "/70.jpg", "/71.jpg", "/72.jpg", "/73.jpg", "/74.jpg", "/75.jpg", "/76.jpg", "/77.jpg", "/78.jpg", "/79.jpg", "/80.jpg"],
-    ["/81.jpg", "/82.jpg", "/83.jpg", "/84.jpg", "/85.jpg", "/86.jpg", "/87.jpg", "/88.jpg", "/89.jpg", "/90.jpg", "/91.jpg", "/92.jpg", "/93.jpg", "/94.jpg", "/95.jpg", "/96.jpg", "/97.jpg", "/98.jpg", "/99.jpg", "/100.jpg"],
+  const ALL_IMAGES = [
+    "/1.jpg", "/2.jpg", "/3.jpg", "/4.jpg", "/5.jpg", "/6.jpg", "/7.jpg",
+    "/8.jpg", "/9.jpg", "/10.jpg", "/11.jpg", "/12.jpg", "/13.jpg", "/14.jpg",
+    "/15.jpg", "/16.jpg", "/17.jpg", "/18.jpg", "/19.jpg", "/20.jpg", "/21.jpg"
   ];
 
-  // unit 0..1 — розовая
-  // unit 1..2 — ряды едут справа налево
-  // unit 2..3 — designer
+  // 5 рядов — каждый со своим уникальным случайным порядком
+  const ROWS = useMemo(() => [
+    shuffleWithSeed(ALL_IMAGES, 1001),
+    shuffleWithSeed(ALL_IMAGES, 2002),
+    shuffleWithSeed(ALL_IMAGES, 3003),
+    shuffleWithSeed(ALL_IMAGES, 4004),
+    shuffleWithSeed(ALL_IMAGES, 5005),
+  ], []);
+
+  // ряды 2 и 4 (индексы 1 и 3) — едут слева направо
+  const REVERSED = [false, true, false, true, false];
+
   const SCROLL_PER_UNIT = 800;
   const TOTAL_SCROLL = 3 * SCROLL_PER_UNIT;
 
@@ -44,7 +61,6 @@ export default function Home() {
     setShowContact(true);
     requestAnimationFrame(() => requestAnimationFrame(() => setContactVisible(true)));
   };
-
   const closeContact = () => {
     setContactVisible(false);
     setTimeout(() => setShowContact(false), 500);
@@ -53,37 +69,24 @@ export default function Home() {
   const handleMessageChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setForm({ ...form, message: e.target.value.toUpperCase() });
     const ta = textareaRef.current;
-    if (ta) {
-      ta.style.height = "auto";
-      ta.style.height = ta.scrollHeight + "px";
-    }
+    if (ta) { ta.style.height = "auto"; ta.style.height = ta.scrollHeight + "px"; }
   };
 
   const handleSubmit = async () => {
-    if (!form.name || !form.email || !form.message) {
-      alert("PLEASE FILL IN ALL FIELDS");
-      return;
-    }
+    if (!form.name || !form.email || !form.message) { alert("PLEASE FILL IN ALL FIELDS"); return; }
     setIsSending(true);
     try {
       const response = await fetch('/api/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form),
       });
       const data = await response.json();
       if (response.ok && data.success) {
         alert("MESSAGE SENT SUCCESSFULLY!");
         setForm({ name: "", email: "", message: "", service: "ILLUSTRATION" });
         closeContact();
-      } else {
-        alert(`ERROR: ${data.error || 'UNKNOWN_ERROR'}`);
-      }
-    } catch (error: any) {
-      alert(`FETCH_FAILED: ${error?.message || 'SERVER_UNREACHABLE'}`);
-    } finally {
-      setIsSending(false);
-    }
+      } else { alert(`ERROR: ${data.error || 'UNKNOWN_ERROR'}`); }
+    } catch (error: any) { alert(`FETCH_FAILED: ${error?.message || 'SERVER_UNREACHABLE'}`); }
+    finally { setIsSending(false); }
   };
 
   useEffect(() => {
@@ -101,35 +104,31 @@ export default function Home() {
     }
   }, [videoSrc]);
 
-  const getTileSize = () => {
-    const vh = window.innerHeight;
-    // 5 рядов + 6 промежутков (сверху, снизу и между рядами)
-    return Math.floor((vh - GAP * 6) / 5);
-  };
+  const getTileSize = () => Math.floor((window.innerHeight - GAP * 6) / 5);
+
+  const getRowWidth = () => (getTileSize() + GAP) * ALL_IMAGES.length + GAP;
 
   const applyAnimations = (scrollY: number) => {
     const unit = scrollY / SCROLL_PER_UNIT;
 
     // Розовый фон
-    const pink = Math.max(0, 1 - Math.max(0, (unit - 0.8) / 0.4));
-    setPinkOpacity(pink);
+    setPinkOpacity(Math.max(0, 1 - Math.max(0, (unit - 0.8) / 0.4)));
 
-    // Ряды картинок
+    // Ряды
     const vw = window.innerWidth;
-    const tileSize = getTileSize();
+    const rowWidth = getRowWidth();
 
     trackRefs.current.forEach((track, i) => {
       if (!track) return;
-      const rowWidth = (tileSize + GAP) * 20 + GAP;
-      const reversed = i === 1 || i === 3;
-      const startX = reversed ? -rowWidth : vw;
-      const endX = reversed ? vw : -rowWidth;
+      const rev = REVERSED[i];
+      const startX = rev ? -rowWidth : vw;
+      const endX = rev ? vw : -rowWidth;
+
       if (unit < 1) {
         track.style.opacity = "0";
         track.style.transform = `translate3d(${startX}px, 0, 0)`;
       } else if (unit <= 2) {
-        const t = unit - 1; // 0..1
-        const x = startX + (endX - startX) * t;
+        const x = startX + (endX - startX) * (unit - 1);
         track.style.opacity = "1";
         track.style.transform = `translate3d(${x}px, 0, 0)`;
       } else {
@@ -149,6 +148,11 @@ export default function Home() {
     }
   };
 
+  // Скролл: wheel + touch
+  // На iOS touchmove нельзя ставить passive:false на window — Safari игнорирует preventDefault.
+  // Вместо этого вешаем на конкретный элемент main с ref.
+  const mainRef = useRef<HTMLElement>(null);
+
   useEffect(() => {
     const handleWheel = (e: WheelEvent) => {
       if (showContact) return;
@@ -156,40 +160,50 @@ export default function Home() {
       scrollRef.current = Math.max(0, Math.min(scrollRef.current + e.deltaY, TOTAL_SCROLL));
       applyAnimations(scrollRef.current);
     };
+
     const handleTouchStart = (e: TouchEvent) => {
       if (showContact) return;
       touchStartRef.current = e.touches[0].clientY;
       if (videoRef.current?.paused) videoRef.current.play().catch(() => { });
     };
+
     const handleTouchMove = (e: TouchEvent) => {
       if (showContact) return;
+      // preventDefault только если не внутри модалки
       e.preventDefault();
       const delta = touchStartRef.current - e.touches[0].clientY;
       touchStartRef.current = e.touches[0].clientY;
-      scrollRef.current = Math.max(0, Math.min(scrollRef.current + delta * 2, TOTAL_SCROLL));
+      scrollRef.current = Math.max(0, Math.min(scrollRef.current + delta * 2.5, TOTAL_SCROLL));
       applyAnimations(scrollRef.current);
     };
+
+    const el = mainRef.current;
+    if (!el) return;
+
     window.addEventListener("wheel", handleWheel, { passive: false });
-    window.addEventListener("touchstart", handleTouchStart, { passive: true });
-    window.addEventListener("touchmove", handleTouchMove, { passive: false });
+    // Вешаем на element, а не window — так Safari принимает passive:false
+    el.addEventListener("touchstart", handleTouchStart, { passive: true });
+    el.addEventListener("touchmove", handleTouchMove, { passive: false });
+
     return () => {
       window.removeEventListener("wheel", handleWheel);
-      window.removeEventListener("touchstart", handleTouchStart);
-      window.removeEventListener("touchmove", handleTouchMove);
+      el.removeEventListener("touchstart", handleTouchStart);
+      el.removeEventListener("touchmove", handleTouchMove);
     };
   }, [showContact]);
 
-  // Инициализация
+  // Инициализация позиций
   useEffect(() => {
     const vw = window.innerWidth;
+    const rowWidth = getRowWidth();
     trackRefs.current.forEach((track, i) => {
       if (!track) return;
-      const rowWidth = (Math.floor((window.innerHeight - 20 * 6) / 5) + 20) * 20 + 20;
-      const reversed = i === 1 || i === 3;
+      const rev = REVERSED[i];
       track.style.opacity = "0";
-      track.style.transform = `translate3d(${reversed ? -rowWidth : window.innerWidth}px, 0, 0)`;
+      track.style.transform = `translate3d(${rev ? -rowWidth : vw}px, 0, 0)`;
     });
     if (textRef.current) {
+      textRef.current.style.opacity = "0";
       textRef.current.style.transform = "translate3d(0, 40px, 0)";
       textRef.current.style.pointerEvents = "none";
     }
@@ -214,15 +228,13 @@ export default function Home() {
   };
   const labelStyle: React.CSSProperties = { fontSize: "9px", color: "#000" };
 
-  // tileSize для JSX (SSR-safe)
   const tileSize = typeof window !== "undefined" ? getTileSize() : 140;
 
   return (
     <>
       <style>{`
         html, body {
-          margin: 0; padding: 0;
-          width: 100vw; height: 100vh;
+          margin: 0; padding: 0; width: 100vw; height: 100vh;
           overflow: hidden; background: black; position: fixed;
         }
         * { font-family: 'Arial Black', Arial, sans-serif !important; text-transform: uppercase !important; box-sizing: border-box; }
@@ -290,7 +302,7 @@ export default function Home() {
         </div>
       )}
 
-      <main style={{ position: "fixed", width: "100vw", height: "100vh", top: 0, left: 0, overflow: "hidden" }}>
+      <main ref={mainRef} style={{ position: "fixed", width: "100vw", height: "100vh", top: 0, left: 0, overflow: "hidden", touchAction: "none" }}>
 
         {/* СЕКЦИЯ 1: РОЗОВЫЙ ФОН */}
         <div style={{ position: "absolute", inset: 0, background: "#F4A6C0", zIndex: 2, opacity: pinkOpacity, pointerEvents: "none" }} />
@@ -300,7 +312,7 @@ export default function Home() {
           style={{ position: "absolute", top: 0, left: 0, width: "100vw", height: "100vh", objectFit: "cover", zIndex: 0, opacity: 0 }} />
         <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1, opacity: videoOpacity, pointerEvents: "none" }} />
 
-        {/* СЕКЦИЯ 2: 5 РЯДОВ КАРТИНОК */}
+        {/* СЕКЦИЯ 2: 5 РЯДОВ */}
         <div style={{ position: "absolute", inset: 0, zIndex: 3, overflow: "hidden", pointerEvents: "none", display: "flex", flexDirection: "column", justifyContent: "center", gap: `${GAP}px`, padding: `${GAP}px 0` }}>
           {ROWS.map((images, rowIndex) => (
             <div
