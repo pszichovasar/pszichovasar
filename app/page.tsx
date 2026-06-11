@@ -121,8 +121,17 @@ export default function Home() {
     trackRefs.current.forEach((track, i) => {
       if (!track) return;
       const rev = REVERSED[i];
-      const startX = rev ? -rowWidth : vw;
-      const endX = rev ? vw : -rowWidth;
+
+      // Позиции полностью за краями экрана (одинаковые для всех рядов)
+      const offRight = vw;          // левый край ряда = правый край экрана
+      const offLeft = -rowWidth;   // правый край ряда = левый край экрана
+
+      // Для reversed рядов — зеркально
+      const startX = rev ? offLeft : offRight;
+      const endX = rev ? offRight : offLeft;
+
+      // Центр пути — одинаковый для всех, ряд точно по центру экрана
+      // Проверка: (startX + endX) / 2 = (vw - rowWidth) / 2 = centerX ✓
 
       if (unit < 1) {
         track.style.opacity = "0";
@@ -199,8 +208,9 @@ export default function Home() {
     trackRefs.current.forEach((track, i) => {
       if (!track) return;
       const rev = REVERSED[i];
+      const startX = rev ? -rowWidth : vw;
       track.style.opacity = "0";
-      track.style.transform = `translate3d(${rev ? -rowWidth : vw}px, 0, 0)`;
+      track.style.transform = `translate3d(${startX}px, 0, 0)`;
     });
     if (textRef.current) {
       textRef.current.style.opacity = "0";
