@@ -104,9 +104,9 @@ export default function Home() {
     }
   }, [videoSrc]);
 
-  const getTileSize = () => Math.floor((window.innerHeight - GAP * 6) / 5);
+  const calcTileSize = () => Math.floor((window.innerHeight - GAP * 6) / 5);
 
-  const getRowWidth = () => (getTileSize() + GAP) * ALL_IMAGES.length + GAP;
+  const getRowWidth = () => (calcTileSize() + GAP) * ALL_IMAGES.length + GAP;
 
   const applyAnimations = (scrollY: number) => {
     const unit = scrollY / SCROLL_PER_UNIT;
@@ -228,7 +228,15 @@ export default function Home() {
   };
   const labelStyle: React.CSSProperties = { fontSize: "9px", color: "#000" };
 
-  const tileSize = typeof window !== "undefined" ? getTileSize() : 140;
+  const [tileSize, setTileSize] = useState(140);
+
+  useEffect(() => {
+    const update = () => setTileSize(calcTileSize());
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
+
 
   return (
     <>
