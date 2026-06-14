@@ -2,7 +2,6 @@
 
 import React, { useEffect, useRef, useState, useMemo } from "react";
 
-// Перемешивание массива (Fisher-Yates) с сидом — чтобы порядок был стабильным при рендере
 function shuffleWithSeed(arr: string[], seed: number): string[] {
   const a = [...arr];
   let s = seed;
@@ -13,6 +12,29 @@ function shuffleWithSeed(arr: string[], seed: number): string[] {
   }
   return a;
 }
+
+// Параметры для 20 хаотично движущихся картинок на розовой секции
+const FLOATING_IMAGES_CONFIG = Array.from({ length: 20 }, (_, i) => {
+  const seed = i * 137 + 42;
+  const pseudoRandom = (n: number) => ((seed * 1664525 + n * 1013904223) & 0x7fffffff) / 0x7fffffff;
+  return {
+    src: `/j${(i % 4) + 1}.jpg`,
+    // Начальная позиция (% от экрана)
+    x: pseudoRandom(1) * 90 + 5,
+    y: pseudoRandom(2) * 85 + 5,
+    // Скорость (vw/сек и vh/сек)
+    vx: (pseudoRandom(3) - 0.5) * 0.25,
+    vy: (pseudoRandom(4) - 0.5) * 0.22,
+    // Размер (px)
+    size: 80 + pseudoRandom(5) * 100,
+    // Начальный угол поворота
+    rotation: pseudoRandom(6) * 360,
+    // Скорость вращения (градусов/сек)
+    rotSpeed: (pseudoRandom(7) - 0.5) * 40,
+    // Задержка появления (мс)
+    delay: pseudoRandom(8) * 600,
+  };
+});
 
 export default function Home() {
   const [videoSrc, setVideoSrc] = useState("/me.mp4");
@@ -35,6 +57,21 @@ export default function Home() {
   const [pinkOpacity, setPinkOpacity] = useState(1);
   const [videoOpacity, setVideoOpacity] = useState(0);
 
+  // Состояние для плавающих картинок
+  const floatingRefs = useRef<(HTMLDivElement | null)[]>(Array(20).fill(null));
+  const floatingState = useRef(
+    FLOATING_IMAGES_CONFIG.map(cfg => ({
+      x: cfg.x,
+      y: cfg.y,
+      vx: cfg.vx,
+      vy: cfg.vy,
+      rotation: cfg.rotation,
+      rotSpeed: cfg.rotSpeed,
+    }))
+  );
+  const rafRef = useRef<number | null>(null);
+  const lastTimeRef = useRef<number>(0);
+
   const GAP = 20;
   const ALL_IMAGES = [
     "/1.jpg", "/2.jpg", "/3.jpg", "/4.jpg", "/5.jpg", "/6.jpg", "/7.jpg",
@@ -42,7 +79,6 @@ export default function Home() {
     "/15.jpg", "/16.jpg", "/17.jpg", "/18.jpg", "/19.jpg", "/20.jpg", "/21.jpg"
   ];
 
-  // 5 рядов — каждый со своим уникальным случайным порядком
   const ROWS = useMemo(() => [
     shuffleWithSeed(ALL_IMAGES, 1001),
     shuffleWithSeed(ALL_IMAGES, 2002),
@@ -51,11 +87,44 @@ export default function Home() {
     shuffleWithSeed(ALL_IMAGES, 5005),
   ], []);
 
-  // ряды 2 и 4 (индексы 1 и 3) — едут слева направо
   const REVERSED = [false, true, false, true, false];
-
   const SCROLL_PER_UNIT = 800;
   const TOTAL_SCROLL = 3 * SCROLL_PER_UNIT;
+
+  // Анимация плавающих картинок
+  useEffect(() => {
+    const animate = (time: number) => {
+      const dt = lastTimeRef.current ? Math.min((time - lastTimeRef.current) / 1000, 0.05) : 0.016;
+      lastTimeRef.current = time;
+
+      floatingState.current.forEach((state, i) => {
+        state.x += state.vx * dt * 60;
+        state.y += state.vy * dt * 60;
+        state.rotation += state.rotSpeed * dt;
+
+        // Отражение от краёв (с учётом размера картинки в %)
+        const sizeVw = (FLOATING_IMAGES_CONFIG[i].size / window.innerWidth) * 100;
+        const sizeVh = (FLOATING_IMAGES_CONFIG[i].size / window.innerHeight) * 100;
+
+        if (state.x < 0) { state.x = 0; state.vx = Math.abs(state.vx); }
+        if (state.x > 100 - sizeVw) { state.x = 100 - sizeVw; state.vx = -Math.abs(state.vx); }
+        if (state.y < 0) { state.y = 0; state.vy = Math.abs(state.vy); }
+        if (state.y > 100 - sizeVh) { state.y = 100 - sizeVh; state.vy = -Math.abs(state.vy); }
+
+        const el = floatingRefs.current[i];
+        if (el) {
+          el.style.left = `${state.x}%`;
+          el.style.top = `${state.y}%`;
+          el.style.transform = `rotate(${state.rotation}deg)`;
+        }
+      });
+
+      rafRef.current = requestAnimationFrame(animate);
+    };
+
+    rafRef.current = requestAnimationFrame(animate);
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+  }, []);
 
   const openContact = () => {
     setShowContact(true);
@@ -105,33 +174,22 @@ export default function Home() {
   }, [videoSrc]);
 
   const calcTileSize = () => Math.floor((window.innerHeight - GAP * 6) / 5);
-
   const getRowWidth = () => (calcTileSize() + GAP) * ALL_IMAGES.length + GAP;
 
   const applyAnimations = (scrollY: number) => {
     const unit = scrollY / SCROLL_PER_UNIT;
-
-    // Розовый фон
     setPinkOpacity(Math.max(0, 1 - Math.max(0, (unit - 0.8) / 0.4)));
 
-    // Ряды
     const vw = window.innerWidth;
     const rowWidth = getRowWidth();
 
     trackRefs.current.forEach((track, i) => {
       if (!track) return;
       const rev = REVERSED[i];
-
-      // Позиции полностью за краями экрана (одинаковые для всех рядов)
-      const offRight = vw;          // левый край ряда = правый край экрана
-      const offLeft = -rowWidth;   // правый край ряда = левый край экрана
-
-      // Для reversed рядов — зеркально
+      const offRight = vw;
+      const offLeft = -rowWidth;
       const startX = rev ? offLeft : offRight;
       const endX = rev ? offRight : offLeft;
-
-      // Центр пути — одинаковый для всех, ряд точно по центру экрана
-      // Проверка: (startX + endX) / 2 = (vw - rowWidth) / 2 = centerX ✓
 
       if (unit < 1) {
         track.style.opacity = "0";
@@ -146,7 +204,6 @@ export default function Home() {
       }
     });
 
-    // Видео и текст
     const tPhase = Math.max(0, Math.min((unit - 2.2) / 0.5, 1));
     setVideoOpacity(tPhase);
     if (videoRef.current) videoRef.current.style.opacity = tPhase.toString();
@@ -157,9 +214,6 @@ export default function Home() {
     }
   };
 
-  // Скролл: wheel + touch
-  // На iOS touchmove нельзя ставить passive:false на window — Safari игнорирует preventDefault.
-  // Вместо этого вешаем на конкретный элемент main с ref.
   const mainRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
@@ -178,7 +232,6 @@ export default function Home() {
 
     const handleTouchMove = (e: TouchEvent) => {
       if (showContact) return;
-      // preventDefault только если не внутри модалки
       e.preventDefault();
       const delta = touchStartRef.current - e.touches[0].clientY;
       touchStartRef.current = e.touches[0].clientY;
@@ -190,7 +243,6 @@ export default function Home() {
     if (!el) return;
 
     window.addEventListener("wheel", handleWheel, { passive: false });
-    // Вешаем на element, а не window — так Safari принимает passive:false
     el.addEventListener("touchstart", handleTouchStart, { passive: true });
     el.addEventListener("touchmove", handleTouchMove, { passive: false });
 
@@ -201,7 +253,6 @@ export default function Home() {
     };
   }, [showContact]);
 
-  // Инициализация позиций
   useEffect(() => {
     const vw = window.innerWidth;
     const rowWidth = getRowWidth();
@@ -247,7 +298,6 @@ export default function Home() {
     return () => window.removeEventListener("resize", update);
   }, []);
 
-
   return (
     <>
       <style>{`
@@ -274,6 +324,26 @@ export default function Home() {
         .card-label{font-weight:900!important;letter-spacing:0.1em}
         .card-input{font-weight:900!important;letter-spacing:-0.02em}
         .card-btn{font-weight:900!important;letter-spacing:0.15em}
+        @keyframes floatIn {
+          from { opacity: 0; transform: scale(0.7) rotate(var(--rot)); }
+          to   { opacity: 1; transform: scale(1)   rotate(var(--rot)); }
+        }
+        .floating-img {
+          position: absolute;
+          border-radius: 12px;
+          overflow: hidden;
+          pointer-events: none;
+          will-change: transform, left, top;
+          animation: floatIn 0.5s ease forwards;
+          animation-delay: var(--delay);
+          opacity: 0;
+        }
+        .floating-img img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+          display: block;
+        }
         @media(max-width:768px){
           .desktop-br{display:none}.mobile-br{display:block}
           .text-line{font-size:8.5vw!important;letter-spacing:-0.05em;-webkit-text-stroke:1.2px white;paint-order:stroke fill}
@@ -323,7 +393,27 @@ export default function Home() {
       <main ref={mainRef} style={{ position: "fixed", width: "100vw", height: "100vh", top: 0, left: 0, overflow: "hidden", touchAction: "none" }}>
 
         {/* СЕКЦИЯ 1: РОЗОВЫЙ ФОН */}
-        <div style={{ position: "absolute", inset: 0, background: "#F4A6C0", zIndex: 2, opacity: pinkOpacity, pointerEvents: "none" }} />
+        <div style={{ position: "absolute", inset: 0, background: "#F4A6C0", zIndex: 2, opacity: pinkOpacity, pointerEvents: "none" }}>
+          {/* ПЛАВАЮЩИЕ КАРТИНКИ поверх розовой секции */}
+          {FLOATING_IMAGES_CONFIG.map((cfg, i) => (
+            <div
+              key={i}
+              ref={(el) => { floatingRefs.current[i] = el; }}
+              className="floating-img"
+              style={{
+                width: `${cfg.size}px`,
+                height: `${cfg.size}px`,
+                left: `${cfg.x}%`,
+                top: `${cfg.y}%`,
+                ["--delay" as any]: `${cfg.delay}ms`,
+                ["--rot" as any]: `${cfg.rotation}deg`,
+                boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
+              }}
+            >
+              <img src={cfg.src} alt="" />
+            </div>
+          ))}
+        </div>
 
         {/* ВИДЕО */}
         <video ref={videoRef} src={videoSrc} muted loop autoPlay playsInline
