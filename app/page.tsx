@@ -13,28 +13,97 @@ function shuffleWithSeed(arr: string[], seed: number): string[] {
   return a;
 }
 
-// Параметры для 20 хаотично движущихся картинок на розовой секции
-const FLOATING_IMAGES_CONFIG = Array.from({ length: 20 }, (_, i) => {
+const IMG_COUNT = 20;
+const IMG_SIZE = 75; // px — маленькие, одинаковые
+
+const FLOATING_INIT = Array.from({ length: IMG_COUNT }, (_, i) => {
   const seed = i * 137 + 42;
-  const pseudoRandom = (n: number) => ((seed * 1664525 + n * 1013904223) & 0x7fffffff) / 0x7fffffff;
+  const r = (n: number) => ((seed * 1664525 + n * 1013904223) & 0x7fffffff) / 0x7fffffff;
   return {
     src: `/j${(i % 4) + 1}.jpg`,
-    // Начальная позиция (% от экрана)
-    x: pseudoRandom(1) * 90 + 5,
-    y: pseudoRandom(2) * 85 + 5,
-    // Скорость (vw/сек и vh/сек)
-    vx: (pseudoRandom(3) - 0.5) * 0.25,
-    vy: (pseudoRandom(4) - 0.5) * 0.22,
-    // Размер (px)
-    size: 80 + pseudoRandom(5) * 100,
-    // Начальный угол поворота
-    rotation: pseudoRandom(6) * 360,
-    // Скорость вращения (градусов/сек)
-    rotSpeed: (pseudoRandom(7) - 0.5) * 40,
-    // Задержка появления (мс)
-    delay: pseudoRandom(8) * 600,
+    x: r(1) * 82 + 5,
+    y: r(2) * 82 + 5,
+    vx: (r(3) - 0.5) * 120,  // px/s
+    vy: (r(4) - 0.5) * 100,
+    rotation: r(6) * 360,
+    rotSpeed: (r(7) - 0.5) * 90, // быстрее вращение: ±45 °/s
+    delay: r(8) * 400,
   };
 });
+
+// ─── OBB helpers (SAT для двух квадратов) ─────────────────────────────────────
+
+type Vec2 = { x: number; y: number };
+
+/** Четыре угла квадрата со стороной S, центром (cx,cy) и углом ang (рад) */
+function getCorners(cx: number, cy: number, ang: number, S: number): Vec2[] {
+  const h = S / 2;
+  const cos = Math.cos(ang);
+  const sin = Math.sin(ang);
+  return [
+    { x: cx + cos * (-h) - sin * (-h), y: cy + sin * (-h) + cos * (-h) },
+    { x: cx + cos * (h) - sin * (-h), y: cy + sin * (h) + cos * (-h) },
+    { x: cx + cos * (h) - sin * (h), y: cy + sin * (h) + cos * (h) },
+    { x: cx + cos * (-h) - sin * (h), y: cy + sin * (-h) + cos * (h) },
+  ];
+}
+
+/** Проекция массива точек на ось (нормализованная) → [min, max] */
+function project(pts: Vec2[], ax: Vec2): [number, number] {
+  let mn = Infinity, mx = -Infinity;
+  for (const p of pts) {
+    const d = p.x * ax.x + p.y * ax.y;
+    if (d < mn) mn = d;
+    if (d > mx) mx = d;
+  }
+  return [mn, mx];
+}
+
+/**
+ * SAT для двух OBB-квадратов.
+ * Возвращает { overlap, nx, ny } — глубину проникновения и нормаль от B к A,
+ * или null если нет пересечения.
+ */
+function obbCollide(
+  ax: number, ay: number, aAng: number,
+  bx: number, by: number, bAng: number,
+  S: number
+): { overlap: number; nx: number; ny: number } | null {
+  const cornersA = getCorners(ax, ay, aAng, S);
+  const cornersB = getCorners(bx, by, bAng, S);
+
+  // Оси SAT: 2 для A, 2 для B (нормали к граням)
+  const axes: Vec2[] = [
+    { x: Math.cos(aAng), y: Math.sin(aAng) },
+    { x: -Math.sin(aAng), y: Math.cos(aAng) },
+    { x: Math.cos(bAng), y: Math.sin(bAng) },
+    { x: -Math.sin(bAng), y: Math.cos(bAng) },
+  ];
+
+  let minOverlap = Infinity;
+  let minAxis: Vec2 = axes[0];
+
+  for (const axis of axes) {
+    const [a0, a1] = project(cornersA, axis);
+    const [b0, b1] = project(cornersB, axis);
+    const overlap = Math.min(a1, b1) - Math.max(a0, b0);
+    if (overlap <= 0) return null; // разделяющая ось — нет коллизии
+    if (overlap < minOverlap) {
+      minOverlap = overlap;
+      minAxis = axis;
+    }
+  }
+
+  // Убеждаемся, что нормаль направлена от B к A
+  const dx = ax - bx;
+  const dy = ay - by;
+  const dot = dx * minAxis.x + dy * minAxis.y;
+  const sign = dot < 0 ? -1 : 1;
+
+  return { overlap: minOverlap, nx: minAxis.x * sign, ny: minAxis.y * sign };
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 
 export default function Home() {
   const [videoSrc, setVideoSrc] = useState("/me.mp4");
@@ -57,16 +126,16 @@ export default function Home() {
   const [pinkOpacity, setPinkOpacity] = useState(1);
   const [videoOpacity, setVideoOpacity] = useState(0);
 
-  // Состояние для плавающих картинок
-  const floatingRefs = useRef<(HTMLDivElement | null)[]>(Array(20).fill(null));
-  const floatingState = useRef(
-    FLOATING_IMAGES_CONFIG.map(cfg => ({
-      x: cfg.x,
-      y: cfg.y,
-      vx: cfg.vx,
-      vy: cfg.vy,
-      rotation: cfg.rotation,
-      rotSpeed: cfg.rotSpeed,
+  const floatingRefs = useRef<(HTMLDivElement | null)[]>(Array(IMG_COUNT).fill(null));
+
+  // Физика хранится в ref — нет ре-рендеров
+  const physState = useRef(
+    FLOATING_INIT.map(cfg => ({
+      x: 0, y: 0,       // центр в px
+      vx: 0, vy: 0,
+      ang: 0,            // угол в радианах
+      rotSpeed: 0,
+      initialized: false,
     }))
   );
   const rafRef = useRef<number | null>(null);
@@ -91,31 +160,97 @@ export default function Home() {
   const SCROLL_PER_UNIT = 800;
   const TOTAL_SCROLL = 3 * SCROLL_PER_UNIT;
 
-  // Анимация плавающих картинок
+  // ── Главный анимационный цикл ──────────────────────────────────────────────
   useEffect(() => {
+    const DAMPING = 0.992;
+    const MAX_SPEED = 280; // px/s
+    const BOUNCE = 0.75;   // коэффициент отскока от стен и друг друга
+
     const animate = (time: number) => {
-      const dt = lastTimeRef.current ? Math.min((time - lastTimeRef.current) / 1000, 0.05) : 0.016;
+      const dt = lastTimeRef.current
+        ? Math.min((time - lastTimeRef.current) / 1000, 0.05)
+        : 0.016;
       lastTimeRef.current = time;
 
-      floatingState.current.forEach((state, i) => {
-        state.x += state.vx * dt * 60;
-        state.y += state.vy * dt * 60;
-        state.rotation += state.rotSpeed * dt;
+      const W = window.innerWidth;
+      const H = window.innerHeight;
+      const states = physState.current;
 
-        // Отражение от краёв (с учётом размера картинки в %)
-        const sizeVw = (FLOATING_IMAGES_CONFIG[i].size / window.innerWidth) * 100;
-        const sizeVh = (FLOATING_IMAGES_CONFIG[i].size / window.innerHeight) * 100;
+      // Инициализация центров в px
+      states.forEach((s, i) => {
+        if (!s.initialized) {
+          s.x = FLOATING_INIT[i].x / 100 * W;
+          s.y = FLOATING_INIT[i].y / 100 * H;
+          s.vx = FLOATING_INIT[i].vx;
+          s.vy = FLOATING_INIT[i].vy;
+          s.ang = FLOATING_INIT[i].rotation * Math.PI / 180;
+          s.rotSpeed = FLOATING_INIT[i].rotSpeed * Math.PI / 180; // °/s → рад/s
+          s.initialized = true;
+        }
+      });
 
-        if (state.x < 0) { state.x = 0; state.vx = Math.abs(state.vx); }
-        if (state.x > 100 - sizeVw) { state.x = 100 - sizeVw; state.vx = -Math.abs(state.vx); }
-        if (state.y < 0) { state.y = 0; state.vy = Math.abs(state.vy); }
-        if (state.y > 100 - sizeVh) { state.y = 100 - sizeVh; state.vy = -Math.abs(state.vy); }
+      // ── OBB коллизии (SAT) ──────────────────────────────────────────────
+      for (let i = 0; i < IMG_COUNT; i++) {
+        for (let j = i + 1; j < IMG_COUNT; j++) {
+          const a = states[i];
+          const b = states[j];
 
+          const result = obbCollide(a.x, a.y, a.ang, b.x, b.y, b.ang, IMG_SIZE);
+          if (!result) continue;
+
+          const { overlap, nx, ny } = result;
+
+          // Разделяем позиции (positional correction) — убираем перекрытие
+          const correction = overlap / 2 + 0.5;
+          a.x += nx * correction;
+          a.y += ny * correction;
+          b.x -= nx * correction;
+          b.y -= ny * correction;
+
+          // Импульс: отражаем относительную скорость вдоль нормали
+          const dvx = a.vx - b.vx;
+          const dvy = a.vy - b.vy;
+          const relVn = dvx * nx + dvy * ny; // скорость сближения
+
+          if (relVn < 0) {
+            // Они движутся навстречу — применяем импульс
+            const impulse = -(1 + BOUNCE) * relVn / 2;
+            a.vx += impulse * nx;
+            a.vy += impulse * ny;
+            b.vx -= impulse * nx;
+            b.vy -= impulse * ny;
+          }
+        }
+      }
+
+      // ── Интегрирование + стены ──────────────────────────────────────────
+      states.forEach((s, i) => {
+        // Гашение
+        s.vx *= DAMPING;
+        s.vy *= DAMPING;
+
+        // Ограничение скорости
+        const sp = Math.sqrt(s.vx * s.vx + s.vy * s.vy);
+        if (sp > MAX_SPEED) { s.vx = s.vx / sp * MAX_SPEED; s.vy = s.vy / sp * MAX_SPEED; }
+
+        // Движение
+        s.x += s.vx * dt;
+        s.y += s.vy * dt;
+        s.ang += s.rotSpeed * dt;
+
+        // Отражение от стен (центр ограничен [SIZE/2 .. W-SIZE/2])
+        const h = IMG_SIZE / 2;
+        if (s.x < h) { s.x = h; s.vx = Math.abs(s.vx) * BOUNCE; }
+        if (s.x > W - h) { s.x = W - h; s.vx = -Math.abs(s.vx) * BOUNCE; }
+        if (s.y < h) { s.y = h; s.vy = Math.abs(s.vy) * BOUNCE; }
+        if (s.y > H - h) { s.y = H - h; s.vy = -Math.abs(s.vy) * BOUNCE; }
+
+        // DOM-обновление: left/top = левый верхний угол, rotate по центру
         const el = floatingRefs.current[i];
         if (el) {
-          el.style.left = `${state.x}%`;
-          el.style.top = `${state.y}%`;
-          el.style.transform = `rotate(${state.rotation}deg)`;
+          el.style.left = `${s.x - h}px`;
+          el.style.top = `${s.y - h}px`;
+          el.style.transform = `rotate(${s.ang}rad)`;
         }
       });
 
@@ -126,6 +261,7 @@ export default function Home() {
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
   }, []);
 
+  // ── Контактная форма ────────────────────────────────────────────────────────
   const openContact = () => {
     setShowContact(true);
     requestAnimationFrame(() => requestAnimationFrame(() => setContactVisible(true)));
@@ -223,13 +359,11 @@ export default function Home() {
       scrollRef.current = Math.max(0, Math.min(scrollRef.current + e.deltaY, TOTAL_SCROLL));
       applyAnimations(scrollRef.current);
     };
-
     const handleTouchStart = (e: TouchEvent) => {
       if (showContact) return;
       touchStartRef.current = e.touches[0].clientY;
       if (videoRef.current?.paused) videoRef.current.play().catch(() => { });
     };
-
     const handleTouchMove = (e: TouchEvent) => {
       if (showContact) return;
       e.preventDefault();
@@ -238,14 +372,11 @@ export default function Home() {
       scrollRef.current = Math.max(0, Math.min(scrollRef.current + delta * 2.5, TOTAL_SCROLL));
       applyAnimations(scrollRef.current);
     };
-
     const el = mainRef.current;
     if (!el) return;
-
     window.addEventListener("wheel", handleWheel, { passive: false });
     el.addEventListener("touchstart", handleTouchStart, { passive: true });
     el.addEventListener("touchmove", handleTouchMove, { passive: false });
-
     return () => {
       window.removeEventListener("wheel", handleWheel);
       el.removeEventListener("touchstart", handleTouchStart);
@@ -290,7 +421,6 @@ export default function Home() {
   const labelStyle: React.CSSProperties = { fontSize: "9px", color: "#000" };
 
   const [tileSize, setTileSize] = useState(140);
-
   useEffect(() => {
     const update = () => setTileSize(calcTileSize());
     update();
@@ -325,24 +455,25 @@ export default function Home() {
         .card-input{font-weight:900!important;letter-spacing:-0.02em}
         .card-btn{font-weight:900!important;letter-spacing:0.15em}
         @keyframes floatIn {
-          from { opacity: 0; transform: scale(0.7) rotate(var(--rot)); }
-          to   { opacity: 1; transform: scale(1)   rotate(var(--rot)); }
+          from { opacity:0; transform:scale(0.6) rotate(var(--rot)); }
+          to   { opacity:1; transform:scale(1)   rotate(var(--rot)); }
         }
         .floating-img {
           position: absolute;
-          border-radius: 12px;
+          width: ${IMG_SIZE}px;
+          height: ${IMG_SIZE}px;
+          border-radius: 10px;
           overflow: hidden;
           pointer-events: none;
           will-change: transform, left, top;
-          animation: floatIn 0.5s ease forwards;
+          transform-origin: center center;
+          animation: floatIn 0.4s ease forwards;
           animation-delay: var(--delay);
           opacity: 0;
+          box-shadow: 0 4px 16px rgba(0,0,0,0.18);
         }
         .floating-img img {
-          width: 100%;
-          height: 100%;
-          object-fit: cover;
-          display: block;
+          width: 100%; height: 100%; object-fit: cover; display: block;
         }
         @media(max-width:768px){
           .desktop-br{display:none}.mobile-br{display:block}
@@ -392,22 +523,18 @@ export default function Home() {
 
       <main ref={mainRef} style={{ position: "fixed", width: "100vw", height: "100vh", top: 0, left: 0, overflow: "hidden", touchAction: "none" }}>
 
-        {/* СЕКЦИЯ 1: РОЗОВЫЙ ФОН */}
+        {/* РОЗОВЫЙ ФОН */}
         <div style={{ position: "absolute", inset: 0, background: "#F4A6C0", zIndex: 2, opacity: pinkOpacity, pointerEvents: "none" }}>
-          {/* ПЛАВАЮЩИЕ КАРТИНКИ поверх розовой секции */}
-          {FLOATING_IMAGES_CONFIG.map((cfg, i) => (
+          {FLOATING_INIT.map((cfg, i) => (
             <div
               key={i}
               ref={(el) => { floatingRefs.current[i] = el; }}
               className="floating-img"
               style={{
-                width: `${cfg.size}px`,
-                height: `${cfg.size}px`,
                 left: `${cfg.x}%`,
                 top: `${cfg.y}%`,
                 ["--delay" as any]: `${cfg.delay}ms`,
                 ["--rot" as any]: `${cfg.rotation}deg`,
-                boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
               }}
             >
               <img src={cfg.src} alt="" />
@@ -420,14 +547,11 @@ export default function Home() {
           style={{ position: "absolute", top: 0, left: 0, width: "100vw", height: "100vh", objectFit: "cover", zIndex: 0, opacity: 0 }} />
         <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1, opacity: videoOpacity, pointerEvents: "none" }} />
 
-        {/* СЕКЦИЯ 2: 5 РЯДОВ */}
+        {/* 5 РЯДОВ */}
         <div style={{ position: "absolute", inset: 0, zIndex: 3, overflow: "hidden", pointerEvents: "none", display: "flex", flexDirection: "column", justifyContent: "center", gap: `${GAP}px`, padding: `${GAP}px 0` }}>
           {ROWS.map((images, rowIndex) => (
-            <div
-              key={rowIndex}
-              ref={(el) => { trackRefs.current[rowIndex] = el; }}
-              style={{ display: "flex", gap: `${GAP}px`, paddingLeft: `${GAP}px`, width: "max-content", willChange: "transform", opacity: 0, flexShrink: 0 }}
-            >
+            <div key={rowIndex} ref={(el) => { trackRefs.current[rowIndex] = el; }}
+              style={{ display: "flex", gap: `${GAP}px`, paddingLeft: `${GAP}px`, width: "max-content", willChange: "transform", opacity: 0, flexShrink: 0 }}>
               {images.map((img, i) => (
                 <div key={i} style={{ width: `${tileSize}px`, height: `${tileSize}px`, borderRadius: "12px", flexShrink: 0, overflow: "hidden" }}>
                   <img src={img} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
@@ -437,7 +561,7 @@ export default function Home() {
           ))}
         </div>
 
-        {/* СЕКЦИЯ 3: ТЕКСТ */}
+        {/* ТЕКСТ */}
         <div ref={textRef} style={{ position: "absolute", inset: 0, zIndex: 10, display: "flex", alignItems: "center", padding: "0 clamp(20px,6vw,80px)", opacity: 0, transform: "translate3d(0,40px,0)", willChange: "transform,opacity", pointerEvents: "none" }}>
           <div style={{ display: "flex", flexDirection: "column", width: "100%" }}>
             <div className="text-line" style={{ fontSize: "clamp(32px,6.5vw,88px)" }}>MY NAME <span className="mobile-br" />IS ARTEM</div>
