@@ -368,7 +368,9 @@ export default function Home() {
   };
 
   const mainRef = useRef<HTMLElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
 
+  // Скролл: wheel + touch-свайп + тап
   useEffect(() => {
     const handleWheel = (e: WheelEvent) => {
       if (showContact) return;
@@ -377,33 +379,36 @@ export default function Home() {
       applyAnimations(scrollRef.current);
     };
 
-    // Отслеживаем, было ли движение между touchstart и touchend
+    let touchStartY = 0;
+    let touchStartX = 0;
     let touchMoved = false;
+
     const handleTouchStart = (e: TouchEvent) => {
       if (showContact) return;
+      touchStartY = e.touches[0].clientY;
+      touchStartX = e.touches[0].clientX;
       touchMoved = false;
-      touchStartRef.current = e.touches[0].clientY;
       if (videoRef.current?.paused) videoRef.current.play().catch(() => { });
     };
+
     const handleTouchMove = (e: TouchEvent) => {
       if (showContact) return;
-      touchMoved = true;
       e.preventDefault();
-      const delta = touchStartRef.current - e.touches[0].clientY;
-      touchStartRef.current = e.touches[0].clientY;
-      scrollRef.current = Math.max(0, Math.min(scrollRef.current + delta * 2.5, TOTAL_SCROLL));
+      const dy = touchStartY - e.touches[0].clientY;
+      const dx = Math.abs(touchStartX - e.touches[0].clientX);
+      if (Math.abs(dy) > 5 || dx > 5) touchMoved = true;
+      touchStartY = e.touches[0].clientY;
+      scrollRef.current = Math.max(0, Math.min(scrollRef.current + dy * 2.5, TOTAL_SCROLL));
       applyAnimations(scrollRef.current);
     };
-    // Tap (без движения) — взрыв
+
+    // Тап без свайпа → взрыв
     const handleTouchEnd = (e: TouchEvent) => {
-      if (showContact || touchMoved) return;
-      const t = e.changedTouches[0];
-      explodeFromPoint(t.clientX, t.clientY);
-    };
-    // Click (мышь) — взрыв только на розовой секции
-    const handleClick = (e: MouseEvent) => {
       if (showContact) return;
-      explodeFromPoint(e.clientX, e.clientY);
+      if (!touchMoved) {
+        const t = e.changedTouches[0];
+        explodeFromPoint(t.clientX, t.clientY);
+      }
     };
 
     const el = mainRef.current;
@@ -412,14 +417,24 @@ export default function Home() {
     el.addEventListener("touchstart", handleTouchStart, { passive: true });
     el.addEventListener("touchmove", handleTouchMove, { passive: false });
     el.addEventListener("touchend", handleTouchEnd, { passive: true });
-    el.addEventListener("click", handleClick);
     return () => {
       window.removeEventListener("wheel", handleWheel);
       el.removeEventListener("touchstart", handleTouchStart);
       el.removeEventListener("touchmove", handleTouchMove);
       el.removeEventListener("touchend", handleTouchEnd);
-      el.removeEventListener("click", handleClick);
     };
+  }, [showContact]);
+
+  // Ховер мышью → взрыв (оверлей поверх розовой секции, только на десктопе)
+  useEffect(() => {
+    const overlay = overlayRef.current;
+    if (!overlay) return;
+    const handleMouseMove = (e: MouseEvent) => {
+      if (showContact) return;
+      explodeFromPoint(e.clientX, e.clientY);
+    };
+    overlay.addEventListener("mousemove", handleMouseMove);
+    return () => overlay.removeEventListener("mousemove", handleMouseMove);
   }, [showContact]);
 
   useEffect(() => {
@@ -578,6 +593,15 @@ export default function Home() {
               <img src={cfg.src} alt="" />
             </div>
           ))}
+          {/* Прозрачный оверлей для mousemove — поверх картинок, только на десктопе */}
+          <div
+            ref={overlayRef}
+            style={{
+              position: "absolute", inset: 0, zIndex: 10,
+              pointerEvents: "auto",
+              cursor: "none",
+            }}
+          />
         </div>
 
         {/* ВИДЕО */}
