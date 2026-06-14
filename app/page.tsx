@@ -127,6 +127,7 @@ export default function Home() {
   const [videoOpacity, setVideoOpacity] = useState(0);
 
   const floatingRefs = useRef<(HTMLDivElement | null)[]>(Array(IMG_COUNT).fill(null));
+  const cursorRef = useRef<HTMLDivElement>(null);
 
   // Физика хранится в ref — нет ре-рендеров
   const physState = useRef(
@@ -431,10 +432,22 @@ export default function Home() {
     if (!overlay) return;
     const handleMouseMove = (e: MouseEvent) => {
       if (showContact) return;
+      // Двигаем кастомный курсор
+      if (cursorRef.current) {
+        cursorRef.current.style.transform = `translate(${e.clientX}px, ${e.clientY}px)`;
+        cursorRef.current.style.opacity = "1";
+      }
       explodeFromPoint(e.clientX, e.clientY);
     };
+    const handleMouseLeave = () => {
+      if (cursorRef.current) cursorRef.current.style.opacity = "0";
+    };
     overlay.addEventListener("mousemove", handleMouseMove);
-    return () => overlay.removeEventListener("mousemove", handleMouseMove);
+    overlay.addEventListener("mouseleave", handleMouseLeave);
+    return () => {
+      overlay.removeEventListener("mousemove", handleMouseMove);
+      overlay.removeEventListener("mouseleave", handleMouseLeave);
+    };
   }, [showContact]);
 
   useEffect(() => {
@@ -575,6 +588,31 @@ export default function Home() {
       )}
 
       <main ref={mainRef} style={{ position: "fixed", width: "100vw", height: "100vh", top: 0, left: 0, overflow: "hidden", touchAction: "none" }}>
+
+        {/* ГИГАНТСКИЙ КАСТОМНЫЙ КУРСОР */}
+        <div
+          ref={cursorRef}
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: "120px",
+            height: "120px",
+            pointerEvents: "none",
+            zIndex: 9999,
+            opacity: 0,
+            willChange: "transform",
+            transform: "translate(-9999px, -9999px)",
+            marginLeft: "-60px",
+            marginTop: "-60px",
+          }}
+        >
+          <img
+            src="/cursor.png"
+            alt=""
+            style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
+          />
+        </div>
 
         {/* РОЗОВЫЙ ФОН */}
         <div style={{ position: "absolute", inset: 0, background: "#F4A6C0", zIndex: 2, opacity: pinkOpacity, pointerEvents: "none" }}>
