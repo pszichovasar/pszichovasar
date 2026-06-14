@@ -14,22 +14,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "MY NAME IS ARTEM",
-  description: "I'M A DESIGNER",
-  openGraph: {
-    title: "MY NAME IS ARTEM",
-    description: "I'M A DESIGNER",
-    url: 'https://pszichovasar.com/',
-    siteName: 'PSZICHOVASAR',
-    images: [
-      {
-        url: '/og-image.jpg', // Положите картинку в папку public
-        width: 1000,
-        height: 1000,
-      },
-    ],
-    locale: 'https://pszichovasar.com/',
-    type: 'website',
-  },
+  description: "PSZICHOVASAR",
 };
 
 export default function RootLayout({
