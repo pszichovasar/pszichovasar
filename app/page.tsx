@@ -141,6 +141,23 @@ export default function Home() {
   const rafRef = useRef<number | null>(null);
   const lastTimeRef = useRef<number>(0);
 
+  // Взрыв: вызывается из обработчика click/touchend
+  const explodeFromPoint = (px: number, py: number) => {
+    const BLAST_FORCE = 55000; // чем больше — тем сильнее разлёт
+    const MIN_DIST = 60;    // минимальное расстояние (предотвращает деление на 0)
+    physState.current.forEach(s => {
+      if (!s.initialized) return;
+      const dx = s.x - px;
+      const dy = s.y - py;
+      const dist = Math.max(Math.sqrt(dx * dx + dy * dy), MIN_DIST);
+      const force = BLAST_FORCE / (dist * dist);
+      s.vx += (dx / dist) * force;
+      s.vy += (dy / dist) * force;
+      // Подбрасываем скорость вращения при взрыве
+      s.rotSpeed += ((Math.random() - 0.5) * 8);
+    });
+  };
+
   const GAP = 20;
   const ALL_IMAGES = [
     "/1.jpg", "/2.jpg", "/3.jpg", "/4.jpg", "/5.jpg", "/6.jpg", "/7.jpg",
@@ -163,8 +180,8 @@ export default function Home() {
   // ── Главный анимационный цикл ──────────────────────────────────────────────
   useEffect(() => {
     const DAMPING = 0.992;
-    const MAX_SPEED = 280; // px/s
-    const BOUNCE = 0.75;   // коэффициент отскока от стен и друг друга
+    const MAX_SPEED = 1400; // px/s — выше, чтобы взрыв был виден
+    const BOUNCE = 0.75;    // коэффициент отскока от стен и друг друга
 
     const animate = (time: number) => {
       const dt = lastTimeRef.current
@@ -359,28 +376,49 @@ export default function Home() {
       scrollRef.current = Math.max(0, Math.min(scrollRef.current + e.deltaY, TOTAL_SCROLL));
       applyAnimations(scrollRef.current);
     };
+
+    // Отслеживаем, было ли движение между touchstart и touchend
+    let touchMoved = false;
     const handleTouchStart = (e: TouchEvent) => {
       if (showContact) return;
+      touchMoved = false;
       touchStartRef.current = e.touches[0].clientY;
       if (videoRef.current?.paused) videoRef.current.play().catch(() => { });
     };
     const handleTouchMove = (e: TouchEvent) => {
       if (showContact) return;
+      touchMoved = true;
       e.preventDefault();
       const delta = touchStartRef.current - e.touches[0].clientY;
       touchStartRef.current = e.touches[0].clientY;
       scrollRef.current = Math.max(0, Math.min(scrollRef.current + delta * 2.5, TOTAL_SCROLL));
       applyAnimations(scrollRef.current);
     };
+    // Tap (без движения) — взрыв
+    const handleTouchEnd = (e: TouchEvent) => {
+      if (showContact || touchMoved) return;
+      const t = e.changedTouches[0];
+      explodeFromPoint(t.clientX, t.clientY);
+    };
+    // Click (мышь) — взрыв только на розовой секции
+    const handleClick = (e: MouseEvent) => {
+      if (showContact) return;
+      explodeFromPoint(e.clientX, e.clientY);
+    };
+
     const el = mainRef.current;
     if (!el) return;
     window.addEventListener("wheel", handleWheel, { passive: false });
     el.addEventListener("touchstart", handleTouchStart, { passive: true });
     el.addEventListener("touchmove", handleTouchMove, { passive: false });
+    el.addEventListener("touchend", handleTouchEnd, { passive: true });
+    el.addEventListener("click", handleClick);
     return () => {
       window.removeEventListener("wheel", handleWheel);
       el.removeEventListener("touchstart", handleTouchStart);
       el.removeEventListener("touchmove", handleTouchMove);
+      el.removeEventListener("touchend", handleTouchEnd);
+      el.removeEventListener("click", handleClick);
     };
   }, [showContact]);
 
