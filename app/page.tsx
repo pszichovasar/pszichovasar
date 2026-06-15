@@ -180,49 +180,55 @@ export default function Home() {
 
     // Наклон → гравитация
     const handleOrientation = (e: DeviceOrientationEvent) => {
-      // gamma: наклон влево/вправо (−90..90), beta: вперёд/назад (−180..180)
-      const gamma = e.gamma ?? 0; // ось X (лево/право)
-      const beta = e.beta ?? 0; // ось Y (вперёд/назад), обрезаем до ±90
+      const gamma = e.gamma ?? 0;
+      const beta = e.beta ?? 0;
       const clampedBeta = Math.max(-90, Math.min(90, beta));
-
-      // Переводим градусы наклона в ускорение (px/s²)
-      // При 45° наклона — ~400 px/s²
-      const TILT_SCALE = 12;
+      const TILT_SCALE = 14;
       gyroRef.current.gx = gamma * TILT_SCALE;
       gyroRef.current.gy = clampedBeta * TILT_SCALE;
     };
 
     // Тряска → взрыв из центра
     const handleMotion = (e: DeviceMotionEvent) => {
-      const acc = e.accelerationIncludingGravity;
-      if (!acc) return;
+      // Используем acceleration (без гравитации) если доступно, иначе с гравитацией
+      const raw = e.acceleration ?? e.accelerationIncludingGravity;
+      if (!raw) return;
       const total = Math.sqrt(
-        (acc.x ?? 0) ** 2 + (acc.y ?? 0) ** 2 + (acc.z ?? 0) ** 2
+        (raw.x ?? 0) ** 2 + (raw.y ?? 0) ** 2 + (raw.z ?? 0) ** 2
       );
       const shake = shakeRef.current;
       const delta = Math.abs(total - shake.lastAcc);
       shake.lastAcc = total;
-
       const now = Date.now();
-      // Порог тряски: резкое изменение > 25 м/с², не чаще раза в 800мс
-      if (delta > 25 && now - shake.lastShakeTime > 800) {
+      // Порог: резкое изменение > 20 м/с², не чаще раза в 700мс
+      if (delta > 20 && now - shake.lastShakeTime > 700) {
         shake.lastShakeTime = now;
-        // Взрыв из центра экрана
         explodeFromPoint(window.innerWidth / 2, window.innerHeight / 2);
       }
     };
 
-    // iOS 13+ требует разрешения для DeviceOrientationEvent
-    const requestPermission = async () => {
-      const DOE = DeviceOrientationEvent as any;
-      if (typeof DOE.requestPermission === "function") {
-        try { await DOE.requestPermission(); } catch (_) { /* пользователь отказал */ }
-      }
+    const addListeners = () => {
       window.addEventListener("deviceorientation", handleOrientation, true);
       window.addEventListener("devicemotion", handleMotion, true);
     };
 
-    requestPermission();
+    const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const DOE = DeviceOrientationEvent as any;
+
+    if (isIOS && typeof DOE.requestPermission === "function") {
+      // iOS 13+: разрешение нужно запрашивать строго в ответ на жест пользователя
+      const handleFirstTouch = async () => {
+        try {
+          const res = await DOE.requestPermission();
+          if (res === "granted") addListeners();
+        } catch (_) { }
+        window.removeEventListener("touchstart", handleFirstTouch);
+      };
+      window.addEventListener("touchstart", handleFirstTouch, { once: true });
+    } else {
+      // Android и старый iOS — просто вешаем слушатели
+      addListeners();
+    }
 
     return () => {
       window.removeEventListener("deviceorientation", handleOrientation, true);
@@ -627,6 +633,10 @@ export default function Home() {
           overflow: hidden; background: black; position: fixed;
         }
         * { font-family: 'Arial Black', Arial, sans-serif !important; text-transform: uppercase !important; box-sizing: border-box; }
+        /* Скрываем системный курсор только на десктопе */
+        @media (hover: hover) and (pointer: fine) {
+          *, *:hover { cursor: none !important; }
+        }
         @keyframes shakeY {
           0%{transform:translateY(0)}15%{transform:translateY(-8px)}30%{transform:translateY(8px)}
           45%{transform:translateY(-6px)}60%{transform:translateY(6px)}75%{transform:translateY(-3px)}
