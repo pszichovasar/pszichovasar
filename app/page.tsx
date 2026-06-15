@@ -295,14 +295,12 @@ export default function Home() {
 
           const { overlap, nx, ny } = result;
 
-          // Мягкая positional correction — сдвигаем только часть перекрытия за кадр
           const correction = overlap * CORRECTION_BIAS;
           a.x += nx * correction;
           a.y += ny * correction;
           b.x -= nx * correction;
           b.y -= ny * correction;
 
-          // Импульс только если объекты движутся навстречу
           const dvx = a.vx - b.vx;
           const dvy = a.vy - b.vy;
           const relVn = dvx * nx + dvy * ny;
@@ -313,6 +311,78 @@ export default function Home() {
             a.vy += impulse * ny;
             b.vx -= impulse * nx;
             b.vy -= impulse * ny;
+          }
+        }
+      }
+
+      // ── Коллизия картинок с текстом "I DO DESIGN" ──────────────────────
+      const textEl = iDoDesignRef.current;
+      if (textEl) {
+        const r = textEl.getBoundingClientRect();
+        // Пропускаем если текст за экраном (не виден)
+        if (r.width > 0 && r.bottom > 0 && r.top < H) {
+          // Центр текстового блока
+          const tx = r.left + r.width / 2;
+          const ty = r.top + r.height / 2;
+          const tw = r.width;
+          const th = r.height;
+
+          for (let i = 0; i < IMG_COUNT; i++) {
+            const s = states[i];
+            if (!s.initialized) continue;
+
+            // Получаем углы OBB картинки
+            const corners = getCorners(s.x, s.y, s.ang, S);
+
+            // Оси для SAT: 2 от картинки + 2 от AABB текста (X и Y)
+            const axes: { x: number; y: number }[] = [
+              { x: Math.cos(s.ang), y: Math.sin(s.ang) },
+              { x: -Math.sin(s.ang), y: Math.cos(s.ang) },
+              { x: 1, y: 0 }, // AABB ось X
+              { x: 0, y: 1 }, // AABB ось Y
+            ];
+
+            // Углы AABB текста
+            const textCorners = [
+              { x: tx - tw / 2, y: ty - th / 2 },
+              { x: tx + tw / 2, y: ty - th / 2 },
+              { x: tx + tw / 2, y: ty + th / 2 },
+              { x: tx - tw / 2, y: ty + th / 2 },
+            ];
+
+            let minOverlap = Infinity;
+            let minAxis = axes[0];
+            let separated = false;
+
+            for (const axis of axes) {
+              const [a0, a1] = project(corners, axis);
+              const [b0, b1] = project(textCorners, axis);
+              const ov = Math.min(a1, b1) - Math.max(a0, b0);
+              if (ov <= 0) { separated = true; break; }
+              if (ov < minOverlap) { minOverlap = ov; minAxis = axis; }
+            }
+
+            if (separated) continue;
+
+            // Нормаль от текста к картинке
+            const dx = s.x - tx;
+            const dy = s.y - ty;
+            const dot = dx * minAxis.x + dy * minAxis.y;
+            const sign = dot < 0 ? -1 : 1;
+            const nx = minAxis.x * sign;
+            const ny = minAxis.y * sign;
+
+            // Positional correction (только картинку — текст статичен)
+            s.x += nx * minOverlap * CORRECTION_BIAS;
+            s.y += ny * minOverlap * CORRECTION_BIAS;
+
+            // Импульс: отражаем скорость картинки от текста
+            const relVn = s.vx * nx + s.vy * ny;
+            if (relVn < 0) {
+              s.vx -= (1 + BOUNCE) * relVn * nx;
+              s.vy -= (1 + BOUNCE) * relVn * ny;
+              s.rotSpeed += (Math.random() - 0.5) * 3;
+            }
           }
         }
       }
