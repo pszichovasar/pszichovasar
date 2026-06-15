@@ -663,34 +663,40 @@ export default function Home() {
     };
   }, [showContact, selectedImg]);
 
-  // Ховер мышью → взрыв (оверлей поверх розовой секции, только на десктопе)
+  // Курсор на десктопе — следует за мышью по всему окну, без transition
   useEffect(() => {
-    const overlay = overlayRef.current;
-    if (!overlay) return;
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    if (isMobile) return;
+
+    // Показываем курсор сразу
+    if (cursorRef.current) {
+      cursorRef.current.style.opacity = "1";
+      cursorRef.current.style.transition = "none";
+    }
+
     const handleMouseMove = (e: MouseEvent) => {
-      if (showContact || selectedImg) return;
       if (cursorRef.current) {
-        cursorRef.current.style.transition = "opacity 0.3s ease";
+        cursorRef.current.style.transition = "none";
         cursorRef.current.style.transform = `translate(${e.clientX}px, ${e.clientY}px)`;
-        cursorRef.current.style.opacity = "1";
       }
+      if (showContact || selectedImg) return;
       explodeFromPoint(e.clientX, e.clientY);
     };
-    const handleMouseLeave = () => {
-      if (cursorRef.current) cursorRef.current.style.opacity = "0";
-    };
+
     const handleClick = (e: MouseEvent) => {
       if (showContact || selectedImg) return;
       const hit = hitTestFloating(e.clientX, e.clientY);
       if (hit) openImg(hit);
     };
-    overlay.addEventListener("mousemove", handleMouseMove);
-    overlay.addEventListener("mouseleave", handleMouseLeave);
-    overlay.addEventListener("click", handleClick);
+
+    window.addEventListener("mousemove", handleMouseMove);
+
+    const overlay = overlayRef.current;
+    if (overlay) overlay.addEventListener("click", handleClick);
+
     return () => {
-      overlay.removeEventListener("mousemove", handleMouseMove);
-      overlay.removeEventListener("mouseleave", handleMouseLeave);
-      overlay.removeEventListener("click", handleClick);
+      window.removeEventListener("mousemove", handleMouseMove);
+      if (overlay) overlay.removeEventListener("click", handleClick);
     };
   }, [showContact, selectedImg]);
 
@@ -870,13 +876,13 @@ export default function Home() {
         <div
           ref={cursorRef}
           style={{
-            position: "absolute",
+            position: "fixed",
             top: 0,
             left: 0,
             width: "120px",
             height: "120px",
             pointerEvents: "none",
-            zIndex: 9999,
+            zIndex: 99999,
             opacity: 0,
             willChange: "transform",
             transform: "translate(-9999px, -9999px)",
