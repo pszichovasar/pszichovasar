@@ -627,22 +627,24 @@ export default function Home() {
       applyAnimations(scrollRef.current, dy * 2.5);
     };
 
-    // Тап без свайпа → проверяем картинку или взрыв
+    // Тап без свайпа → курсор перемещается всегда, затем проверяем картинку или взрыв
     const handleTouchEnd = (e: TouchEvent) => {
       if (showContact || selectedImg) return;
       if (!touchMoved) {
         const t = e.changedTouches[0];
+
+        // Курсор плавно летит к точке тапа — всегда, на всём сайте
+        if (cursorRef.current) {
+          cursorRef.current.style.transition = "transform 0.9s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease";
+          cursorRef.current.style.transform = `translate(${t.clientX}px, ${t.clientY}px)`;
+          cursorRef.current.style.opacity = "1";
+        }
+
         const hit = hitTestFloating(t.clientX, t.clientY);
         if (hit) {
           openImg(hit);
         } else {
           explodeFromPoint(t.clientX, t.clientY);
-          // Плавно перемещаем курсор к точке тапа
-          if (cursorRef.current) {
-            cursorRef.current.style.transition = "transform 0.9s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease";
-            cursorRef.current.style.transform = `translate(${t.clientX}px, ${t.clientY}px)`;
-            cursorRef.current.style.opacity = "1";
-          }
         }
       }
     };
@@ -659,7 +661,7 @@ export default function Home() {
       el.removeEventListener("touchmove", handleTouchMove);
       el.removeEventListener("touchend", handleTouchEnd);
     };
-  }, [showContact]);
+  }, [showContact, selectedImg]);
 
   // Ховер мышью → взрыв (оверлей поверх розовой секции, только на десктопе)
   useEffect(() => {
