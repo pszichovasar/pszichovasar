@@ -124,6 +124,8 @@ export default function Home() {
   const [contactVisible, setContactVisible] = useState(false);
   const [form, setForm] = useState({ name: "", email: "", message: "", service: "ILLUSTRATION" });
   const [isSending, setIsSending] = useState(false);
+  const [selectedImg, setSelectedImg] = useState<string | null>(null);
+  const [imgVisible, setImgVisible] = useState(false);
 
   const scrollRef = useRef(0);
   const touchStartRef = useRef(0);
@@ -349,135 +351,171 @@ export default function Home() {
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
   }, []);
 
-  // ── Контактная форма ────────────────────────────────────────────────────────
-  const openContact = () => {
-    setShowContact(true);
-    requestAnimationFrame(() => requestAnimationFrame(() => setContactVisible(true)));
+  // ── Просмотр плавающей картинки ─────────────────────────────────────────────
+  const openImg = (src: string) => {
+    setSelectedImg(src);
+    requestAnimationFrame(() => requestAnimationFrame(() => setImgVisible(true)));
   };
-  const closeContact = () => {
-    setContactVisible(false);
-    setTimeout(() => setShowContact(false), 500);
-  };
-
-  const handleMessageChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setForm({ ...form, message: e.target.value.toUpperCase() });
-    const ta = textareaRef.current;
-    if (ta) { ta.style.height = "auto"; ta.style.height = ta.scrollHeight + "px"; }
+  const closeImg = () => {
+    setImgVisible(false);
+    setTimeout(() => setSelectedImg(null), 400);
   };
 
-  const handleSubmit = async () => {
-    if (!form.name || !form.email || !form.message) { alert("PLEASE FILL IN ALL FIELDS"); return; }
-    setIsSending(true);
-    try {
-      const response = await fetch('/api/send', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form),
-      });
-      const data = await response.json();
-      if (response.ok && data.success) {
-        alert("MESSAGE SENT SUCCESSFULLY!");
-        setForm({ name: "", email: "", message: "", service: "ILLUSTRATION" });
-        closeContact();
-      } else { alert(`ERROR: ${data.error || 'UNKNOWN_ERROR'}`); }
-    } catch (error: any) { alert(`FETCH_FAILED: ${error?.message || 'SERVER_UNREACHABLE'}`); }
-    finally { setIsSending(false); }
-  };
-
-  useEffect(() => {
-    const isiPhone = /iPhone|iPad|iPod/i.test(navigator.userAgent);
-    if (isiPhone) setVideoSrc("/iome.mp4");
-  }, []);
-
-  useEffect(() => {
-    const video = videoRef.current;
-    if (video) {
-      video.load();
-      const handleCanPlay = () => video.play().catch(() => { });
-      video.addEventListener('canplay', handleCanPlay);
-      return () => video.removeEventListener('canplay', handleCanPlay);
-    }
-  }, [videoSrc]);
-
-  const calcTileSize = () => Math.floor((window.innerHeight - GAP * 6) / 5);
-  const getRowWidth = () => (calcTileSize() + GAP) * ALL_IMAGES.length + GAP;
-
-  const applyAnimations = (scrollY: number) => {
-    const unit = scrollY / SCROLL_PER_UNIT;
-    setPinkOpacity(Math.max(0, 1 - Math.max(0, (unit - 0.8) / 0.4)));
-
-    const vw = window.innerWidth;
-    const rowWidth = getRowWidth();
-
-    trackRefs.current.forEach((track, i) => {
-      if (!track) return;
-      const rev = REVERSED[i];
-      const offRight = vw;
-      const offLeft = -rowWidth;
-      const startX = rev ? offLeft : offRight;
-      const endX = rev ? offRight : offLeft;
-
-      if (unit < 1) {
-        track.style.opacity = "0";
-        track.style.transform = `translate3d(${startX}px, 0, 0)`;
-      } else if (unit <= 2) {
-        const x = startX + (endX - startX) * (unit - 1);
-        track.style.opacity = "1";
-        track.style.transform = `translate3d(${x}px, 0, 0)`;
-      } else {
-        track.style.opacity = "0";
-        track.style.transform = `translate3d(${endX}px, 0, 0)`;
+  /**
+   * Проверяет, попал ли клик (cx, cy) в какую-либо плавающую картинку.
+   * Использует физические координаты и текущий угол из physState.
+   */
+  const hitTestFloating = (cx: number, cy: number): string | null => {
+    const S = getImgSize();
+    const h = S / 2;
+    const states = physState.current;
+    for (let i = IMG_COUNT - 1; i >= 0; i--) {
+      const s = states[i];
+      if (!s.initialized) continue;
+      // Переводим точку клика в локальные координаты картинки (отменяем поворот)
+      const dx = cx - s.x;
+      const dy = cy - s.y;
+      const cos = Math.cos(-s.ang);
+      const sin = Math.sin(-s.ang);
+      const lx = dx * cos - dy * sin;
+      const ly = dx * sin + dy * cos;
+      if (Math.abs(lx) <= h && Math.abs(ly) <= h) {
+        return FLOATING_INIT[i].src;
       }
-    });
-
-    const tPhase = Math.max(0, Math.min((unit - 2.2) / 0.5, 1));
-    setVideoOpacity(tPhase);
-    if (videoRef.current) videoRef.current.style.opacity = tPhase.toString();
-    if (textRef.current) {
-      textRef.current.style.opacity = tPhase.toString();
-      textRef.current.style.transform = `translate3d(0, ${(1 - tPhase) * 40}px, 0)`;
-      textRef.current.style.pointerEvents = tPhase > 0 ? "auto" : "none";
     }
+    return null;
+  };
+  setShowContact(true);
+  requestAnimationFrame(() => requestAnimationFrame(() => setContactVisible(true)));
+};
+const closeContact = () => {
+  setContactVisible(false);
+  setTimeout(() => setShowContact(false), 500);
+};
+
+const handleMessageChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+  setForm({ ...form, message: e.target.value.toUpperCase() });
+  const ta = textareaRef.current;
+  if (ta) { ta.style.height = "auto"; ta.style.height = ta.scrollHeight + "px"; }
+};
+
+const handleSubmit = async () => {
+  if (!form.name || !form.email || !form.message) { alert("PLEASE FILL IN ALL FIELDS"); return; }
+  setIsSending(true);
+  try {
+    const response = await fetch('/api/send', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form),
+    });
+    const data = await response.json();
+    if (response.ok && data.success) {
+      alert("MESSAGE SENT SUCCESSFULLY!");
+      setForm({ name: "", email: "", message: "", service: "ILLUSTRATION" });
+      closeContact();
+    } else { alert(`ERROR: ${data.error || 'UNKNOWN_ERROR'}`); }
+  } catch (error: any) { alert(`FETCH_FAILED: ${error?.message || 'SERVER_UNREACHABLE'}`); }
+  finally { setIsSending(false); }
+};
+
+useEffect(() => {
+  const isiPhone = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+  if (isiPhone) setVideoSrc("/iome.mp4");
+}, []);
+
+useEffect(() => {
+  const video = videoRef.current;
+  if (video) {
+    video.load();
+    const handleCanPlay = () => video.play().catch(() => { });
+    video.addEventListener('canplay', handleCanPlay);
+    return () => video.removeEventListener('canplay', handleCanPlay);
+  }
+}, [videoSrc]);
+
+const calcTileSize = () => Math.floor((window.innerHeight - GAP * 6) / 5);
+const getRowWidth = () => (calcTileSize() + GAP) * ALL_IMAGES.length + GAP;
+
+const applyAnimations = (scrollY: number) => {
+  const unit = scrollY / SCROLL_PER_UNIT;
+  setPinkOpacity(Math.max(0, 1 - Math.max(0, (unit - 0.8) / 0.4)));
+
+  const vw = window.innerWidth;
+  const rowWidth = getRowWidth();
+
+  trackRefs.current.forEach((track, i) => {
+    if (!track) return;
+    const rev = REVERSED[i];
+    const offRight = vw;
+    const offLeft = -rowWidth;
+    const startX = rev ? offLeft : offRight;
+    const endX = rev ? offRight : offLeft;
+
+    if (unit < 1) {
+      track.style.opacity = "0";
+      track.style.transform = `translate3d(${startX}px, 0, 0)`;
+    } else if (unit <= 2) {
+      const x = startX + (endX - startX) * (unit - 1);
+      track.style.opacity = "1";
+      track.style.transform = `translate3d(${x}px, 0, 0)`;
+    } else {
+      track.style.opacity = "0";
+      track.style.transform = `translate3d(${endX}px, 0, 0)`;
+    }
+  });
+
+  const tPhase = Math.max(0, Math.min((unit - 2.2) / 0.5, 1));
+  setVideoOpacity(tPhase);
+  if (videoRef.current) videoRef.current.style.opacity = tPhase.toString();
+  if (textRef.current) {
+    textRef.current.style.opacity = tPhase.toString();
+    textRef.current.style.transform = `translate3d(0, ${(1 - tPhase) * 40}px, 0)`;
+    textRef.current.style.pointerEvents = tPhase > 0 ? "auto" : "none";
+  }
+};
+
+const mainRef = useRef<HTMLElement>(null);
+const overlayRef = useRef<HTMLDivElement>(null);
+
+// Скролл: wheel + touch-свайп + тап
+useEffect(() => {
+  const handleWheel = (e: WheelEvent) => {
+    if (showContact) return;
+    e.preventDefault();
+    scrollRef.current = Math.max(0, Math.min(scrollRef.current + e.deltaY, TOTAL_SCROLL));
+    applyAnimations(scrollRef.current);
   };
 
-  const mainRef = useRef<HTMLElement>(null);
-  const overlayRef = useRef<HTMLDivElement>(null);
+  let touchStartY = 0;
+  let touchStartX = 0;
+  let touchMoved = false;
 
-  // Скролл: wheel + touch-свайп + тап
-  useEffect(() => {
-    const handleWheel = (e: WheelEvent) => {
-      if (showContact) return;
-      e.preventDefault();
-      scrollRef.current = Math.max(0, Math.min(scrollRef.current + e.deltaY, TOTAL_SCROLL));
-      applyAnimations(scrollRef.current);
-    };
+  const handleTouchStart = (e: TouchEvent) => {
+    if (showContact) return;
+    touchStartY = e.touches[0].clientY;
+    touchStartX = e.touches[0].clientX;
+    touchMoved = false;
+    if (videoRef.current?.paused) videoRef.current.play().catch(() => { });
+  };
 
-    let touchStartY = 0;
-    let touchStartX = 0;
-    let touchMoved = false;
+  const handleTouchMove = (e: TouchEvent) => {
+    if (showContact) return;
+    e.preventDefault();
+    const dy = touchStartY - e.touches[0].clientY;
+    const dx = Math.abs(touchStartX - e.touches[0].clientX);
+    if (Math.abs(dy) > 5 || dx > 5) touchMoved = true;
+    touchStartY = e.touches[0].clientY;
+    scrollRef.current = Math.max(0, Math.min(scrollRef.current + dy * 2.5, TOTAL_SCROLL));
+    applyAnimations(scrollRef.current);
+  };
 
-    const handleTouchStart = (e: TouchEvent) => {
-      if (showContact) return;
-      touchStartY = e.touches[0].clientY;
-      touchStartX = e.touches[0].clientX;
-      touchMoved = false;
-      if (videoRef.current?.paused) videoRef.current.play().catch(() => { });
-    };
-
-    const handleTouchMove = (e: TouchEvent) => {
-      if (showContact) return;
-      e.preventDefault();
-      const dy = touchStartY - e.touches[0].clientY;
-      const dx = Math.abs(touchStartX - e.touches[0].clientX);
-      if (Math.abs(dy) > 5 || dx > 5) touchMoved = true;
-      touchStartY = e.touches[0].clientY;
-      scrollRef.current = Math.max(0, Math.min(scrollRef.current + dy * 2.5, TOTAL_SCROLL));
-      applyAnimations(scrollRef.current);
-    };
-
-    // Тап без свайпа → взрыв + плавно двигаем курсор
-    const handleTouchEnd = (e: TouchEvent) => {
-      if (showContact) return;
-      if (!touchMoved) {
-        const t = e.changedTouches[0];
+  // Тап без свайпа → проверяем картинку или взрыв
+  const handleTouchEnd = (e: TouchEvent) => {
+    if (showContact || selectedImg) return;
+    if (!touchMoved) {
+      const t = e.changedTouches[0];
+      const hit = hitTestFloating(t.clientX, t.clientY);
+      if (hit) {
+        openImg(hit);
+      } else {
         explodeFromPoint(t.clientX, t.clientY);
         // Плавно перемещаем курсор к точке тапа
         if (cursorRef.current) {
@@ -486,93 +524,101 @@ export default function Home() {
           cursorRef.current.style.opacity = "1";
         }
       }
-    };
-
-    const el = mainRef.current;
-    if (!el) return;
-    window.addEventListener("wheel", handleWheel, { passive: false });
-    el.addEventListener("touchstart", handleTouchStart, { passive: true });
-    el.addEventListener("touchmove", handleTouchMove, { passive: false });
-    el.addEventListener("touchend", handleTouchEnd, { passive: true });
-    return () => {
-      window.removeEventListener("wheel", handleWheel);
-      el.removeEventListener("touchstart", handleTouchStart);
-      el.removeEventListener("touchmove", handleTouchMove);
-      el.removeEventListener("touchend", handleTouchEnd);
-    };
-  }, [showContact]);
-
-  // Ховер мышью → взрыв (оверлей поверх розовой секции, только на десктопе)
-  useEffect(() => {
-    const overlay = overlayRef.current;
-    if (!overlay) return;
-    const handleMouseMove = (e: MouseEvent) => {
-      if (showContact) return;
-      if (cursorRef.current) {
-        cursorRef.current.style.transition = "opacity 0.3s ease";
-        cursorRef.current.style.transform = `translate(${e.clientX}px, ${e.clientY}px)`;
-        cursorRef.current.style.opacity = "1";
-      }
-      explodeFromPoint(e.clientX, e.clientY);
-    };
-    const handleMouseLeave = () => {
-      if (cursorRef.current) cursorRef.current.style.opacity = "0";
-    };
-    overlay.addEventListener("mousemove", handleMouseMove);
-    overlay.addEventListener("mouseleave", handleMouseLeave);
-    return () => {
-      overlay.removeEventListener("mousemove", handleMouseMove);
-      overlay.removeEventListener("mouseleave", handleMouseLeave);
-    };
-  }, [showContact]);
-
-  useEffect(() => {
-    const vw = window.innerWidth;
-    const rowWidth = getRowWidth();
-    trackRefs.current.forEach((track, i) => {
-      if (!track) return;
-      const rev = REVERSED[i];
-      const startX = rev ? -rowWidth : vw;
-      track.style.opacity = "0";
-      track.style.transform = `translate3d(${startX}px, 0, 0)`;
-    });
-    if (textRef.current) {
-      textRef.current.style.opacity = "0";
-      textRef.current.style.transform = "translate3d(0, 40px, 0)";
-      textRef.current.style.pointerEvents = "none";
     }
-  }, []);
-
-  useEffect(() => {
-    const textEl = textRef.current;
-    if (!textEl) return;
-    textEl.style.transition = "opacity 0.4s ease, filter 0.4s ease";
-    textEl.style.filter = contactVisible ? "blur(12px)" : "blur(0px)";
-  }, [contactVisible]);
-
-  const handleContactEnter = () => {
-    if (shaking) return;
-    setShaking(true);
-    setTimeout(() => { setShaking(false); setContactHovered(true); }, 400);
   };
 
-  const inputStyle: React.CSSProperties = {
-    background: "transparent", border: "none", borderBottom: "1.5px solid #000",
-    color: "#000", fontSize: "clamp(13px, 1.5vw, 16px)", padding: "6px 0", outline: "none", width: "100%",
+  const el = mainRef.current;
+  if (!el) return;
+  window.addEventListener("wheel", handleWheel, { passive: false });
+  el.addEventListener("touchstart", handleTouchStart, { passive: true });
+  el.addEventListener("touchmove", handleTouchMove, { passive: false });
+  el.addEventListener("touchend", handleTouchEnd, { passive: true });
+  return () => {
+    window.removeEventListener("wheel", handleWheel);
+    el.removeEventListener("touchstart", handleTouchStart);
+    el.removeEventListener("touchmove", handleTouchMove);
+    el.removeEventListener("touchend", handleTouchEnd);
   };
-  const labelStyle: React.CSSProperties = { fontSize: "9px", color: "#000" };
+}, [showContact]);
 
-  const [tileSize, setTileSize] = useState(140);
-  useEffect(() => {
-    const update = () => setTileSize(calcTileSize());
-    update();
-    window.addEventListener("resize", update);
-    return () => window.removeEventListener("resize", update);
-  }, []);
+// Ховер мышью → взрыв (оверлей поверх розовой секции, только на десктопе)
+useEffect(() => {
+  const overlay = overlayRef.current;
+  if (!overlay) return;
+  const handleMouseMove = (e: MouseEvent) => {
+    if (showContact || selectedImg) return;
+    if (cursorRef.current) {
+      cursorRef.current.style.transition = "opacity 0.3s ease";
+      cursorRef.current.style.transform = `translate(${e.clientX}px, ${e.clientY}px)`;
+      cursorRef.current.style.opacity = "1";
+    }
+    explodeFromPoint(e.clientX, e.clientY);
+  };
+  const handleMouseLeave = () => {
+    if (cursorRef.current) cursorRef.current.style.opacity = "0";
+  };
+  const handleClick = (e: MouseEvent) => {
+    if (showContact || selectedImg) return;
+    const hit = hitTestFloating(e.clientX, e.clientY);
+    if (hit) openImg(hit);
+  };
+  overlay.addEventListener("mousemove", handleMouseMove);
+  overlay.addEventListener("mouseleave", handleMouseLeave);
+  overlay.addEventListener("click", handleClick);
+  return () => {
+    overlay.removeEventListener("mousemove", handleMouseMove);
+    overlay.removeEventListener("mouseleave", handleMouseLeave);
+    overlay.removeEventListener("click", handleClick);
+  };
+}, [showContact, selectedImg]);
 
-  return (
-    <>
-      <style>{`
+useEffect(() => {
+  const vw = window.innerWidth;
+  const rowWidth = getRowWidth();
+  trackRefs.current.forEach((track, i) => {
+    if (!track) return;
+    const rev = REVERSED[i];
+    const startX = rev ? -rowWidth : vw;
+    track.style.opacity = "0";
+    track.style.transform = `translate3d(${startX}px, 0, 0)`;
+  });
+  if (textRef.current) {
+    textRef.current.style.opacity = "0";
+    textRef.current.style.transform = "translate3d(0, 40px, 0)";
+    textRef.current.style.pointerEvents = "none";
+  }
+}, []);
+
+useEffect(() => {
+  const textEl = textRef.current;
+  if (!textEl) return;
+  textEl.style.transition = "opacity 0.4s ease, filter 0.4s ease";
+  textEl.style.filter = contactVisible ? "blur(12px)" : "blur(0px)";
+}, [contactVisible]);
+
+const handleContactEnter = () => {
+  if (shaking) return;
+  setShaking(true);
+  setTimeout(() => { setShaking(false); setContactHovered(true); }, 400);
+};
+
+const inputStyle: React.CSSProperties = {
+  background: "transparent", border: "none", borderBottom: "1.5px solid #000",
+  color: "#000", fontSize: "clamp(13px, 1.5vw, 16px)", padding: "6px 0", outline: "none", width: "100%",
+};
+const labelStyle: React.CSSProperties = { fontSize: "9px", color: "#000" };
+
+const [tileSize, setTileSize] = useState(140);
+useEffect(() => {
+  const update = () => setTileSize(calcTileSize());
+  update();
+  window.addEventListener("resize", update);
+  return () => window.removeEventListener("resize", update);
+}, []);
+
+return (
+  <>
+    <style>{`
         html, body {
           margin: 0; padding: 0; width: 100vw; height: 100vh;
           overflow: hidden; background: black; position: fixed;
@@ -631,129 +677,158 @@ export default function Home() {
         }
       `}</style>
 
-      {showContact && (
-        <div onClick={(e) => e.target === e.currentTarget && !isSending && closeContact()}
-          style={{ position: "fixed", inset: 0, zIndex: 10000, background: contactVisible ? "rgba(0,0,0,0.5)" : "rgba(0,0,0,0)", transition: "background 0.5s ease", display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ background: "#fff", color: "#000", width: "min(520px,90vw)", aspectRatio: "1/1", padding: "clamp(24px,5vw,40px)", transform: contactVisible ? "translate3d(0,0,0)" : "translate3d(0,60px,0)", opacity: contactVisible ? 1 : 0, transition: "transform 0.5s cubic-bezier(0.32,0.72,0,1),opacity 0.5s ease", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-              <div className="card-title" style={{ fontSize: "clamp(18px,3.2vw,28px)", lineHeight: 1 }}>LET'S WORK</div>
-              <button disabled={isSending} onClick={closeContact} style={{ background: "none", border: "none", fontSize: "24px", cursor: isSending ? "not-allowed" : "pointer" }}>×</button>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: "clamp(12px,2vw,15px)", flexGrow: 1, justifyContent: "center" }}>
-              {[{ label: "YOUR NAME", key: "name" as const, type: "text" }, { label: "EMAIL", key: "email" as const, type: "email" }].map(({ label, key, type }) => (
-                <div key={key}>
-                  <label className="card-label" style={labelStyle}>{label}</label>
-                  <input type={type} className="card-input" disabled={isSending} value={form[key]} onChange={(e) => setForm({ ...form, [key]: e.target.value.toUpperCase() })} style={inputStyle} />
-                </div>
-              ))}
-              <div>
-                <label className="card-label" style={labelStyle}>SERVICE</label>
-                <select className="card-input" style={{ ...inputStyle, cursor: "pointer", appearance: "none" }} value={form.service} onChange={(e) => setForm({ ...form, service: e.target.value })}>
-                  <option>ILLUSTRATION</option><option>LOGO</option><option>MOTION</option><option>ANIMATION</option>
-                </select>
+    {showContact && (
+      <div onClick={(e) => e.target === e.currentTarget && !isSending && closeContact()}
+        style={{ position: "fixed", inset: 0, zIndex: 10000, background: contactVisible ? "rgba(0,0,0,0.5)" : "rgba(0,0,0,0)", transition: "background 0.5s ease", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ background: "#fff", color: "#000", width: "min(520px,90vw)", aspectRatio: "1/1", padding: "clamp(24px,5vw,40px)", transform: contactVisible ? "translate3d(0,0,0)" : "translate3d(0,60px,0)", opacity: contactVisible ? 1 : 0, transition: "transform 0.5s cubic-bezier(0.32,0.72,0,1),opacity 0.5s ease", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+            <div className="card-title" style={{ fontSize: "clamp(18px,3.2vw,28px)", lineHeight: 1 }}>LET'S WORK</div>
+            <button disabled={isSending} onClick={closeContact} style={{ background: "none", border: "none", fontSize: "24px", cursor: isSending ? "not-allowed" : "pointer" }}>×</button>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "clamp(12px,2vw,15px)", flexGrow: 1, justifyContent: "center" }}>
+            {[{ label: "YOUR NAME", key: "name" as const, type: "text" }, { label: "EMAIL", key: "email" as const, type: "email" }].map(({ label, key, type }) => (
+              <div key={key}>
+                <label className="card-label" style={labelStyle}>{label}</label>
+                <input type={type} className="card-input" disabled={isSending} value={form[key]} onChange={(e) => setForm({ ...form, [key]: e.target.value.toUpperCase() })} style={inputStyle} />
               </div>
-              <div>
-                <label className="card-label" style={labelStyle}>MESSAGE</label>
-                <textarea ref={textareaRef} className="card-input" disabled={isSending} value={form.message} onChange={handleMessageChange} rows={1}
-                  style={{ ...inputStyle, resize: "none", overflow: "hidden", lineHeight: "1.4", display: "block", minHeight: "24px" }} />
-              </div>
+            ))}
+            <div>
+              <label className="card-label" style={labelStyle}>SERVICE</label>
+              <select className="card-input" style={{ ...inputStyle, cursor: "pointer", appearance: "none" }} value={form.service} onChange={(e) => setForm({ ...form, service: e.target.value })}>
+                <option>ILLUSTRATION</option><option>LOGO</option><option>MOTION</option><option>ANIMATION</option>
+              </select>
             </div>
-            <button onClick={handleSubmit} disabled={isSending} className="card-btn"
-              style={{ background: "#000", color: "#fff", border: "none", padding: "14px 32px", fontSize: "10px", cursor: isSending ? "not-allowed" : "pointer", alignSelf: "flex-start" }}>
-              {isSending ? "SENDING..." : "SEND"}
-            </button>
+            <div>
+              <label className="card-label" style={labelStyle}>MESSAGE</label>
+              <textarea ref={textareaRef} className="card-input" disabled={isSending} value={form.message} onChange={handleMessageChange} rows={1}
+                style={{ ...inputStyle, resize: "none", overflow: "hidden", lineHeight: "1.4", display: "block", minHeight: "24px" }} />
+            </div>
+          </div>
+          <button onClick={handleSubmit} disabled={isSending} className="card-btn"
+            style={{ background: "#000", color: "#fff", border: "none", padding: "14px 32px", fontSize: "10px", cursor: isSending ? "not-allowed" : "pointer", alignSelf: "flex-start" }}>
+            {isSending ? "SENDING..." : "SEND"}
+          </button>
+        </div>
+      </div>
+    )}
+
+    {selectedImg && (
+      <div
+        onClick={(e) => e.target === e.currentTarget && closeImg()}
+        style={{ position: "fixed", inset: 0, zIndex: 10000, background: imgVisible ? "rgba(0,0,0,0.7)" : "rgba(0,0,0,0)", transition: "background 0.4s ease", display: "flex", alignItems: "center", justifyContent: "center" }}
+      >
+        <div style={{
+          background: "#fff", color: "#000",
+          width: "min(520px,90vw)", aspectRatio: "1/1",
+          padding: "clamp(24px,5vw,40px)",
+          transform: imgVisible ? "translate3d(0,0,0)" : "translate3d(0,60px,0)",
+          opacity: imgVisible ? 1 : 0,
+          transition: "transform 0.4s cubic-bezier(0.32,0.72,0,1), opacity 0.4s ease",
+          display: "flex", flexDirection: "column", justifyContent: "space-between",
+        }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+            <div className="card-title" style={{ fontSize: "clamp(18px,3.2vw,28px)", lineHeight: 1 }}>WORK</div>
+            <button onClick={closeImg} style={{ background: "none", border: "none", fontSize: "24px", cursor: "pointer", color: "#000" }}>×</button>
+          </div>
+          <div style={{ flexGrow: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "clamp(12px,3vw,24px) 0" }}>
+            <img
+              src={selectedImg}
+              alt=""
+              style={{ width: "100%", height: "100%", objectFit: "contain", display: "block", borderRadius: "4px" }}
+            />
           </div>
         </div>
-      )}
+      </div>
+    )}
 
-      <main ref={mainRef} style={{ position: "fixed", width: "100vw", height: "100vh", top: 0, left: 0, overflow: "hidden", touchAction: "none" }}>
+    <main ref={mainRef} style={{ position: "fixed", width: "100vw", height: "100vh", top: 0, left: 0, overflow: "hidden", touchAction: "none" }}>
 
-        {/* ГИГАНТСКИЙ КАСТОМНЫЙ КУРСОР */}
-        <div
-          ref={cursorRef}
-          style={{
-            position: "absolute",
-            top: 0,
-            left: 0,
-            width: "120px",
-            height: "120px",
-            pointerEvents: "none",
-            zIndex: 9999,
-            opacity: 0,
-            willChange: "transform",
-            transform: "translate(-9999px, -9999px)",
-            marginLeft: "-60px",
-            marginTop: "-60px",
-          }}
-        >
-          <img
-            src="/cursor.png"
-            alt=""
-            style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
-          />
-        </div>
+      {/* ГИГАНТСКИЙ КАСТОМНЫЙ КУРСОР */}
+      <div
+        ref={cursorRef}
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          width: "120px",
+          height: "120px",
+          pointerEvents: "none",
+          zIndex: 9999,
+          opacity: 0,
+          willChange: "transform",
+          transform: "translate(-9999px, -9999px)",
+          marginLeft: "-60px",
+          marginTop: "-60px",
+        }}
+      >
+        <img
+          src="/cursor.png"
+          alt=""
+          style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
+        />
+      </div>
 
-        {/* РОЗОВЫЙ ФОН */}
-        <div style={{ position: "absolute", inset: 0, background: "#F4A6C0", zIndex: 2, opacity: pinkOpacity, pointerEvents: "none" }}>
-          {FLOATING_INIT.map((cfg, i) => (
-            <div
-              key={i}
-              ref={(el) => { floatingRefs.current[i] = el; }}
-              className="floating-img"
-              style={{
-                left: `${cfg.x}%`,
-                top: `${cfg.y}%`,
-                ["--delay" as any]: `${cfg.delay}ms`,
-                ["--rot" as any]: `${cfg.rotation}deg`,
-              }}
-            >
-              <img src={cfg.src} alt="" />
-            </div>
-          ))}
-          {/* Прозрачный оверлей для mousemove — поверх картинок, только на десктопе */}
+      {/* ЧЁРНЫЙ ФОН */}
+      <div style={{ position: "absolute", inset: 0, background: "#000", zIndex: 2, opacity: pinkOpacity, pointerEvents: "none" }}>
+        {FLOATING_INIT.map((cfg, i) => (
           <div
-            ref={overlayRef}
+            key={i}
+            ref={(el) => { floatingRefs.current[i] = el; }}
+            className="floating-img"
             style={{
-              position: "absolute", inset: 0, zIndex: 10,
-              pointerEvents: "auto",
-              cursor: "none",
+              left: `${cfg.x}%`,
+              top: `${cfg.y}%`,
+              ["--delay" as any]: `${cfg.delay}ms`,
+              ["--rot" as any]: `${cfg.rotation}deg`,
             }}
-          />
-        </div>
+          >
+            <img src={cfg.src} alt="" />
+          </div>
+        ))}
+        {/* Прозрачный оверлей для mousemove — поверх картинок, только на десктопе */}
+        <div
+          ref={overlayRef}
+          style={{
+            position: "absolute", inset: 0, zIndex: 10,
+            pointerEvents: "auto",
+            cursor: "none",
+          }}
+        />
+      </div>
 
-        {/* ВИДЕО */}
-        <video ref={videoRef} src={videoSrc} muted loop autoPlay playsInline
-          style={{ position: "absolute", top: 0, left: 0, width: "100vw", height: "100vh", objectFit: "cover", zIndex: 0, opacity: 0 }} />
-        <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1, opacity: videoOpacity, pointerEvents: "none" }} />
+      {/* ВИДЕО */}
+      <video ref={videoRef} src={videoSrc} muted loop autoPlay playsInline
+        style={{ position: "absolute", top: 0, left: 0, width: "100vw", height: "100vh", objectFit: "cover", zIndex: 0, opacity: 0 }} />
+      <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1, opacity: videoOpacity, pointerEvents: "none" }} />
 
-        {/* 5 РЯДОВ */}
-        <div style={{ position: "absolute", inset: 0, zIndex: 3, overflow: "hidden", pointerEvents: "none", display: "flex", flexDirection: "column", justifyContent: "center", gap: `${GAP}px`, padding: `${GAP}px 0` }}>
-          {ROWS.map((images, rowIndex) => (
-            <div key={rowIndex} ref={(el) => { trackRefs.current[rowIndex] = el; }}
-              style={{ display: "flex", gap: `${GAP}px`, paddingLeft: `${GAP}px`, width: "max-content", willChange: "transform", opacity: 0, flexShrink: 0 }}>
-              {images.map((img, i) => (
-                <div key={i} style={{ width: `${tileSize}px`, height: `${tileSize}px`, borderRadius: "12px", flexShrink: 0, overflow: "hidden" }}>
-                  <img src={img} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-                </div>
-              ))}
-            </div>
-          ))}
-        </div>
+      {/* 5 РЯДОВ */}
+      <div style={{ position: "absolute", inset: 0, zIndex: 3, overflow: "hidden", pointerEvents: "none", display: "flex", flexDirection: "column", justifyContent: "center", gap: `${GAP}px`, padding: `${GAP}px 0` }}>
+        {ROWS.map((images, rowIndex) => (
+          <div key={rowIndex} ref={(el) => { trackRefs.current[rowIndex] = el; }}
+            style={{ display: "flex", gap: `${GAP}px`, paddingLeft: `${GAP}px`, width: "max-content", willChange: "transform", opacity: 0, flexShrink: 0 }}>
+            {images.map((img, i) => (
+              <div key={i} style={{ width: `${tileSize}px`, height: `${tileSize}px`, borderRadius: "12px", flexShrink: 0, overflow: "hidden" }}>
+                <img src={img} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
 
-        {/* ТЕКСТ */}
-        <div ref={textRef} style={{ position: "absolute", inset: 0, zIndex: 10, display: "flex", alignItems: "center", padding: "0 clamp(20px,6vw,80px)", opacity: 0, transform: "translate3d(0,40px,0)", willChange: "transform,opacity", pointerEvents: "none" }}>
-          <div style={{ display: "flex", flexDirection: "column", width: "100%" }}>
-            <div className="text-line" style={{ fontSize: "clamp(32px,6.5vw,88px)" }}>MY NAME <span className="mobile-br" />IS ARTEM</div>
-            <div className="text-line" style={{ fontSize: "clamp(32px,6.5vw,88px)", marginTop: "0.15em" }}>I'M A <span className="mobile-br" />DESIGNER</div>
-            <div className={`text-line contact-trigger ${shaking ? "shakeY" : ""}`}
-              onMouseEnter={handleContactEnter} onMouseLeave={() => setContactHovered(false)} onClick={openContact}
-              style={{ fontSize: "clamp(32px,6.5vw,88px)", marginTop: "1.6em", cursor: "pointer", display: "inline-block", userSelect: "none" }}>
-              <span className="heartbeat-wrapper">{contactHovered ? "GET YOUR BEST DESIGN EVER" : "CONTACT ME"}</span>
-            </div>
+      {/* ТЕКСТ */}
+      <div ref={textRef} style={{ position: "absolute", inset: 0, zIndex: 10, display: "flex", alignItems: "center", padding: "0 clamp(20px,6vw,80px)", opacity: 0, transform: "translate3d(0,40px,0)", willChange: "transform,opacity", pointerEvents: "none" }}>
+        <div style={{ display: "flex", flexDirection: "column", width: "100%" }}>
+          <div className="text-line" style={{ fontSize: "clamp(32px,6.5vw,88px)" }}>MY NAME <span className="mobile-br" />IS ARTEM</div>
+          <div className="text-line" style={{ fontSize: "clamp(32px,6.5vw,88px)", marginTop: "0.15em" }}>I'M A <span className="mobile-br" />DESIGNER</div>
+          <div className={`text-line contact-trigger ${shaking ? "shakeY" : ""}`}
+            onMouseEnter={handleContactEnter} onMouseLeave={() => setContactHovered(false)} onClick={openContact}
+            style={{ fontSize: "clamp(32px,6.5vw,88px)", marginTop: "1.6em", cursor: "pointer", display: "inline-block", userSelect: "none" }}>
+            <span className="heartbeat-wrapper">{contactHovered ? "GET YOUR BEST DESIGN EVER" : "CONTACT ME"}</span>
           </div>
         </div>
+      </div>
 
-      </main>
-    </>
-  );
+    </main>
+  </>
+);
 }
