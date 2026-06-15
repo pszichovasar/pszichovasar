@@ -14,7 +14,12 @@ function shuffleWithSeed(arr: string[], seed: number): string[] {
 }
 
 const IMG_COUNT = 20;
-const IMG_SIZE = 75; // px — маленькие, одинаковые
+const IMG_SIZE_DESKTOP = 75;
+const IMG_SIZE_MOBILE = 25; // в 3 раза меньше на телефоне
+const getImgSize = () =>
+  typeof window !== "undefined" && window.innerWidth <= 768
+    ? IMG_SIZE_MOBILE
+    : IMG_SIZE_DESKTOP;
 
 const FLOATING_INIT = Array.from({ length: IMG_COUNT }, (_, i) => {
   const seed = i * 137 + 42;
@@ -142,6 +147,11 @@ export default function Home() {
   const rafRef = useRef<number | null>(null);
   const lastTimeRef = useRef<number>(0);
 
+  // Гироскоп: наклон → гравитация для картинок (только мобильный)
+  const gyroRef = useRef({ gx: 0, gy: 0 }); // px/s² — ускорение от наклона
+  // Тряска: последнее суммарное ускорение для детекта
+  const shakeRef = useRef({ lastAcc: 0, lastShakeTime: 0 });
+
   // Взрыв: вызывается из обработчика click/touchend
   const explodeFromPoint = (px: number, py: number) => {
     const BLAST_FORCE = 55000; // чем больше — тем сильнее разлёт
@@ -160,6 +170,63 @@ export default function Home() {
   };
 
   const GAP = 20;
+
+  // ── Гироскоп и тряска (только мобильный) ──────────────────────────────────
+  useEffect(() => {
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    if (!isMobile) return;
+
+    // Наклон → гравитация
+    const handleOrientation = (e: DeviceOrientationEvent) => {
+      // gamma: наклон влево/вправо (−90..90), beta: вперёд/назад (−180..180)
+      const gamma = e.gamma ?? 0; // ось X (лево/право)
+      const beta = e.beta ?? 0; // ось Y (вперёд/назад), обрезаем до ±90
+      const clampedBeta = Math.max(-90, Math.min(90, beta));
+
+      // Переводим градусы наклона в ускорение (px/s²)
+      // При 45° наклона — ~400 px/s²
+      const TILT_SCALE = 12;
+      gyroRef.current.gx = gamma * TILT_SCALE;
+      gyroRef.current.gy = clampedBeta * TILT_SCALE;
+    };
+
+    // Тряска → взрыв из центра
+    const handleMotion = (e: DeviceMotionEvent) => {
+      const acc = e.accelerationIncludingGravity;
+      if (!acc) return;
+      const total = Math.sqrt(
+        (acc.x ?? 0) ** 2 + (acc.y ?? 0) ** 2 + (acc.z ?? 0) ** 2
+      );
+      const shake = shakeRef.current;
+      const delta = Math.abs(total - shake.lastAcc);
+      shake.lastAcc = total;
+
+      const now = Date.now();
+      // Порог тряски: резкое изменение > 25 м/с², не чаще раза в 800мс
+      if (delta > 25 && now - shake.lastShakeTime > 800) {
+        shake.lastShakeTime = now;
+        // Взрыв из центра экрана
+        explodeFromPoint(window.innerWidth / 2, window.innerHeight / 2);
+      }
+    };
+
+    // iOS 13+ требует разрешения для DeviceOrientationEvent
+    const requestPermission = async () => {
+      const DOE = DeviceOrientationEvent as any;
+      if (typeof DOE.requestPermission === "function") {
+        try { await DOE.requestPermission(); } catch (_) { /* пользователь отказал */ }
+      }
+      window.addEventListener("deviceorientation", handleOrientation, true);
+      window.addEventListener("devicemotion", handleMotion, true);
+    };
+
+    requestPermission();
+
+    return () => {
+      window.removeEventListener("deviceorientation", handleOrientation, true);
+      window.removeEventListener("devicemotion", handleMotion, true);
+    };
+  }, []);
   const ALL_IMAGES = [
     "/1.jpg", "/2.jpg", "/3.jpg", "/4.jpg", "/5.jpg", "/6.jpg", "/7.jpg",
     "/8.jpg", "/9.jpg", "/10.jpg", "/11.jpg", "/12.jpg", "/13.jpg", "/14.jpg",
@@ -180,9 +247,10 @@ export default function Home() {
 
   // ── Главный анимационный цикл ──────────────────────────────────────────────
   useEffect(() => {
-    const DAMPING = 0.992;
-    const MAX_SPEED = 1400; // px/s — выше, чтобы взрыв был виден
-    const BOUNCE = 0.75;    // коэффициент отскока от стен и друг друга
+    const DAMPING = 0.988;   // чуть больше гашения = плавнее
+    const MAX_SPEED = 1400;
+    const BOUNCE = 0.35;    // мягкий отскок — меньше дёрганья
+    const CORRECTION_BIAS = 0.4; // доля коррекции за кадр (< 1 = плавно)
 
     const animate = (time: number) => {
       const dt = lastTimeRef.current
@@ -192,6 +260,7 @@ export default function Home() {
 
       const W = window.innerWidth;
       const H = window.innerHeight;
+      const S = getImgSize(); // размер зависит от ширины экрана
       const states = physState.current;
 
       // Инициализация центров в px
@@ -202,7 +271,7 @@ export default function Home() {
           s.vx = FLOATING_INIT[i].vx;
           s.vy = FLOATING_INIT[i].vy;
           s.ang = FLOATING_INIT[i].rotation * Math.PI / 180;
-          s.rotSpeed = FLOATING_INIT[i].rotSpeed * Math.PI / 180; // °/s → рад/s
+          s.rotSpeed = FLOATING_INIT[i].rotSpeed * Math.PI / 180;
           s.initialized = true;
         }
       });
@@ -213,25 +282,24 @@ export default function Home() {
           const a = states[i];
           const b = states[j];
 
-          const result = obbCollide(a.x, a.y, a.ang, b.x, b.y, b.ang, IMG_SIZE);
+          const result = obbCollide(a.x, a.y, a.ang, b.x, b.y, b.ang, S);
           if (!result) continue;
 
           const { overlap, nx, ny } = result;
 
-          // Разделяем позиции (positional correction) — убираем перекрытие
-          const correction = overlap / 2 + 0.5;
+          // Мягкая positional correction — сдвигаем только часть перекрытия за кадр
+          const correction = overlap * CORRECTION_BIAS;
           a.x += nx * correction;
           a.y += ny * correction;
           b.x -= nx * correction;
           b.y -= ny * correction;
 
-          // Импульс: отражаем относительную скорость вдоль нормали
+          // Импульс только если объекты движутся навстречу
           const dvx = a.vx - b.vx;
           const dvy = a.vy - b.vy;
-          const relVn = dvx * nx + dvy * ny; // скорость сближения
+          const relVn = dvx * nx + dvy * ny;
 
           if (relVn < 0) {
-            // Они движутся навстречу — применяем импульс
             const impulse = -(1 + BOUNCE) * relVn / 2;
             a.vx += impulse * nx;
             a.vy += impulse * ny;
@@ -242,32 +310,34 @@ export default function Home() {
       }
 
       // ── Интегрирование + стены ──────────────────────────────────────────
+      const { gx, gy } = gyroRef.current;
       states.forEach((s, i) => {
-        // Гашение
+        // Гравитация от наклона телефона
+        s.vx += gx * dt;
+        s.vy += gy * dt;
+
         s.vx *= DAMPING;
         s.vy *= DAMPING;
 
-        // Ограничение скорости
         const sp = Math.sqrt(s.vx * s.vx + s.vy * s.vy);
         if (sp > MAX_SPEED) { s.vx = s.vx / sp * MAX_SPEED; s.vy = s.vy / sp * MAX_SPEED; }
 
-        // Движение
         s.x += s.vx * dt;
         s.y += s.vy * dt;
         s.ang += s.rotSpeed * dt;
 
-        // Отражение от стен (центр ограничен [SIZE/2 .. W-SIZE/2])
-        const h = IMG_SIZE / 2;
+        const h = S / 2;
         if (s.x < h) { s.x = h; s.vx = Math.abs(s.vx) * BOUNCE; }
         if (s.x > W - h) { s.x = W - h; s.vx = -Math.abs(s.vx) * BOUNCE; }
         if (s.y < h) { s.y = h; s.vy = Math.abs(s.vy) * BOUNCE; }
         if (s.y > H - h) { s.y = H - h; s.vy = -Math.abs(s.vy) * BOUNCE; }
 
-        // DOM-обновление: left/top = левый верхний угол, rotate по центру
         const el = floatingRefs.current[i];
         if (el) {
           el.style.left = `${s.x - h}px`;
           el.style.top = `${s.y - h}px`;
+          el.style.width = `${S}px`;
+          el.style.height = `${S}px`;
           el.style.transform = `rotate(${s.ang}rad)`;
         }
       });
@@ -403,12 +473,18 @@ export default function Home() {
       applyAnimations(scrollRef.current);
     };
 
-    // Тап без свайпа → взрыв
+    // Тап без свайпа → взрыв + плавно двигаем курсор
     const handleTouchEnd = (e: TouchEvent) => {
       if (showContact) return;
       if (!touchMoved) {
         const t = e.changedTouches[0];
         explodeFromPoint(t.clientX, t.clientY);
+        // Плавно перемещаем курсор к точке тапа
+        if (cursorRef.current) {
+          cursorRef.current.style.transition = "transform 0.45s cubic-bezier(0.25, 0.46, 0.45, 0.94), opacity 0.3s ease";
+          cursorRef.current.style.transform = `translate(${t.clientX}px, ${t.clientY}px)`;
+          cursorRef.current.style.opacity = "1";
+        }
       }
     };
 
@@ -432,8 +508,8 @@ export default function Home() {
     if (!overlay) return;
     const handleMouseMove = (e: MouseEvent) => {
       if (showContact) return;
-      // Двигаем кастомный курсор
       if (cursorRef.current) {
+        cursorRef.current.style.transition = "opacity 0.3s ease";
         cursorRef.current.style.transform = `translate(${e.clientX}px, ${e.clientY}px)`;
         cursorRef.current.style.opacity = "1";
       }
@@ -526,8 +602,8 @@ export default function Home() {
         }
         .floating-img {
           position: absolute;
-          width: ${IMG_SIZE}px;
-          height: ${IMG_SIZE}px;
+          width: 75px;
+          height: 75px;
           border-radius: 10px;
           overflow: hidden;
           pointer-events: none;
@@ -540,6 +616,9 @@ export default function Home() {
         }
         .floating-img img {
           width: 100%; height: 100%; object-fit: cover; display: block;
+        }
+        @media(max-width:768px){
+          .floating-img { width: 25px; height: 25px; border-radius: 4px; }
         }
         @media(max-width:768px){
           .desktop-br{display:none}.mobile-br{display:block}
