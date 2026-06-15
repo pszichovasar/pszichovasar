@@ -443,9 +443,48 @@ export default function Home() {
   const calcTileSize = () => Math.floor((window.innerHeight - GAP * 6) / 5);
   const getRowWidth = () => (calcTileSize() + GAP) * ALL_IMAGES.length + GAP;
 
-  const applyAnimations = (scrollY: number) => {
+  const applyAnimations = (scrollY: number, deltaY = 0) => {
     const unit = scrollY / SCROLL_PER_UNIT;
     setPinkOpacity(Math.max(0, 1 - Math.max(0, (unit - 0.8) / 0.4)));
+
+    // ── "I DO DESIGN": въезжает снизу при первом скролле, уходит вверх ──
+    if (iDoDesignRef.current) {
+      // 0→0.35: въезжает снизу → центр
+      // 0.35→0.75: уходит вверх за экран
+      let ty: number;
+      if (unit <= 0.35) {
+        ty = (1 - unit / 0.35) * 110; // 110vh → 0
+      } else if (unit <= 0.75) {
+        ty = -((unit - 0.35) / 0.4) * 110; // 0 → -110vh
+      } else {
+        ty = -110;
+      }
+      iDoDesignRef.current.style.transform = `translateY(${ty}vh)`;
+      iDoDesignRef.current.style.opacity =
+        unit < 0.02 ? "0" :
+          unit < 0.08 ? String((unit - 0.02) / 0.06) :
+            unit > 0.65 ? String(Math.max(0, 1 - (unit - 0.65) / 0.1)) :
+              "1";
+    }
+
+    // ── При скролле вниз — толкаем картинки вверх ────────────────────────
+    if (deltaY > 0 && unit < 0.9) {
+      // Скролл вниз — картинки летят вверх
+      const pushForce = Math.min(deltaY * 18, 900);
+      physState.current.forEach(s => {
+        if (!s.initialized) return;
+        s.vy -= pushForce;
+        s.rotSpeed += (Math.random() - 0.5) * 4;
+      });
+    } else if (deltaY < 0 && unit < 0.9) {
+      // Скролл вверх — картинки летят вниз (возвращаются)
+      const pushForce = Math.min(Math.abs(deltaY) * 18, 900);
+      physState.current.forEach(s => {
+        if (!s.initialized) return;
+        s.vy += pushForce;
+        s.rotSpeed += (Math.random() - 0.5) * 4;
+      });
+    }
 
     const vw = window.innerWidth;
     const rowWidth = getRowWidth();
@@ -483,6 +522,8 @@ export default function Home() {
 
   const mainRef = useRef<HTMLElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
+  const iDoDesignRef = useRef<HTMLDivElement>(null);
+  const lastScrollRef = useRef(0); // для детекта направления и дельты
 
   // Скролл: wheel + touch-свайп + тап
   useEffect(() => {
@@ -490,7 +531,7 @@ export default function Home() {
       if (showContact) return;
       e.preventDefault();
       scrollRef.current = Math.max(0, Math.min(scrollRef.current + e.deltaY, TOTAL_SCROLL));
-      applyAnimations(scrollRef.current);
+      applyAnimations(scrollRef.current, e.deltaY);
     };
 
     let touchStartY = 0;
@@ -513,7 +554,7 @@ export default function Home() {
       if (Math.abs(dy) > 5 || dx > 5) touchMoved = true;
       touchStartY = e.touches[0].clientY;
       scrollRef.current = Math.max(0, Math.min(scrollRef.current + dy * 2.5, TOTAL_SCROLL));
-      applyAnimations(scrollRef.current);
+      applyAnimations(scrollRef.current, dy * 2.5);
     };
 
     // Тап без свайпа → проверяем картинку или взрыв
@@ -528,7 +569,7 @@ export default function Home() {
           explodeFromPoint(t.clientX, t.clientY);
           // Плавно перемещаем курсор к точке тапа
           if (cursorRef.current) {
-            cursorRef.current.style.transition = "transform 0.45s cubic-bezier(0.25, 0.46, 0.45, 0.94), opacity 0.3s ease";
+            cursorRef.current.style.transition = "transform 0.9s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease";
             cursorRef.current.style.transform = `translate(${t.clientX}px, ${t.clientY}px)`;
             cursorRef.current.style.opacity = "1";
           }
@@ -631,12 +672,9 @@ export default function Home() {
         html, body {
           margin: 0; padding: 0; width: 100vw; height: 100vh;
           overflow: hidden; background: black; position: fixed;
+          cursor: none !important;
         }
-        * { font-family: 'Arial Black', Arial, sans-serif !important; text-transform: uppercase !important; box-sizing: border-box; }
-        /* Скрываем системный курсор только на десктопе */
-        @media (hover: hover) and (pointer: fine) {
-          *, *:hover { cursor: none !important; }
-        }
+        * { font-family: 'Arial Black', Arial, sans-serif !important; text-transform: uppercase !important; box-sizing: border-box; cursor: none !important; }
         @keyframes shakeY {
           0%{transform:translateY(0)}15%{transform:translateY(-8px)}30%{transform:translateY(8px)}
           45%{transform:translateY(-6px)}60%{transform:translateY(6px)}75%{transform:translateY(-3px)}
@@ -696,7 +734,7 @@ export default function Home() {
           <div style={{ background: "#fff", color: "#000", width: "min(520px,90vw)", aspectRatio: "1/1", padding: "clamp(24px,5vw,40px)", transform: contactVisible ? "translate3d(0,0,0)" : "translate3d(0,60px,0)", opacity: contactVisible ? 1 : 0, transition: "transform 0.5s cubic-bezier(0.32,0.72,0,1),opacity 0.5s ease", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
               <div className="card-title" style={{ fontSize: "clamp(18px,3.2vw,28px)", lineHeight: 1 }}>LET'S WORK</div>
-              <button disabled={isSending} onClick={closeContact} style={{ background: "none", border: "none", fontSize: "24px", cursor: isSending ? "not-allowed" : "pointer" }}>×</button>
+              <button disabled={isSending} onClick={closeContact} style={{ background: "none", border: "none", fontSize: "24px", cursor: "none" }}>×</button>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: "clamp(12px,2vw,15px)", flexGrow: 1, justifyContent: "center" }}>
               {[{ label: "YOUR NAME", key: "name" as const, type: "text" }, { label: "EMAIL", key: "email" as const, type: "email" }].map(({ label, key, type }) => (
@@ -707,7 +745,7 @@ export default function Home() {
               ))}
               <div>
                 <label className="card-label" style={labelStyle}>SERVICE</label>
-                <select className="card-input" style={{ ...inputStyle, cursor: "pointer", appearance: "none" }} value={form.service} onChange={(e) => setForm({ ...form, service: e.target.value })}>
+                <select className="card-input" style={{ ...inputStyle, cursor: "none", appearance: "none" }} value={form.service} onChange={(e) => setForm({ ...form, service: e.target.value })}>
                   <option>ILLUSTRATION</option><option>LOGO</option><option>MOTION</option><option>ANIMATION</option>
                 </select>
               </div>
@@ -718,7 +756,7 @@ export default function Home() {
               </div>
             </div>
             <button onClick={handleSubmit} disabled={isSending} className="card-btn"
-              style={{ background: "#000", color: "#fff", border: "none", padding: "14px 32px", fontSize: "10px", cursor: isSending ? "not-allowed" : "pointer", alignSelf: "flex-start" }}>
+              style={{ background: "#000", color: "#fff", border: "none", padding: "14px 32px", fontSize: "10px", cursor: "none", alignSelf: "flex-start" }}>
               {isSending ? "SENDING..." : "SEND"}
             </button>
           </div>
@@ -741,7 +779,7 @@ export default function Home() {
           }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
               <div className="card-title" style={{ fontSize: "clamp(18px,3.2vw,28px)", lineHeight: 1 }}>WORK</div>
-              <button onClick={closeImg} style={{ background: "none", border: "none", fontSize: "24px", cursor: "pointer", color: "#000" }}>×</button>
+              <button onClick={closeImg} style={{ background: "none", border: "none", fontSize: "24px", cursor: "none", color: "#000" }}>×</button>
             </div>
             <div style={{ flexGrow: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "clamp(12px,3vw,24px) 0" }}>
               <img
@@ -809,6 +847,36 @@ export default function Home() {
           />
         </div>
 
+        {/* I DO DESIGN — выезжает снизу при скролле */}
+        <div
+          ref={iDoDesignRef}
+          style={{
+            position: "absolute",
+            inset: 0,
+            zIndex: 5,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            pointerEvents: "none",
+            transform: "translateY(110vh)",
+            opacity: 0,
+            willChange: "transform, opacity",
+          }}
+        >
+          <div style={{
+            fontFamily: "'Arial Black', Arial, sans-serif",
+            fontWeight: 900,
+            fontSize: "clamp(28px, 7vw, 96px)",
+            letterSpacing: "-0.04em",
+            color: "white",
+            textAlign: "center",
+            lineHeight: 1,
+            whiteSpace: "nowrap",
+          }}>
+            I DO DESIGN
+          </div>
+        </div>
+
         {/* ВИДЕО */}
         <video ref={videoRef} src={videoSrc} muted loop autoPlay playsInline
           style={{ position: "absolute", top: 0, left: 0, width: "100vw", height: "100vh", objectFit: "cover", zIndex: 0, opacity: 0 }} />
@@ -835,7 +903,7 @@ export default function Home() {
             <div className="text-line" style={{ fontSize: "clamp(32px,6.5vw,88px)", marginTop: "0.15em" }}>I'M A <span className="mobile-br" />DESIGNER</div>
             <div className={`text-line contact-trigger ${shaking ? "shakeY" : ""}`}
               onMouseEnter={handleContactEnter} onMouseLeave={() => setContactHovered(false)} onClick={openContact}
-              style={{ fontSize: "clamp(32px,6.5vw,88px)", marginTop: "1.6em", cursor: "pointer", display: "inline-block", userSelect: "none" }}>
+              style={{ fontSize: "clamp(32px,6.5vw,88px)", marginTop: "1.6em", cursor: "none", display: "inline-block", userSelect: "none" }}>
               <span className="heartbeat-wrapper">{contactHovered ? "GET YOUR BEST DESIGN EVER" : "CONTACT ME"}</span>
             </div>
           </div>
