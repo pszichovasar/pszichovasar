@@ -25,7 +25,7 @@ const FLOATING_INIT = Array.from({ length: IMG_COUNT }, (_, i) => {
   const seed = i * 137 + 42;
   const r = (n: number) => ((seed * 1664525 + n * 1013904223) & 0x7fffffff) / 0x7fffffff;
   return {
-    src: `/j${(i % 4) + 1}.jpg`,
+    src: `/j${(i % 6) + 1}.jpg`,
     x: r(1) * 82 + 5,
     y: r(2) * 82 + 5,
     vx: (r(3) - 0.5) * 120,  // px/s
@@ -315,101 +315,23 @@ export default function Home() {
         }
       }
 
-      // ── Коллизия картинок с текстом "I DO DESIGN" ──────────────────────
-      const textEl = iDoDesignRef.current;
-      if (textEl) {
-        const r = textEl.getBoundingClientRect();
-        // Пропускаем если текст за экраном (не виден)
-        if (r.width > 0 && r.bottom > 0 && r.top < H) {
-          // Центр текстового блока
-          const tx = r.left + r.width / 2;
-          const ty = r.top + r.height / 2;
-          const tw = r.width;
-          const th = r.height;
-
-          for (let i = 0; i < IMG_COUNT; i++) {
-            const s = states[i];
-            if (!s.initialized) continue;
-
-            // Получаем углы OBB картинки
-            const corners = getCorners(s.x, s.y, s.ang, S);
-
-            // Оси для SAT: 2 от картинки + 2 от AABB текста (X и Y)
-            const axes: { x: number; y: number }[] = [
-              { x: Math.cos(s.ang), y: Math.sin(s.ang) },
-              { x: -Math.sin(s.ang), y: Math.cos(s.ang) },
-              { x: 1, y: 0 }, // AABB ось X
-              { x: 0, y: 1 }, // AABB ось Y
-            ];
-
-            // Углы AABB текста
-            const textCorners = [
-              { x: tx - tw / 2, y: ty - th / 2 },
-              { x: tx + tw / 2, y: ty - th / 2 },
-              { x: tx + tw / 2, y: ty + th / 2 },
-              { x: tx - tw / 2, y: ty + th / 2 },
-            ];
-
-            let minOverlap = Infinity;
-            let minAxis = axes[0];
-            let separated = false;
-
-            for (const axis of axes) {
-              const [a0, a1] = project(corners, axis);
-              const [b0, b1] = project(textCorners, axis);
-              const ov = Math.min(a1, b1) - Math.max(a0, b0);
-              if (ov <= 0) { separated = true; break; }
-              if (ov < minOverlap) { minOverlap = ov; minAxis = axis; }
-            }
-
-            if (separated) continue;
-
-            // Нормаль от текста к картинке
-            const dx = s.x - tx;
-            const dy = s.y - ty;
-            const dot = dx * minAxis.x + dy * minAxis.y;
-            const sign = dot < 0 ? -1 : 1;
-            const nx = minAxis.x * sign;
-            const ny = minAxis.y * sign;
-
-            // Positional correction (только картинку — текст статичен)
-            s.x += nx * minOverlap * CORRECTION_BIAS;
-            s.y += ny * minOverlap * CORRECTION_BIAS;
-
-            // Импульс: отражаем скорость картинки от текста
-            const relVn = s.vx * nx + s.vy * ny;
-            if (relVn < 0) {
-              s.vx -= (1 + BOUNCE) * relVn * nx;
-              s.vy -= (1 + BOUNCE) * relVn * ny;
-              s.rotSpeed += (Math.random() - 0.5) * 3;
-            }
-          }
-        }
-      }
-
       // ── Интегрирование + стены ──────────────────────────────────────────
       const { gx, gy } = gyroRef.current;
       states.forEach((s, i) => {
-        // Гравитация от наклона телефона
         s.vx += gx * dt;
         s.vy += gy * dt;
-
         s.vx *= DAMPING;
         s.vy *= DAMPING;
-
         const sp = Math.sqrt(s.vx * s.vx + s.vy * s.vy);
         if (sp > MAX_SPEED) { s.vx = s.vx / sp * MAX_SPEED; s.vy = s.vy / sp * MAX_SPEED; }
-
         s.x += s.vx * dt;
         s.y += s.vy * dt;
         s.ang += s.rotSpeed * dt;
-
         const h = S / 2;
         if (s.x < h) { s.x = h; s.vx = Math.abs(s.vx) * BOUNCE; }
         if (s.x > W - h) { s.x = W - h; s.vx = -Math.abs(s.vx) * BOUNCE; }
         if (s.y < h) { s.y = h; s.vy = Math.abs(s.vy) * BOUNCE; }
         if (s.y > H - h) { s.y = H - h; s.vy = -Math.abs(s.vy) * BOUNCE; }
-
         const el = floatingRefs.current[i];
         if (el) {
           el.style.left = `${s.x - h}px`;
@@ -419,6 +341,80 @@ export default function Home() {
           el.style.transform = `rotate(${s.ang}rad)`;
         }
       });
+
+      // ── Коллизия с текстом "I DO DESIGN" — после интегрирования ────────
+      // Выполняется ПОСЛЕ move чтобы не было двойного сдвига
+      const textEl = iDoDesignRef.current;
+      if (textEl) {
+        const r = textEl.getBoundingClientRect();
+        if (r.width > 10 && r.top < H - 10 && r.bottom > 10) {
+          const tx = r.left + r.width / 2;
+          const ty = r.top + r.height / 2;
+          const tw = r.width;
+          const th = r.height;
+
+          // Углы AABB текста
+          const textCorners = [
+            { x: tx - tw / 2, y: ty - th / 2 },
+            { x: tx + tw / 2, y: ty - th / 2 },
+            { x: tx + tw / 2, y: ty + th / 2 },
+            { x: tx - tw / 2, y: ty + th / 2 },
+          ];
+
+          // Статичные оси текста (AABB — только X и Y)
+          const textAxes = [
+            { x: 1, y: 0 },
+            { x: 0, y: 1 },
+          ];
+
+          for (let i = 0; i < IMG_COUNT; i++) {
+            const s = states[i];
+            if (!s.initialized) continue;
+
+            const corners = getCorners(s.x, s.y, s.ang, S);
+
+            // SAT: 2 оси от картинки + 2 оси от текста
+            const axes = [
+              { x: Math.cos(s.ang), y: Math.sin(s.ang) },
+              { x: -Math.sin(s.ang), y: Math.cos(s.ang) },
+              ...textAxes,
+            ];
+
+            let minOv = Infinity;
+            let minAx = axes[0];
+            let sep = false;
+
+            for (const ax of axes) {
+              const [a0, a1] = project(corners, ax);
+              const [b0, b1] = project(textCorners, ax);
+              const ov = Math.min(a1, b1) - Math.max(a0, b0);
+              if (ov <= 0) { sep = true; break; }
+              if (ov < minOv) { minOv = ov; minAx = ax; }
+            }
+
+            if (sep) continue;
+
+            // Нормаль от текста к картинке
+            const ddx = s.x - tx;
+            const ddy = s.y - ty;
+            const sign = (ddx * minAx.x + ddy * minAx.y) < 0 ? -1 : 1;
+            const nx = minAx.x * sign;
+            const ny = minAx.y * sign;
+
+            // Мягкая коррекция — только 20% за кадр, картинка выходит плавно
+            s.x += nx * minOv * 0.2;
+            s.y += ny * minOv * 0.2;
+
+            // Импульс только если летит В текст (не из него)
+            const relVn = s.vx * nx + s.vy * ny;
+            if (relVn < 0) {
+              // Мягкий bounce = 0.2 — не рывок, а мягкое отражение
+              s.vx -= relVn * nx * 1.2;
+              s.vy -= relVn * ny * 1.2;
+            }
+          }
+        }
+      }
 
       rafRef.current = requestAnimationFrame(animate);
     };
