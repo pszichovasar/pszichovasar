@@ -129,6 +129,8 @@ export default function Home() {
 
   const gyroRef = useRef({ gx: 0, gy: 0 });
   const shakeRef = useRef({ lastAcc: 0, lastShakeTime: 0 });
+  // Предыдущий rect текста — для swept collision при быстром скролле
+  const prevTextRectRef = useRef<DOMRect | null>(null);
 
   const explodeFromPoint = (px: number, py: number) => {
     const BLAST_FORCE = 55000;
@@ -294,39 +296,42 @@ export default function Home() {
         }
       });
 
-      // Коллизия с текстом "I DO DESIGN"
-      // rect берётся один раз за кадр и кешируется
+      // Коллизия с текстом "I DO DESIGN" — swept AABB (union prev+current rect)
+      // Это предотвращает "пролёт насквозь" при быстром скролле
       const textEl = iDoDesignTextRef.current;
       if (textEl) {
         const r = textEl.getBoundingClientRect();
+        const prev = prevTextRectRef.current;
         const textVisible = r.width > 10 && r.height > 10
           && r.top < H && r.bottom > 0 && r.left < W && r.right > 0;
 
         if (textVisible) {
           const half = S / 2;
-          const cx = (r.left + r.right) * 0.5;
-          const cy = (r.top + r.bottom) * 0.5;
+
+          // Union rect: объединяем текущий и предыдущий rect текста
+          // Так покрываем всё пространство, через которое текст прошёл за кадр
+          const uL = Math.min(r.left, prev ? prev.left : r.left);
+          const uR = Math.max(r.right, prev ? prev.right : r.right);
+          const uT = Math.min(r.top, prev ? prev.top : r.top);
+          const uB = Math.max(r.bottom, prev ? prev.bottom : r.bottom);
+
+          // Minkowski sum: расширяем на half картинки
+          const eL = uL - half;
+          const eR = uR + half;
+          const eT = uT - half;
+          const eB = uB + half;
 
           for (let i = 0; i < IMG_COUNT; i++) {
             const s = states[i];
             if (!s.initialized) continue;
 
-            // Расширенный rect: прямоугольник текста + половина картинки со всех сторон
-            // Это эквивалентно Minkowski sum — коллизия когда центры касаются
-            const eL = r.left - half;
-            const eR = r.right + half;
-            const eT = r.top - half;
-            const eB = r.bottom + half;
-
             if (s.x <= eL || s.x >= eR || s.y <= eT || s.y >= eB) continue;
 
-            // Перекрытие по каждой стороне расширенного rect
-            const dL = s.x - eL;  // расстояние от левой границы
-            const dR = eR - s.x;  // от правой
-            const dT = s.y - eT;  // от верхней
-            const dB = eB - s.y;  // от нижней
+            const dL = s.x - eL;
+            const dR = eR - s.x;
+            const dT = s.y - eT;
+            const dB = eB - s.y;
 
-            // Минимальная ось выталкивания
             const minD = Math.min(dL, dR, dT, dB);
             let nx = 0, ny = 0;
             if (minD === dL) { nx = -1; }
@@ -334,11 +339,9 @@ export default function Home() {
             else if (minD === dT) { ny = -1; }
             else { ny = 1; }
 
-            // Выталкиваем центр картинки за границу одним точным шагом
             s.x += nx * (minD + 0.5);
             s.y += ny * (minD + 0.5);
 
-            // Отражаем только входящую компоненту скорости (elastic, без усиления)
             const vn = s.vx * nx + s.vy * ny;
             if (vn < 0) {
               s.vx -= vn * nx * (1 + BOUNCE);
@@ -346,6 +349,9 @@ export default function Home() {
             }
           }
         }
+
+        // Сохраняем текущий rect для следующего кадра
+        prevTextRectRef.current = textVisible ? r : null;
       }
 
       rafRef.current = requestAnimationFrame(animate);
@@ -567,15 +573,30 @@ export default function Home() {
   useEffect(() => {
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
     if (isMobile) return;
+
+    // Курсор показываем сразу и всегда отслеживаем — независимо от модалок
     if (cursorRef.current) {
       cursorRef.current.style.opacity = "1";
       cursorRef.current.style.transition = "none";
     }
+
     const handleMouseMove = (e: MouseEvent) => {
       if (cursorRef.current) {
         cursorRef.current.style.transition = "none";
         cursorRef.current.style.transform = `translate(${e.clientX}px, ${e.clientY}px)`;
+        cursorRef.current.style.opacity = "1";
       }
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    return () => window.removeEventListener("mousemove", handleMouseMove);
+  }, []); // пустой массив — вешается один раз, никогда не пересоздаётся
+
+  useEffect(() => {
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    if (isMobile) return;
+
+    const handleExplodeAndClick = (e: MouseEvent) => {
       if (showContact || selectedImg) return;
       explodeFromPoint(e.clientX, e.clientY);
     };
@@ -584,11 +605,12 @@ export default function Home() {
       const hit = hitTestFloating(e.clientX, e.clientY);
       if (hit) openImg(hit);
     };
-    window.addEventListener("mousemove", handleMouseMove);
+
+    window.addEventListener("mousemove", handleExplodeAndClick);
     const overlay = overlayRef.current;
     if (overlay) overlay.addEventListener("click", handleClick);
     return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mousemove", handleExplodeAndClick);
       if (overlay) overlay.removeEventListener("click", handleClick);
     };
   }, [showContact, selectedImg]);
@@ -646,6 +668,8 @@ export default function Home() {
           cursor: none !important;
         }
         * { font-family: 'Arial Black', Arial, sans-serif !important; text-transform: uppercase !important; box-sizing: border-box; cursor: none !important; }
+        input, textarea, select { cursor: text !important; }
+        button, [role="button"] { cursor: pointer !important; }
         @keyframes shakeY {
           0%{transform:translateY(0)}15%{transform:translateY(-8px)}30%{transform:translateY(8px)}
           45%{transform:translateY(-6px)}60%{transform:translateY(6px)}75%{transform:translateY(-3px)}
@@ -700,12 +724,14 @@ export default function Home() {
       {showContact && (
         <div onClick={(e) => e.target === e.currentTarget && !isSending && closeContact()}
           style={{ position: "fixed", inset: 0, zIndex: 10000, background: contactVisible ? "rgba(0,0,0,0.5)" : "rgba(0,0,0,0)", transition: "background 0.5s ease", display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ background: "#fff", color: "#000", width: "min(520px,90vw)", aspectRatio: "1/1", padding: "clamp(24px,5vw,40px)", transform: contactVisible ? "translate3d(0,0,0)" : "translate3d(0,60px,0)", opacity: contactVisible ? 1 : 0, transition: "transform 0.5s cubic-bezier(0.32,0.72,0,1),opacity 0.5s ease", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+          <div style={{ background: "#fff", color: "#000", width: "min(520px,90vw)", padding: "clamp(24px,5vw,40px)", transform: contactVisible ? "translate3d(0,0,0)" : "translate3d(0,60px,0)", opacity: contactVisible ? 1 : 0, transition: "transform 0.5s cubic-bezier(0.32,0.72,0,1),opacity 0.5s ease", display: "flex", flexDirection: "column", gap: "clamp(20px,3vw,28px)" }}>
+            {/* Заголовок */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
               <div className="card-title" style={{ fontSize: "clamp(18px,3.2vw,28px)", lineHeight: 1 }}>LET'S WORK</div>
               <button disabled={isSending} onClick={closeContact} style={{ background: "none", border: "none", fontSize: "24px", cursor: "none" }}>×</button>
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: "clamp(12px,2vw,15px)", flexGrow: 1, justifyContent: "center" }}>
+            {/* Поля */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "clamp(12px,2vw,15px)" }}>
               {[{ label: "YOUR NAME", key: "name" as const, type: "text" }, { label: "EMAIL", key: "email" as const, type: "email" }].map(({ label, key, type }) => (
                 <div key={key}>
                   <label className="card-label" style={labelStyle}>{label}</label>
@@ -724,6 +750,7 @@ export default function Home() {
                   style={{ ...inputStyle, resize: "none", overflow: "hidden", lineHeight: "1.4", display: "block", minHeight: "24px" }} />
               </div>
             </div>
+            {/* Кнопка — всегда сразу под полями, фиксированный gap */}
             <button onClick={handleSubmit} disabled={isSending} className="card-btn"
               style={{ background: "#000", color: "#fff", border: "none", padding: "14px 32px", fontSize: "10px", cursor: "none", alignSelf: "flex-start" }}>
               {isSending ? "SENDING..." : "SEND"}
@@ -749,10 +776,6 @@ export default function Home() {
 
       <main ref={mainRef} style={{ position: "fixed", width: "100vw", height: "100vh", top: 0, left: 0, overflow: "hidden", touchAction: "none" }}>
 
-        <div ref={cursorRef} style={{ position: "fixed", top: 0, left: 0, width: "120px", height: "120px", pointerEvents: "none", zIndex: 99999, opacity: 0, willChange: "transform", transform: "translate(-9999px, -9999px)", marginLeft: "-60px", marginTop: "-60px" }}>
-          <img src="/cursor.png" alt="" style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} />
-        </div>
-
         {/* ЧЁРНЫЙ ФОН */}
         <div style={{ position: "absolute", inset: 0, background: "#000", zIndex: 2, opacity: pinkOpacity, pointerEvents: "none" }}>
           {FLOATING_INIT.map((cfg, i) => (
@@ -761,7 +784,7 @@ export default function Home() {
               <img src={cfg.src} alt="" />
             </div>
           ))}
-          <div ref={overlayRef} style={{ position: "absolute", inset: 0, zIndex: 10, pointerEvents: "auto", cursor: "none" }} />
+          <div ref={overlayRef} style={{ position: "absolute", inset: 0, zIndex: 10, pointerEvents: (showContact || !!selectedImg) ? "none" : "auto", cursor: "none" }} />
         </div>
 
         {/* I DO DESIGN */}
@@ -795,13 +818,18 @@ export default function Home() {
             <div className="text-line" style={{ fontSize: "clamp(32px,6.5vw,88px)", marginTop: "0.15em" }}>I'M A <span className="mobile-br" />DESIGNER</div>
             <div className={`text-line contact-trigger ${shaking ? "shakeY" : ""}`}
               onMouseEnter={handleContactEnter} onMouseLeave={() => setContactHovered(false)} onClick={openContact}
-              style={{ fontSize: "clamp(32px,6.5vw,88px)", marginTop: "1.6em", cursor: "none", display: "inline-block", userSelect: "none" }}>
+              style={{ fontSize: "clamp(32px,6.5vw,88px)", marginTop: "1.6em", cursor: "none", userSelect: "none", display: "block", lineHeight: 0.92, minHeight: "1.85em", overflow: "visible" }}>
               <span className="heartbeat-wrapper">{contactHovered ? "GET YOUR BEST DESIGN EVER" : "CONTACT ME"}</span>
             </div>
           </div>
         </div>
 
       </main>
+
+      {/* КУРСОР — вне <main>, поверх всех модалок */}
+      <div ref={cursorRef} style={{ position: "fixed", top: 0, left: 0, width: "120px", height: "120px", pointerEvents: "none", zIndex: 999999, opacity: 0, willChange: "transform", transform: "translate(-9999px, -9999px)", marginLeft: "-60px", marginTop: "-60px" }}>
+        <img src="/cursor.png" alt="" style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} />
+      </div>
     </>
   );
 }
