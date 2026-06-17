@@ -15,7 +15,7 @@ function shuffleWithSeed(arr: string[], seed: number): string[] {
 
 const IMG_COUNT = 20;
 const IMG_SIZE_DESKTOP = 75;
-const IMG_SIZE_MOBILE = 25; // в 3 раза меньше на телефоне
+const IMG_SIZE_MOBILE = 25;
 const getImgSize = () =>
   typeof window !== "undefined" && window.innerWidth <= 768
     ? IMG_SIZE_MOBILE
@@ -28,19 +28,16 @@ const FLOATING_INIT = Array.from({ length: IMG_COUNT }, (_, i) => {
     src: `/j${(i % 6) + 1}.jpg`,
     x: r(1) * 82 + 5,
     y: r(2) * 82 + 5,
-    vx: (r(3) - 0.5) * 120,  // px/s
+    vx: (r(3) - 0.5) * 120,
     vy: (r(4) - 0.5) * 100,
     rotation: r(6) * 360,
-    rotSpeed: (r(7) - 0.5) * 90, // быстрее вращение: ±45 °/s
+    rotSpeed: (r(7) - 0.5) * 90,
     delay: r(8) * 400,
   };
 });
 
-// ─── OBB helpers (SAT для двух квадратов) ─────────────────────────────────────
-
 type Vec2 = { x: number; y: number };
 
-/** Четыре угла квадрата со стороной S, центром (cx,cy) и углом ang (рад) */
 function getCorners(cx: number, cy: number, ang: number, S: number): Vec2[] {
   const h = S / 2;
   const cos = Math.cos(ang);
@@ -53,7 +50,6 @@ function getCorners(cx: number, cy: number, ang: number, S: number): Vec2[] {
   ];
 }
 
-/** Проекция массива точек на ось (нормализованная) → [min, max] */
 function project(pts: Vec2[], ax: Vec2): [number, number] {
   let mn = Infinity, mx = -Infinity;
   for (const p of pts) {
@@ -64,11 +60,6 @@ function project(pts: Vec2[], ax: Vec2): [number, number] {
   return [mn, mx];
 }
 
-/**
- * SAT для двух OBB-квадратов.
- * Возвращает { overlap, nx, ny } — глубину проникновения и нормаль от B к A,
- * или null если нет пересечения.
- */
 function obbCollide(
   ax: number, ay: number, aAng: number,
   bx: number, by: number, bAng: number,
@@ -76,39 +67,27 @@ function obbCollide(
 ): { overlap: number; nx: number; ny: number } | null {
   const cornersA = getCorners(ax, ay, aAng, S);
   const cornersB = getCorners(bx, by, bAng, S);
-
-  // Оси SAT: 2 для A, 2 для B (нормали к граням)
   const axes: Vec2[] = [
     { x: Math.cos(aAng), y: Math.sin(aAng) },
     { x: -Math.sin(aAng), y: Math.cos(aAng) },
     { x: Math.cos(bAng), y: Math.sin(bAng) },
     { x: -Math.sin(bAng), y: Math.cos(bAng) },
   ];
-
   let minOverlap = Infinity;
   let minAxis: Vec2 = axes[0];
-
   for (const axis of axes) {
     const [a0, a1] = project(cornersA, axis);
     const [b0, b1] = project(cornersB, axis);
     const overlap = Math.min(a1, b1) - Math.max(a0, b0);
-    if (overlap <= 0) return null; // разделяющая ось — нет коллизии
-    if (overlap < minOverlap) {
-      minOverlap = overlap;
-      minAxis = axis;
-    }
+    if (overlap <= 0) return null;
+    if (overlap < minOverlap) { minOverlap = overlap; minAxis = axis; }
   }
-
-  // Убеждаемся, что нормаль направлена от B к A
   const dx = ax - bx;
   const dy = ay - by;
   const dot = dx * minAxis.x + dy * minAxis.y;
   const sign = dot < 0 ? -1 : 1;
-
   return { overlap: minOverlap, nx: minAxis.x * sign, ny: minAxis.y * sign };
 }
-
-// ──────────────────────────────────────────────────────────────────────────────
 
 export default function Home() {
   const [videoSrc, setVideoSrc] = useState("/me.mp4");
@@ -136,12 +115,11 @@ export default function Home() {
   const floatingRefs = useRef<(HTMLDivElement | null)[]>(Array(IMG_COUNT).fill(null));
   const cursorRef = useRef<HTMLDivElement>(null);
 
-  // Физика хранится в ref — нет ре-рендеров
   const physState = useRef(
-    FLOATING_INIT.map(cfg => ({
-      x: 0, y: 0,       // центр в px
+    FLOATING_INIT.map(() => ({
+      x: 0, y: 0,
       vx: 0, vy: 0,
-      ang: 0,            // угол в радианах
+      ang: 0,
       rotSpeed: 0,
       initialized: false,
     }))
@@ -149,15 +127,12 @@ export default function Home() {
   const rafRef = useRef<number | null>(null);
   const lastTimeRef = useRef<number>(0);
 
-  // Гироскоп: наклон → гравитация для картинок (только мобильный)
-  const gyroRef = useRef({ gx: 0, gy: 0 }); // px/s² — ускорение от наклона
-  // Тряска: последнее суммарное ускорение для детекта
+  const gyroRef = useRef({ gx: 0, gy: 0 });
   const shakeRef = useRef({ lastAcc: 0, lastShakeTime: 0 });
 
-  // Взрыв: вызывается из обработчика click/touchend
   const explodeFromPoint = (px: number, py: number) => {
-    const BLAST_FORCE = 55000; // чем больше — тем сильнее разлёт
-    const MIN_DIST = 60;    // минимальное расстояние (предотвращает деление на 0)
+    const BLAST_FORCE = 55000;
+    const MIN_DIST = 60;
     physState.current.forEach(s => {
       if (!s.initialized) return;
       const dx = s.x - px;
@@ -166,75 +141,56 @@ export default function Home() {
       const force = BLAST_FORCE / (dist * dist);
       s.vx += (dx / dist) * force;
       s.vy += (dy / dist) * force;
-      // Подбрасываем скорость вращения при взрыве
       s.rotSpeed += ((Math.random() - 0.5) * 8);
     });
   };
 
   const GAP = 20;
 
-  // ── Гироскоп и тряска (только мобильный) ──────────────────────────────────
   useEffect(() => {
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
     if (!isMobile) return;
-
-    // Наклон → гравитация
     const handleOrientation = (e: DeviceOrientationEvent) => {
       const gamma = e.gamma ?? 0;
       const beta = e.beta ?? 0;
       const clampedBeta = Math.max(-90, Math.min(90, beta));
-      const TILT_SCALE = 14;
-      gyroRef.current.gx = gamma * TILT_SCALE;
-      gyroRef.current.gy = clampedBeta * TILT_SCALE;
+      gyroRef.current.gx = gamma * 14;
+      gyroRef.current.gy = clampedBeta * 14;
     };
-
-    // Тряска → взрыв из центра
     const handleMotion = (e: DeviceMotionEvent) => {
-      // Используем acceleration (без гравитации) если доступно, иначе с гравитацией
       const raw = e.acceleration ?? e.accelerationIncludingGravity;
       if (!raw) return;
-      const total = Math.sqrt(
-        (raw.x ?? 0) ** 2 + (raw.y ?? 0) ** 2 + (raw.z ?? 0) ** 2
-      );
+      const total = Math.sqrt((raw.x ?? 0) ** 2 + (raw.y ?? 0) ** 2 + (raw.z ?? 0) ** 2);
       const shake = shakeRef.current;
       const delta = Math.abs(total - shake.lastAcc);
       shake.lastAcc = total;
       const now = Date.now();
-      // Порог: резкое изменение > 20 м/с², не чаще раза в 700мс
       if (delta > 20 && now - shake.lastShakeTime > 700) {
         shake.lastShakeTime = now;
         explodeFromPoint(window.innerWidth / 2, window.innerHeight / 2);
       }
     };
-
     const addListeners = () => {
       window.addEventListener("deviceorientation", handleOrientation, true);
       window.addEventListener("devicemotion", handleMotion, true);
     };
-
     const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
     const DOE = DeviceOrientationEvent as any;
-
     if (isIOS && typeof DOE.requestPermission === "function") {
-      // iOS 13+: разрешение нужно запрашивать строго в ответ на жест пользователя
       const handleFirstTouch = async () => {
-        try {
-          const res = await DOE.requestPermission();
-          if (res === "granted") addListeners();
-        } catch (_) { }
+        try { const res = await DOE.requestPermission(); if (res === "granted") addListeners(); } catch (_) { }
         window.removeEventListener("touchstart", handleFirstTouch);
       };
       window.addEventListener("touchstart", handleFirstTouch, { once: true });
     } else {
-      // Android и старый iOS — просто вешаем слушатели
       addListeners();
     }
-
     return () => {
       window.removeEventListener("deviceorientation", handleOrientation, true);
       window.removeEventListener("devicemotion", handleMotion, true);
     };
   }, []);
+
   const ALL_IMAGES = [
     "/1.jpg", "/2.jpg", "/3.jpg", "/4.jpg", "/5.jpg", "/6.jpg", "/7.jpg",
     "/8.jpg", "/9.jpg", "/10.jpg", "/11.jpg", "/12.jpg", "/13.jpg", "/14.jpg",
@@ -253,12 +209,14 @@ export default function Home() {
   const SCROLL_PER_UNIT = 800;
   const TOTAL_SCROLL = 3 * SCROLL_PER_UNIT;
 
-  // ── Главный анимационный цикл ──────────────────────────────────────────────
+  // ref на сам текстовый span — чтобы getBoundingClientRect() давал точные границы слов
+  const iDoDesignTextRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
-    const DAMPING = 0.988;   // чуть больше гашения = плавнее
+    const DAMPING = 0.988;
     const MAX_SPEED = 1400;
-    const BOUNCE = 0.35;    // мягкий отскок — меньше дёрганья
-    const CORRECTION_BIAS = 0.4; // доля коррекции за кадр (< 1 = плавно)
+    const BOUNCE = 0.35;
+    const CORRECTION_BIAS = 0.4;
 
     const animate = (time: number) => {
       const dt = lastTimeRef.current
@@ -268,10 +226,9 @@ export default function Home() {
 
       const W = window.innerWidth;
       const H = window.innerHeight;
-      const S = getImgSize(); // размер зависит от ширины экрана
+      const S = getImgSize();
       const states = physState.current;
 
-      // Инициализация центров в px
       states.forEach((s, i) => {
         if (!s.initialized) {
           s.x = FLOATING_INIT[i].x / 100 * W;
@@ -284,27 +241,22 @@ export default function Home() {
         }
       });
 
-      // ── OBB коллизии (SAT) ──────────────────────────────────────────────
+      // OBB коллизии между картинками
       for (let i = 0; i < IMG_COUNT; i++) {
         for (let j = i + 1; j < IMG_COUNT; j++) {
           const a = states[i];
           const b = states[j];
-
           const result = obbCollide(a.x, a.y, a.ang, b.x, b.y, b.ang, S);
           if (!result) continue;
-
           const { overlap, nx, ny } = result;
-
           const correction = overlap * CORRECTION_BIAS;
           a.x += nx * correction;
           a.y += ny * correction;
           b.x -= nx * correction;
           b.y -= ny * correction;
-
           const dvx = a.vx - b.vx;
           const dvy = a.vy - b.vy;
           const relVn = dvx * nx + dvy * ny;
-
           if (relVn < 0) {
             const impulse = -(1 + BOUNCE) * relVn / 2;
             a.vx += impulse * nx;
@@ -315,7 +267,7 @@ export default function Home() {
         }
       }
 
-      // ── Интегрирование + стены ──────────────────────────────────────────
+      // Интегрирование + стены
       const { gx, gy } = gyroRef.current;
       states.forEach((s, i) => {
         s.vx += gx * dt;
@@ -342,75 +294,55 @@ export default function Home() {
         }
       });
 
-      // ── Коллизия с текстом "I DO DESIGN" — после интегрирования ────────
-      // Выполняется ПОСЛЕ move чтобы не было двойного сдвига
-      const textEl = iDoDesignRef.current;
+      // Коллизия с текстом "I DO DESIGN"
+      // rect берётся один раз за кадр и кешируется
+      const textEl = iDoDesignTextRef.current;
       if (textEl) {
         const r = textEl.getBoundingClientRect();
-        if (r.width > 10 && r.top < H - 10 && r.bottom > 10) {
-          const tx = r.left + r.width / 2;
-          const ty = r.top + r.height / 2;
-          const tw = r.width;
-          const th = r.height;
+        const textVisible = r.width > 10 && r.height > 10
+          && r.top < H && r.bottom > 0 && r.left < W && r.right > 0;
 
-          // Углы AABB текста
-          const textCorners = [
-            { x: tx - tw / 2, y: ty - th / 2 },
-            { x: tx + tw / 2, y: ty - th / 2 },
-            { x: tx + tw / 2, y: ty + th / 2 },
-            { x: tx - tw / 2, y: ty + th / 2 },
-          ];
-
-          // Статичные оси текста (AABB — только X и Y)
-          const textAxes = [
-            { x: 1, y: 0 },
-            { x: 0, y: 1 },
-          ];
+        if (textVisible) {
+          const half = S / 2;
+          const cx = (r.left + r.right) * 0.5;
+          const cy = (r.top + r.bottom) * 0.5;
 
           for (let i = 0; i < IMG_COUNT; i++) {
             const s = states[i];
             if (!s.initialized) continue;
 
-            const corners = getCorners(s.x, s.y, s.ang, S);
+            // Расширенный rect: прямоугольник текста + половина картинки со всех сторон
+            // Это эквивалентно Minkowski sum — коллизия когда центры касаются
+            const eL = r.left - half;
+            const eR = r.right + half;
+            const eT = r.top - half;
+            const eB = r.bottom + half;
 
-            // SAT: 2 оси от картинки + 2 оси от текста
-            const axes = [
-              { x: Math.cos(s.ang), y: Math.sin(s.ang) },
-              { x: -Math.sin(s.ang), y: Math.cos(s.ang) },
-              ...textAxes,
-            ];
+            if (s.x <= eL || s.x >= eR || s.y <= eT || s.y >= eB) continue;
 
-            let minOv = Infinity;
-            let minAx = axes[0];
-            let sep = false;
+            // Перекрытие по каждой стороне расширенного rect
+            const dL = s.x - eL;  // расстояние от левой границы
+            const dR = eR - s.x;  // от правой
+            const dT = s.y - eT;  // от верхней
+            const dB = eB - s.y;  // от нижней
 
-            for (const ax of axes) {
-              const [a0, a1] = project(corners, ax);
-              const [b0, b1] = project(textCorners, ax);
-              const ov = Math.min(a1, b1) - Math.max(a0, b0);
-              if (ov <= 0) { sep = true; break; }
-              if (ov < minOv) { minOv = ov; minAx = ax; }
-            }
+            // Минимальная ось выталкивания
+            const minD = Math.min(dL, dR, dT, dB);
+            let nx = 0, ny = 0;
+            if (minD === dL) { nx = -1; }
+            else if (minD === dR) { nx = 1; }
+            else if (minD === dT) { ny = -1; }
+            else { ny = 1; }
 
-            if (sep) continue;
+            // Выталкиваем центр картинки за границу одним точным шагом
+            s.x += nx * (minD + 0.5);
+            s.y += ny * (minD + 0.5);
 
-            // Нормаль от текста к картинке
-            const ddx = s.x - tx;
-            const ddy = s.y - ty;
-            const sign = (ddx * minAx.x + ddy * minAx.y) < 0 ? -1 : 1;
-            const nx = minAx.x * sign;
-            const ny = minAx.y * sign;
-
-            // Мягкая коррекция — только 20% за кадр, картинка выходит плавно
-            s.x += nx * minOv * 0.2;
-            s.y += ny * minOv * 0.2;
-
-            // Импульс только если летит В текст (не из него)
-            const relVn = s.vx * nx + s.vy * ny;
-            if (relVn < 0) {
-              // Мягкий bounce = 0.2 — не рывок, а мягкое отражение
-              s.vx -= relVn * nx * 1.2;
-              s.vy -= relVn * ny * 1.2;
+            // Отражаем только входящую компоненту скорости (elastic, без усиления)
+            const vn = s.vx * nx + s.vy * ny;
+            if (vn < 0) {
+              s.vx -= vn * nx * (1 + BOUNCE);
+              s.vy -= vn * ny * (1 + BOUNCE);
             }
           }
         }
@@ -423,7 +355,6 @@ export default function Home() {
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
   }, []);
 
-  // ── Просмотр плавающей картинки ─────────────────────────────────────────────
   const openImg = (src: string) => {
     setSelectedImg(src);
     requestAnimationFrame(() => requestAnimationFrame(() => setImgVisible(true)));
@@ -433,10 +364,6 @@ export default function Home() {
     setTimeout(() => setSelectedImg(null), 400);
   };
 
-  /**
-   * Проверяет, попал ли клик (cx, cy) в какую-либо плавающую картинку.
-   * Использует физические координаты и текущий угол из physState.
-   */
   const hitTestFloating = (cx: number, cy: number): string | null => {
     const S = getImgSize();
     const h = S / 2;
@@ -444,7 +371,6 @@ export default function Home() {
     for (let i = IMG_COUNT - 1; i >= 0; i--) {
       const s = states[i];
       if (!s.initialized) continue;
-      // Переводим точку клика в локальные координаты картинки (отменяем поворот)
       const dx = cx - s.x;
       const dy = cy - s.y;
       const cos = Math.cos(-s.ang);
@@ -458,7 +384,6 @@ export default function Home() {
     return null;
   };
 
-  // ── Контактная форма ────────────────────────────────────────────────────────
   const openContact = () => {
     setShowContact(true);
     requestAnimationFrame(() => requestAnimationFrame(() => setContactVisible(true)));
@@ -509,19 +434,18 @@ export default function Home() {
   const calcTileSize = () => Math.floor((window.innerHeight - GAP * 6) / 5);
   const getRowWidth = () => (calcTileSize() + GAP) * ALL_IMAGES.length + GAP;
 
+  const iDoDesignRef = useRef<HTMLDivElement>(null);
+
   const applyAnimations = (scrollY: number, deltaY = 0) => {
     const unit = scrollY / SCROLL_PER_UNIT;
     setPinkOpacity(Math.max(0, 1 - Math.max(0, (unit - 0.8) / 0.4)));
 
-    // ── "I DO DESIGN": въезжает снизу при первом скролле, уходит вверх ──
     if (iDoDesignRef.current) {
-      // 0→0.35: въезжает снизу → центр
-      // 0.35→0.75: уходит вверх за экран
       let ty: number;
       if (unit <= 0.35) {
-        ty = (1 - unit / 0.35) * 110; // 110vh → 0
+        ty = (1 - unit / 0.35) * 110;
       } else if (unit <= 0.75) {
-        ty = -((unit - 0.35) / 0.4) * 110; // 0 → -110vh
+        ty = -((unit - 0.35) / 0.4) * 110;
       } else {
         ty = -110;
       }
@@ -533,9 +457,7 @@ export default function Home() {
               "1";
     }
 
-    // ── При скролле вниз — толкаем картинки вверх ────────────────────────
     if (deltaY > 0 && unit < 0.9) {
-      // Скролл вниз — картинки летят вверх
       const pushForce = Math.min(deltaY * 18, 900);
       physState.current.forEach(s => {
         if (!s.initialized) return;
@@ -543,7 +465,6 @@ export default function Home() {
         s.rotSpeed += (Math.random() - 0.5) * 4;
       });
     } else if (deltaY < 0 && unit < 0.9) {
-      // Скролл вверх — картинки летят вниз (возвращаются)
       const pushForce = Math.min(Math.abs(deltaY) * 18, 900);
       physState.current.forEach(s => {
         if (!s.initialized) return;
@@ -562,7 +483,6 @@ export default function Home() {
       const offLeft = -rowWidth;
       const startX = rev ? offLeft : offRight;
       const endX = rev ? offRight : offLeft;
-
       if (unit < 1) {
         track.style.opacity = "0";
         track.style.transform = `translate3d(${startX}px, 0, 0)`;
@@ -588,10 +508,8 @@ export default function Home() {
 
   const mainRef = useRef<HTMLElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
-  const iDoDesignRef = useRef<HTMLDivElement>(null);
-  const lastScrollRef = useRef(0); // для детекта направления и дельты
+  const lastScrollRef = useRef(0);
 
-  // Скролл: wheel + touch-свайп + тап
   useEffect(() => {
     const handleWheel = (e: WheelEvent) => {
       if (showContact) return;
@@ -599,11 +517,9 @@ export default function Home() {
       scrollRef.current = Math.max(0, Math.min(scrollRef.current + e.deltaY, TOTAL_SCROLL));
       applyAnimations(scrollRef.current, e.deltaY);
     };
-
     let touchStartY = 0;
     let touchStartX = 0;
     let touchMoved = false;
-
     const handleTouchStart = (e: TouchEvent) => {
       if (showContact) return;
       touchStartY = e.touches[0].clientY;
@@ -611,7 +527,6 @@ export default function Home() {
       touchMoved = false;
       if (videoRef.current?.paused) videoRef.current.play().catch(() => { });
     };
-
     const handleTouchMove = (e: TouchEvent) => {
       if (showContact) return;
       e.preventDefault();
@@ -622,29 +537,19 @@ export default function Home() {
       scrollRef.current = Math.max(0, Math.min(scrollRef.current + dy * 2.5, TOTAL_SCROLL));
       applyAnimations(scrollRef.current, dy * 2.5);
     };
-
-    // Тап без свайпа → курсор перемещается всегда, затем проверяем картинку или взрыв
     const handleTouchEnd = (e: TouchEvent) => {
       if (showContact || selectedImg) return;
       if (!touchMoved) {
         const t = e.changedTouches[0];
-
-        // Курсор плавно летит к точке тапа — всегда, на всём сайте
         if (cursorRef.current) {
           cursorRef.current.style.transition = "transform 0.9s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease";
           cursorRef.current.style.transform = `translate(${t.clientX}px, ${t.clientY}px)`;
           cursorRef.current.style.opacity = "1";
         }
-
         const hit = hitTestFloating(t.clientX, t.clientY);
-        if (hit) {
-          openImg(hit);
-        } else {
-          explodeFromPoint(t.clientX, t.clientY);
-        }
+        if (hit) { openImg(hit); } else { explodeFromPoint(t.clientX, t.clientY); }
       }
     };
-
     const el = mainRef.current;
     if (!el) return;
     window.addEventListener("wheel", handleWheel, { passive: false });
@@ -659,17 +564,13 @@ export default function Home() {
     };
   }, [showContact, selectedImg]);
 
-  // Курсор на десктопе — следует за мышью по всему окну, без transition
   useEffect(() => {
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
     if (isMobile) return;
-
-    // Показываем курсор сразу
     if (cursorRef.current) {
       cursorRef.current.style.opacity = "1";
       cursorRef.current.style.transition = "none";
     }
-
     const handleMouseMove = (e: MouseEvent) => {
       if (cursorRef.current) {
         cursorRef.current.style.transition = "none";
@@ -678,18 +579,14 @@ export default function Home() {
       if (showContact || selectedImg) return;
       explodeFromPoint(e.clientX, e.clientY);
     };
-
     const handleClick = (e: MouseEvent) => {
       if (showContact || selectedImg) return;
       const hit = hitTestFloating(e.clientX, e.clientY);
       if (hit) openImg(hit);
     };
-
     window.addEventListener("mousemove", handleMouseMove);
-
     const overlay = overlayRef.current;
     if (overlay) overlay.addEventListener("click", handleClick);
-
     return () => {
       window.removeEventListener("mousemove", handleMouseMove);
       if (overlay) overlay.removeEventListener("click", handleClick);
@@ -785,9 +682,7 @@ export default function Home() {
           opacity: 0;
           box-shadow: 0 4px 16px rgba(0,0,0,0.18);
         }
-        .floating-img img {
-          width: 100%; height: 100%; object-fit: cover; display: block;
-        }
+        .floating-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
         @media(max-width:768px){
           .floating-img { width: 25px; height: 25px; border-radius: 4px; }
         }
@@ -838,29 +733,15 @@ export default function Home() {
       )}
 
       {selectedImg && (
-        <div
-          onClick={(e) => e.target === e.currentTarget && closeImg()}
-          style={{ position: "fixed", inset: 0, zIndex: 10000, background: imgVisible ? "rgba(0,0,0,0.7)" : "rgba(0,0,0,0)", transition: "background 0.4s ease", display: "flex", alignItems: "center", justifyContent: "center" }}
-        >
-          <div style={{
-            background: "#fff", color: "#000",
-            width: "min(520px,90vw)", aspectRatio: "1/1",
-            padding: "clamp(24px,5vw,40px)",
-            transform: imgVisible ? "translate3d(0,0,0)" : "translate3d(0,60px,0)",
-            opacity: imgVisible ? 1 : 0,
-            transition: "transform 0.4s cubic-bezier(0.32,0.72,0,1), opacity 0.4s ease",
-            display: "flex", flexDirection: "column", justifyContent: "space-between",
-          }}>
+        <div onClick={(e) => e.target === e.currentTarget && closeImg()}
+          style={{ position: "fixed", inset: 0, zIndex: 10000, background: imgVisible ? "rgba(0,0,0,0.7)" : "rgba(0,0,0,0)", transition: "background 0.4s ease", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ background: "#fff", color: "#000", width: "min(520px,90vw)", aspectRatio: "1/1", padding: "clamp(24px,5vw,40px)", transform: imgVisible ? "translate3d(0,0,0)" : "translate3d(0,60px,0)", opacity: imgVisible ? 1 : 0, transition: "transform 0.4s cubic-bezier(0.32,0.72,0,1), opacity 0.4s ease", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
               <div className="card-title" style={{ fontSize: "clamp(18px,3.2vw,28px)", lineHeight: 1 }}>WORK</div>
               <button onClick={closeImg} style={{ background: "none", border: "none", fontSize: "24px", cursor: "none", color: "#000" }}>×</button>
             </div>
             <div style={{ flexGrow: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "clamp(12px,3vw,24px) 0" }}>
-              <img
-                src={selectedImg}
-                alt=""
-                style={{ width: "100%", height: "100%", objectFit: "contain", display: "block", borderRadius: "4px" }}
-              />
+              <img src={selectedImg} alt="" style={{ width: "100%", height: "100%", objectFit: "contain", display: "block", borderRadius: "4px" }} />
             </div>
           </div>
         </div>
@@ -868,95 +749,33 @@ export default function Home() {
 
       <main ref={mainRef} style={{ position: "fixed", width: "100vw", height: "100vh", top: 0, left: 0, overflow: "hidden", touchAction: "none" }}>
 
-        {/* ГИГАНТСКИЙ КАСТОМНЫЙ КУРСОР */}
-        <div
-          ref={cursorRef}
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            width: "120px",
-            height: "120px",
-            pointerEvents: "none",
-            zIndex: 99999,
-            opacity: 0,
-            willChange: "transform",
-            transform: "translate(-9999px, -9999px)",
-            marginLeft: "-60px",
-            marginTop: "-60px",
-          }}
-        >
-          <img
-            src="/cursor.png"
-            alt=""
-            style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
-          />
+        <div ref={cursorRef} style={{ position: "fixed", top: 0, left: 0, width: "120px", height: "120px", pointerEvents: "none", zIndex: 99999, opacity: 0, willChange: "transform", transform: "translate(-9999px, -9999px)", marginLeft: "-60px", marginTop: "-60px" }}>
+          <img src="/cursor.png" alt="" style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} />
         </div>
 
         {/* ЧЁРНЫЙ ФОН */}
         <div style={{ position: "absolute", inset: 0, background: "#000", zIndex: 2, opacity: pinkOpacity, pointerEvents: "none" }}>
           {FLOATING_INIT.map((cfg, i) => (
-            <div
-              key={i}
-              ref={(el) => { floatingRefs.current[i] = el; }}
-              className="floating-img"
-              style={{
-                left: `${cfg.x}%`,
-                top: `${cfg.y}%`,
-                ["--delay" as any]: `${cfg.delay}ms`,
-                ["--rot" as any]: `${cfg.rotation}deg`,
-              }}
-            >
+            <div key={i} ref={(el) => { floatingRefs.current[i] = el; }} className="floating-img"
+              style={{ left: `${cfg.x}%`, top: `${cfg.y}%`, ["--delay" as any]: `${cfg.delay}ms`, ["--rot" as any]: `${cfg.rotation}deg` }}>
               <img src={cfg.src} alt="" />
             </div>
           ))}
-          {/* Прозрачный оверлей для mousemove — поверх картинок, только на десктопе */}
-          <div
-            ref={overlayRef}
-            style={{
-              position: "absolute", inset: 0, zIndex: 10,
-              pointerEvents: "auto",
-              cursor: "none",
-            }}
-          />
+          <div ref={overlayRef} style={{ position: "absolute", inset: 0, zIndex: 10, pointerEvents: "auto", cursor: "none" }} />
         </div>
 
-        {/* I DO DESIGN — выезжает снизу при скролле */}
-        <div
-          ref={iDoDesignRef}
-          style={{
-            position: "absolute",
-            inset: 0,
-            zIndex: 5,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            pointerEvents: "none",
-            transform: "translateY(110vh)",
-            opacity: 0,
-            willChange: "transform, opacity",
-          }}
-        >
-          <div style={{
-            fontFamily: "'Arial Black', Arial, sans-serif",
-            fontWeight: 900,
-            fontSize: "clamp(28px, 7vw, 96px)",
-            letterSpacing: "-0.04em",
-            color: "white",
-            textAlign: "center",
-            lineHeight: 1,
-            whiteSpace: "nowrap",
-          }}>
+        {/* I DO DESIGN */}
+        <div ref={iDoDesignRef} style={{ position: "absolute", inset: 0, zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none", transform: "translateY(110vh)", opacity: 0, willChange: "transform, opacity" }}>
+          {/* ref на сам текст — getBoundingClientRect() даст точные границы */}
+          <div ref={iDoDesignTextRef} style={{ fontFamily: "'Arial Black', Arial, sans-serif", fontWeight: 900, fontSize: "clamp(28px, 7vw, 96px)", letterSpacing: "-0.04em", color: "white", textAlign: "center", lineHeight: 1, whiteSpace: "nowrap" }}>
             I DO DESIGN
           </div>
         </div>
 
-        {/* ВИДЕО */}
         <video ref={videoRef} src={videoSrc} muted loop autoPlay playsInline
           style={{ position: "absolute", top: 0, left: 0, width: "100vw", height: "100vh", objectFit: "cover", zIndex: 0, opacity: 0 }} />
         <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1, opacity: videoOpacity, pointerEvents: "none" }} />
 
-        {/* 5 РЯДОВ */}
         <div style={{ position: "absolute", inset: 0, zIndex: 3, overflow: "hidden", pointerEvents: "none", display: "flex", flexDirection: "column", justifyContent: "center", gap: `${GAP}px`, padding: `${GAP}px 0` }}>
           {ROWS.map((images, rowIndex) => (
             <div key={rowIndex} ref={(el) => { trackRefs.current[rowIndex] = el; }}
@@ -970,7 +789,6 @@ export default function Home() {
           ))}
         </div>
 
-        {/* ТЕКСТ */}
         <div ref={textRef} style={{ position: "absolute", inset: 0, zIndex: 10, display: "flex", alignItems: "center", padding: "0 clamp(20px,6vw,80px)", opacity: 0, transform: "translate3d(0,40px,0)", willChange: "transform,opacity", pointerEvents: "none" }}>
           <div style={{ display: "flex", flexDirection: "column", width: "100%" }}>
             <div className="text-line" style={{ fontSize: "clamp(32px,6.5vw,88px)" }}>MY NAME <span className="mobile-br" />IS ARTEM</div>
