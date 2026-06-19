@@ -13,9 +13,9 @@ function shuffleWithSeed(arr: string[], seed: number): string[] {
   return a;
 }
 
-const IMG_COUNT = 20;
-const IMG_SIZE_DESKTOP = 75;
-const IMG_SIZE_MOBILE = 25;
+const IMG_COUNT = 50;
+const IMG_SIZE_DESKTOP = 60;
+const IMG_SIZE_MOBILE = 20;
 const getImgSize = () =>
   typeof window !== "undefined" && window.innerWidth <= 768
     ? IMG_SIZE_MOBILE
@@ -31,7 +31,7 @@ const FLOATING_INIT = Array.from({ length: IMG_COUNT }, (_, i) => {
     vx: (r(3) - 0.5) * 120,
     vy: (r(4) - 0.5) * 100,
     rotation: r(6) * 360,
-    rotSpeed: (r(7) - 0.5) * 90,
+    rotSpeed: (r(7) - 0.5) * 120,
     delay: r(8) * 400,
   };
 });
@@ -132,18 +132,25 @@ export default function Home() {
   // Предыдущий rect текста — для swept collision при быстром скролле
   const prevTextRectRef = useRef<DOMRect | null>(null);
 
-  const explodeFromPoint = (px: number, py: number) => {
-    const BLAST_FORCE = 55000;
-    const MIN_DIST = 60;
+  const explodeFromPoint = (px: number, py: number, radius: number = 260, maxForce: number = 9000) => {
     physState.current.forEach(s => {
       if (!s.initialized) return;
       const dx = s.x - px;
       const dy = s.y - py;
-      const dist = Math.max(Math.sqrt(dx * dx + dy * dy), MIN_DIST);
-      const force = BLAST_FORCE / (dist * dist);
-      s.vx += (dx / dist) * force;
-      s.vy += (dy / dist) * force;
-      s.rotSpeed += ((Math.random() - 0.5) * 8);
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      // За пределами радиуса — никакого воздействия вообще
+      if (dist >= radius) return;
+
+      // Внутри радиуса: плавный спад от центра к краю (0 на границе, max в центре)
+      // Квадратичный falloff — мягче чем 1/dist², без резкого скачка
+      const t = 1 - dist / radius;        // 0..1, 1 = прямо в курсоре
+      const force = maxForce * t * t;     // квадратичное усиление к центру
+
+      const safeDist = Math.max(dist, 1); // защита от деления на 0
+      s.vx += (dx / safeDist) * force * (1 / 16); // нормируем под dt~16мс шаг
+      s.vy += (dy / safeDist) * force * (1 / 16);
+      s.rotSpeed += ((Math.random() - 0.5) * 8) * t;
     });
   };
 
@@ -169,7 +176,7 @@ export default function Home() {
       const now = Date.now();
       if (delta > 20 && now - shake.lastShakeTime > 700) {
         shake.lastShakeTime = now;
-        explodeFromPoint(window.innerWidth / 2, window.innerHeight / 2);
+        explodeFromPoint(window.innerWidth / 2, window.innerHeight / 2, 9999, 60000);
       }
     };
     const addListeners = () => {
@@ -271,6 +278,8 @@ export default function Home() {
 
       // Интегрирование + стены
       const { gx, gy } = gyroRef.current;
+      const ROT_DAMPING = 0.985;       // вращение тоже затухает со временем
+      const MAX_ROT_SPEED = 14;        // рад/с — предел, чтобы не "бесило" после серии столкновений
       states.forEach((s, i) => {
         s.vx += gx * dt;
         s.vy += gy * dt;
@@ -278,6 +287,12 @@ export default function Home() {
         s.vy *= DAMPING;
         const sp = Math.sqrt(s.vx * s.vx + s.vy * s.vy);
         if (sp > MAX_SPEED) { s.vx = s.vx / sp * MAX_SPEED; s.vy = s.vy / sp * MAX_SPEED; }
+
+        // Вращение: лёгкое трение + жёсткий потолок скорости
+        s.rotSpeed *= ROT_DAMPING;
+        if (s.rotSpeed > MAX_ROT_SPEED) s.rotSpeed = MAX_ROT_SPEED;
+        if (s.rotSpeed < -MAX_ROT_SPEED) s.rotSpeed = -MAX_ROT_SPEED;
+
         s.x += s.vx * dt;
         s.y += s.vy * dt;
         s.ang += s.rotSpeed * dt;
@@ -553,7 +568,7 @@ export default function Home() {
           cursorRef.current.style.opacity = "1";
         }
         const hit = hitTestFloating(t.clientX, t.clientY);
-        if (hit) { openImg(hit); } else { explodeFromPoint(t.clientX, t.clientY); }
+        if (hit) { openImg(hit); } else { explodeFromPoint(t.clientX, t.clientY, 9999, 60000); }
       }
     };
     const el = mainRef.current;
@@ -689,8 +704,8 @@ export default function Home() {
         .card-input{font-weight:900!important;letter-spacing:-0.02em}
         .card-btn{font-weight:900!important;letter-spacing:0.15em}
         @keyframes floatIn {
-          from { opacity:0; transform:scale(0.6) rotate(var(--rot)); }
-          to   { opacity:1; transform:scale(1)   rotate(var(--rot)); }
+          from { opacity:0; }
+          to   { opacity:1; }
         }
         .floating-img {
           position: absolute;
@@ -704,6 +719,9 @@ export default function Home() {
           animation: floatIn 0.4s ease forwards;
           animation-delay: var(--delay);
           opacity: 0;
+          /* стартовый угол + лёгкий scale-in задаются инлайн через JS/style,
+             чтобы не конфликтовать с transform от физики после монтирования */
+          transform: scale(0.6) rotate(var(--rot));
           box-shadow: 0 4px 16px rgba(0,0,0,0.18);
         }
         .floating-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
