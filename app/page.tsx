@@ -114,6 +114,7 @@ export default function Home() {
 
   const floatingRefs = useRef<(HTMLDivElement | null)[]>(Array(IMG_COUNT).fill(null));
   const cursorRef = useRef<HTMLDivElement>(null);
+  const trailCanvasRef = useRef<HTMLCanvasElement>(null);
 
   const physState = useRef(
     FLOATING_INIT.map(() => ({
@@ -122,6 +123,7 @@ export default function Home() {
       ang: 0,
       rotSpeed: 0,
       initialized: false,
+      trail: [] as { x: number; y: number }[], // история позиций для трейла
     }))
   );
   const rafRef = useRef<number | null>(null);
@@ -139,16 +141,13 @@ export default function Home() {
       const dy = s.y - py;
       const dist = Math.sqrt(dx * dx + dy * dy);
 
-      // За пределами радиуса — никакого воздействия вообще
       if (dist >= radius) return;
 
-      // Внутри радиуса: плавный спад от центра к краю (0 на границе, max в центре)
-      // Квадратичный falloff — мягче чем 1/dist², без резкого скачка
-      const t = 1 - dist / radius;        // 0..1, 1 = прямо в курсоре
-      const force = maxForce * t * t;     // квадратичное усиление к центру
+      const t = 1 - dist / radius;
+      const force = maxForce * t * t;
 
-      const safeDist = Math.max(dist, 1); // защита от деления на 0
-      s.vx += (dx / safeDist) * force * (1 / 16); // нормируем под dt~16мс шаг
+      const safeDist = Math.max(dist, 1);
+      s.vx += (dx / safeDist) * force * (1 / 16);
       s.vy += (dy / safeDist) * force * (1 / 16);
       s.rotSpeed += ((Math.random() - 0.5) * 8) * t;
     });
@@ -218,7 +217,6 @@ export default function Home() {
   const SCROLL_PER_UNIT = 800;
   const TOTAL_SCROLL = 3 * SCROLL_PER_UNIT;
 
-  // ref на сам текстовый span — чтобы getBoundingClientRect() давал точные границы слов
   const iDoDesignTextRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -278,8 +276,22 @@ export default function Home() {
 
       // Интегрирование + стены
       const { gx, gy } = gyroRef.current;
-      const ROT_DAMPING = 0.985;       // вращение тоже затухает со временем
-      const MAX_ROT_SPEED = 14;        // рад/с — предел, чтобы не "бесило" после серии столкновений
+      const ROT_DAMPING = 0.985;
+      const MAX_ROT_SPEED = 14;
+
+      // НАСТРОЙКА CANVAS ДЛЯ ТРЕЙСОВ
+      const ctx = trailCanvasRef.current?.getContext("2d");
+      if (ctx) {
+        if (ctx.canvas.width !== W || ctx.canvas.height !== H) {
+          ctx.canvas.width = W;
+          ctx.canvas.height = H;
+        }
+        ctx.clearRect(0, 0, W, H);
+        ctx.strokeStyle = "white"; // Тонкая белая линия
+        ctx.lineWidth = 1;         // Ширина 1px
+        ctx.lineCap = "round";
+      }
+
       states.forEach((s, i) => {
         s.vx += gx * dt;
         s.vy += gy * dt;
@@ -288,7 +300,6 @@ export default function Home() {
         const sp = Math.sqrt(s.vx * s.vx + s.vy * s.vy);
         if (sp > MAX_SPEED) { s.vx = s.vx / sp * MAX_SPEED; s.vy = s.vy / sp * MAX_SPEED; }
 
-        // Вращение: лёгкое трение + жёсткий потолок скорости
         s.rotSpeed *= ROT_DAMPING;
         if (s.rotSpeed > MAX_ROT_SPEED) s.rotSpeed = MAX_ROT_SPEED;
         if (s.rotSpeed < -MAX_ROT_SPEED) s.rotSpeed = -MAX_ROT_SPEED;
@@ -309,10 +320,21 @@ export default function Home() {
           el.style.height = `${S}px`;
           el.style.transform = `rotate(${s.ang}rad)`;
         }
+
+        // ЛОГИКА ОТРИСОВКИ ТРЕЙСА
+        s.trail.push({ x: s.x, y: s.y });
+        if (s.trail.length > 15) s.trail.shift(); // Ограничиваем длину хвоста 15 точками
+
+        if (ctx && s.trail.length > 1) {
+          ctx.beginPath();
+          ctx.moveTo(s.trail[0].x, s.trail[0].y);
+          for (let p of s.trail) {
+            ctx.lineTo(p.x, p.y);
+          }
+          ctx.stroke();
+        }
       });
 
-      // Коллизия с текстом "I DO DESIGN" — swept AABB (union prev+current rect)
-      // Это предотвращает "пролёт насквозь" при быстром скролле
       const textEl = iDoDesignTextRef.current;
       if (textEl) {
         const r = textEl.getBoundingClientRect();
@@ -323,14 +345,11 @@ export default function Home() {
         if (textVisible) {
           const half = S / 2;
 
-          // Union rect: объединяем текущий и предыдущий rect текста
-          // Так покрываем всё пространство, через которое текст прошёл за кадр
           const uL = Math.min(r.left, prev ? prev.left : r.left);
           const uR = Math.max(r.right, prev ? prev.right : r.right);
           const uT = Math.min(r.top, prev ? prev.top : r.top);
           const uB = Math.max(r.bottom, prev ? prev.bottom : r.bottom);
 
-          // Minkowski sum: расширяем на half картинки
           const eL = uL - half;
           const eR = uR + half;
           const eT = uT - half;
@@ -365,7 +384,6 @@ export default function Home() {
           }
         }
 
-        // Сохраняем текущий rect для следующего кадра
         prevTextRectRef.current = textVisible ? r : null;
       }
 
@@ -589,7 +607,6 @@ export default function Home() {
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
     if (isMobile) return;
 
-    // Курсор показываем сразу и всегда отслеживаем — независимо от модалок
     if (cursorRef.current) {
       cursorRef.current.style.opacity = "1";
       cursorRef.current.style.transition = "none";
@@ -605,7 +622,7 @@ export default function Home() {
 
     window.addEventListener("mousemove", handleMouseMove);
     return () => window.removeEventListener("mousemove", handleMouseMove);
-  }, []); // пустой массив — вешается один раз, никогда не пересоздаётся
+  }, []);
 
   useEffect(() => {
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
@@ -719,8 +736,6 @@ export default function Home() {
           animation: floatIn 0.4s ease forwards;
           animation-delay: var(--delay);
           opacity: 0;
-          /* стартовый угол + лёгкий scale-in задаются инлайн через JS/style,
-             чтобы не конфликтовать с transform от физики после монтирования */
           transform: scale(0.6) rotate(var(--rot));
           box-shadow: 0 4px 16px rgba(0,0,0,0.18);
         }
@@ -743,12 +758,10 @@ export default function Home() {
         <div onClick={(e) => e.target === e.currentTarget && !isSending && closeContact()}
           style={{ position: "fixed", inset: 0, zIndex: 10000, background: contactVisible ? "rgba(0,0,0,0.5)" : "rgba(0,0,0,0)", transition: "background 0.5s ease", display: "flex", alignItems: "center", justifyContent: "center" }}>
           <div style={{ background: "#fff", color: "#000", width: "min(520px,90vw)", padding: "clamp(24px,5vw,40px)", transform: contactVisible ? "translate3d(0,0,0)" : "translate3d(0,60px,0)", opacity: contactVisible ? 1 : 0, transition: "transform 0.5s cubic-bezier(0.32,0.72,0,1),opacity 0.5s ease", display: "flex", flexDirection: "column", gap: "clamp(20px,3vw,28px)" }}>
-            {/* Заголовок */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
               <div className="card-title" style={{ fontSize: "clamp(18px,3.2vw,28px)", lineHeight: 1 }}>LET'S WORK</div>
               <button disabled={isSending} onClick={closeContact} style={{ background: "none", border: "none", fontSize: "24px", cursor: "none" }}>×</button>
             </div>
-            {/* Поля */}
             <div style={{ display: "flex", flexDirection: "column", gap: "clamp(12px,2vw,15px)" }}>
               {[{ label: "YOUR NAME", key: "name" as const, type: "text" }, { label: "EMAIL", key: "email" as const, type: "email" }].map(({ label, key, type }) => (
                 <div key={key}>
@@ -768,7 +781,6 @@ export default function Home() {
                   style={{ ...inputStyle, resize: "none", overflow: "hidden", lineHeight: "1.4", display: "block", minHeight: "24px" }} />
               </div>
             </div>
-            {/* Кнопка — всегда сразу под полями, фиксированный gap */}
             <button onClick={handleSubmit} disabled={isSending} className="card-btn"
               style={{ background: "#000", color: "#fff", border: "none", padding: "14px 32px", fontSize: "10px", cursor: "none", alignSelf: "flex-start" }}>
               {isSending ? "SENDING..." : "SEND"}
@@ -780,74 +792,19 @@ export default function Home() {
       {selectedImg && (
         <div onClick={(e) => e.target === e.currentTarget && closeImg()}
           style={{ position: "fixed", inset: 0, zIndex: 10000, background: imgVisible ? "rgba(0,0,0,0.7)" : "rgba(0,0,0,0)", transition: "background 0.4s ease", display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ background: "#fff", color: "#000", width: "min(520px,90vw)", aspectRatio: "1/1", padding: "clamp(24px,5vw,40px)", transform: imgVisible ? "translate3d(0,0,0)" : "translate3d(0,60px,0)", opacity: imgVisible ? 1 : 0, transition: "transform 0.4s cubic-bezier(0.32,0.72,0,1), opacity 0.4s ease", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-              <div className="card-title" style={{ fontSize: "clamp(18px,3.2vw,28px)", lineHeight: 1 }}>WORK</div>
-              <button onClick={closeImg} style={{ background: "none", border: "none", fontSize: "24px", cursor: "none", color: "#000" }}>×</button>
-            </div>
-            <div style={{ flexGrow: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "clamp(12px,3vw,24px) 0" }}>
-              <img src={selectedImg} alt="" style={{ width: "100%", height: "100%", objectFit: "contain", display: "block", borderRadius: "4px" }} />
-            </div>
+          <div style={{ background: "#fff", color: "#000", width: "min(520px,90vw)", aspectRatio: "1/1", padding: "clamp(24px,5vw,40px)", transform: imgVisible ? "translate3d(0,0,0)" : "translate3d(0,60px,0)", opacity: imgVisible ? 1 : 0, transition: "transform 0.4s cubic-bezier(0.32,0.72,0,1), opacity 0.4s ease", display: "flex", flexDirection: "column" }}>
           </div>
         </div>
       )}
 
-      <main ref={mainRef} style={{ position: "fixed", width: "100vw", height: "100vh", top: 0, left: 0, overflow: "hidden", touchAction: "none" }}>
-
-        {/* ЧЁРНЫЙ ФОН */}
-        <div style={{ position: "absolute", inset: 0, background: "#000", zIndex: 2, opacity: pinkOpacity, pointerEvents: "none" }}>
-          {FLOATING_INIT.map((cfg, i) => (
-            <div key={i} ref={(el) => { floatingRefs.current[i] = el; }} className="floating-img"
-              style={{ left: `${cfg.x}%`, top: `${cfg.y}%`, ["--delay" as any]: `${cfg.delay}ms`, ["--rot" as any]: `${cfg.rotation}deg` }}>
-              <img src={cfg.src} alt="" />
-            </div>
-          ))}
-          <div ref={overlayRef} style={{ position: "absolute", inset: 0, zIndex: 10, pointerEvents: (showContact || !!selectedImg) ? "none" : "auto", cursor: "none" }} />
-        </div>
-
-        {/* I DO DESIGN */}
-        <div ref={iDoDesignRef} style={{ position: "absolute", inset: 0, zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none", transform: "translateY(110vh)", opacity: 0, willChange: "transform, opacity" }}>
-          {/* ref на сам текст — getBoundingClientRect() даст точные границы */}
-          <div ref={iDoDesignTextRef} style={{ fontFamily: "'Arial Black', Arial, sans-serif", fontWeight: 900, fontSize: "clamp(28px, 7vw, 96px)", letterSpacing: "-0.04em", color: "white", textAlign: "center", lineHeight: 1, whiteSpace: "nowrap" }}>
-            I DO DESIGN
-          </div>
-        </div>
-
-        <video ref={videoRef} src={videoSrc} muted loop autoPlay playsInline
-          style={{ position: "absolute", top: 0, left: 0, width: "100vw", height: "100vh", objectFit: "cover", zIndex: 0, opacity: 0 }} />
-        <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1, opacity: videoOpacity, pointerEvents: "none" }} />
-
-        <div style={{ position: "absolute", inset: 0, zIndex: 3, overflow: "hidden", pointerEvents: "none", display: "flex", flexDirection: "column", justifyContent: "center", gap: `${GAP}px`, padding: `${GAP}px 0` }}>
-          {ROWS.map((images, rowIndex) => (
-            <div key={rowIndex} ref={(el) => { trackRefs.current[rowIndex] = el; }}
-              style={{ display: "flex", gap: `${GAP}px`, paddingLeft: `${GAP}px`, width: "max-content", willChange: "transform", opacity: 0, flexShrink: 0 }}>
-              {images.map((img, i) => (
-                <div key={i} style={{ width: `${tileSize}px`, height: `${tileSize}px`, borderRadius: "12px", flexShrink: 0, overflow: "hidden" }}>
-                  <img src={img} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-                </div>
-              ))}
-            </div>
-          ))}
-        </div>
-
-        <div ref={textRef} style={{ position: "absolute", inset: 0, zIndex: 10, display: "flex", alignItems: "center", padding: "0 clamp(20px,6vw,80px)", opacity: 0, transform: "translate3d(0,40px,0)", willChange: "transform,opacity", pointerEvents: "none" }}>
-          <div style={{ display: "flex", flexDirection: "column", width: "100%" }}>
-            <div className="text-line" style={{ fontSize: "clamp(32px,6.5vw,88px)" }}>MY NAME <span className="mobile-br" />IS ARTEM</div>
-            <div className="text-line" style={{ fontSize: "clamp(32px,6.5vw,88px)", marginTop: "0.15em" }}>I'M A <span className="mobile-br" />DESIGNER</div>
-            <div className={`text-line contact-trigger ${shaking ? "shakeY" : ""}`}
-              onMouseEnter={handleContactEnter} onMouseLeave={() => setContactHovered(false)} onClick={openContact}
-              style={{ fontSize: "clamp(32px,6.5vw,88px)", marginTop: "1.6em", cursor: "none", userSelect: "none", display: "block", lineHeight: 0.92, minHeight: "1.85em", overflow: "visible" }}>
-              <span className="heartbeat-wrapper">{contactHovered ? "GET YOUR BEST DESIGN EVER" : "CONTACT ME"}</span>
-            </div>
-          </div>
-        </div>
-
-      </main>
-
-      {/* КУРСОР — вне <main>, поверх всех модалок */}
-      <div ref={cursorRef} style={{ position: "fixed", top: 0, left: 0, width: "120px", height: "120px", pointerEvents: "none", zIndex: 999999, opacity: 0, willChange: "transform", transform: "translate(-9999px, -9999px)", marginLeft: "-60px", marginTop: "-60px" }}>
-        <img src="/cursor.png" alt="" style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} />
-      </div>
+      {/* CANVAS ДЛЯ ОТРИСОВКИ ТРЕЙСОВ */}
+      <canvas
+        ref={trailCanvasRef}
+        style={{
+          position: "fixed", top: 0, left: 0,
+          pointerEvents: "none", zIndex: 1
+        }}
+      />
     </>
   );
 }
