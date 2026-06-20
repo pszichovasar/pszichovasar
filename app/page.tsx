@@ -21,6 +21,14 @@ const getImgSize = () =>
     ? IMG_SIZE_MOBILE
     : IMG_SIZE_DESKTOP;
 
+// SVG-маска в форме текста "FOR YOU" — растягивается под реальный размер текста
+// через mask-size:100% 100%, поэтому viewBox подобран так, чтобы буквы заполняли
+// почти всю область (как и настоящий текст с letter-spacing:-0.04em, font-weight:900).
+const FOR_YOU_MASK_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 100" preserveAspectRatio="none">
+  <text x="0" y="82" font-family="Arial Black, Arial, sans-serif" font-weight="900" font-size="100" letter-spacing="-4" fill="white">FOR YOU</text>
+</svg>`;
+const FOR_YOU_MASK_URL = `url("data:image/svg+xml;utf8,${encodeURIComponent(FOR_YOU_MASK_SVG)}")`;
+
 const FLOATING_INIT = Array.from({ length: IMG_COUNT }, (_, i) => {
   const seed = i * 137 + 42;
   const r = (n: number) => ((seed * 1664525 + n * 1013904223) & 0x7fffffff) / 0x7fffffff;
@@ -116,6 +124,7 @@ export default function Home() {
   const cursorRef = useRef<HTMLDivElement>(null);
   const trailCanvasRef = useRef<HTMLCanvasElement>(null);
   const iLetterRef = useRef<HTMLSpanElement>(null);
+  const forYouTextRef = useRef<HTMLDivElement>(null);
   // Накопленные застывшие узоры — каждый: маленькая картинка (dataURL) поверх буквы "I"
   const [frozenPatterns, setFrozenPatterns] = useState<{
     id: number; src: string;
@@ -499,29 +508,50 @@ export default function Home() {
         }
       }
 
-      // ── Обновляем позицию застывших узоров: следим за буквой "I" каждый кадр ──
-      // Так круг всегда точно над буквой, даже когда текст в движении (скролл).
-      const letterEl = iLetterRef.current;
-      if (letterEl && frozenPatternRefs.current.size > 0) {
-        const lr = letterEl.getBoundingClientRect();
-        const DOT_SIZE = 28; // увеличенный диаметр финального круга (было 14)
-        const targetX = lr.left + lr.width / 2;
-        const targetY = lr.top - DOT_SIZE * 0.6;
+      // ── Обновляем позицию застывших узоров: летят к области текста "FOR YOU" ──
+      // Логика 1-в-1 как раньше с кругом над "I": каждый узор сам несёт свою маску
+      // (теперь в форме текста вместо круга), которая активируется только после долёта.
+      const forYouEl = forYouTextRef.current;
+      if (forYouEl && frozenPatternRefs.current.size > 0) {
+        const fr = forYouEl.getBoundingClientRect();
 
         frozenPatternRefs.current.forEach((el, id) => {
           const p = frozenPatternsRef.current.find(fp => fp.id === id);
           if (!p) return;
 
           if (p.animated) {
-            const scale = DOT_SIZE / Math.max(p.originW, p.originH);
-            const curX = targetX - p.originW / 2;
-            const curY = targetY - p.originH / 2;
+            // Растягиваем узор так, чтобы он полностью покрывал площадь текста "FOR YOU"
+            const scaleX = fr.width / p.originW;
+            const scaleY = fr.height / p.originH;
+            const scale = Math.max(scaleX, scaleY);
+            const curX = fr.left + fr.width / 2 - (p.originW * scale) / 2;
+            const curY = fr.top + fr.height / 2 - (p.originH * scale) / 2;
             el.style.transform = `translate(${curX}px, ${curY}px) scale(${scale})`;
-            el.style.clipPath = `circle(${(DOT_SIZE / 2) / scale}px at center)`;
+
+            // Маска в форме текста — позиционируем mask-position в ЛОКАЛЬНЫХ координатах
+            // узора (его собственный width×height), так она ездит вместе с transform-ом
+            // без рассинхрона и без манипуляций самим SVG-документом.
+            const localX = (fr.left - curX) / scale;
+            const localY = (fr.top - curY) / scale;
+            const localW = fr.width / scale;
+            const localH = fr.height / scale;
+            el.style.maskImage = FOR_YOU_MASK_URL;
+            el.style.webkitMaskImage = FOR_YOU_MASK_URL;
+            el.style.maskRepeat = "no-repeat";
+            el.style.webkitMaskRepeat = "no-repeat";
+            el.style.maskPosition = `${localX}px ${localY}px`;
+            el.style.webkitMaskPosition = `${localX}px ${localY}px`;
+            el.style.maskSize = `${localW}px ${localH}px`;
+            el.style.webkitMaskSize = `${localW}px ${localH}px`;
+
+            // Маска включается ПЛАВНО и только когда узор уже долетел на место
+            // (settled выставляется в transitionend-листенере ниже).
+            el.style.opacity = el.dataset.settled === "true" ? "1" : "0";
           } else {
-            // До начала перелёта — узор остаётся там, где был нарисован
+            // До начала перелёта — узор остаётся там, где был нарисован, без маски
             el.style.transform = `translate(${p.originX}px, ${p.originY}px) scale(1)`;
-            el.style.clipPath = "none";
+            el.style.maskImage = "none";
+            el.style.webkitMaskImage = "none";
           }
         });
       }
@@ -989,21 +1019,59 @@ export default function Home() {
 
         {/* I DO DESIGN */}
         <div ref={iDoDesignRef} style={{ position: "absolute", inset: 0, zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none", transform: "translateY(110vh)", opacity: 0, willChange: "transform, opacity" }}>
-          {/* ref на сам текст — getBoundingClientRect() даст точные границы */}
-          <div ref={iDoDesignTextRef} style={{ fontFamily: "'Arial Black', Arial, sans-serif", fontWeight: 900, fontSize: "clamp(28px, 7vw, 96px)", letterSpacing: "-0.04em", color: "white", textAlign: "center", lineHeight: 1, whiteSpace: "nowrap" }}>
-            <span ref={iLetterRef} style={{ position: "relative", display: "inline-block" }}>I</span> DO DESIGN
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
+            {/* ref на сам текст — getBoundingClientRect() даст точные границы */}
+            <div ref={iDoDesignTextRef} style={{ fontFamily: "'Arial Black', Arial, sans-serif", fontWeight: 900, fontSize: "clamp(28px, 7vw, 96px)", letterSpacing: "-0.04em", color: "white", textAlign: "center", lineHeight: 1, whiteSpace: "nowrap" }}>
+              <span ref={iLetterRef} style={{ position: "relative", display: "inline-block" }}>I</span> DO DESIGN
+            </div>
+            {/* FOR YOU — невидимый сам по себе (только держит layout и даёт точные границы
+                для getBoundingClientRect). Видимым текст становится по мере того,
+                как узоры внутри маски закрашивают его форму. */}
+            <div
+              ref={forYouTextRef}
+              style={{
+                fontFamily: "'Arial Black', Arial, sans-serif",
+                fontWeight: 900,
+                fontSize: "clamp(28px, 7vw, 96px)",
+                letterSpacing: "-0.04em",
+                color: "transparent",
+                textAlign: "left",
+                lineHeight: 1,
+                whiteSpace: "nowrap",
+                marginTop: "0.15em",
+              }}
+            >
+              FOR YOU
+            </div>
           </div>
         </div>
 
-        {/* ЗАСТЫВШИЕ УЗОРЫ — летят от исходной точки на экране к кругу над буквой "I".
-            Позиция/масштаб/маска обновляются в физическом цикле каждый кадр,
-            поэтому круг всегда точно следует за буквой "I", даже если текст в движении. */}
+        {/* ЗАСТЫВШИЕ УЗОРЫ — летят от исходной точки на экране к области текста "FOR YOU".
+            Каждый узор сам несёт маску в форме текста, которая активируется только
+            после долёта — ровно та же логика, что была с кругом над буквой "I". */}
         {frozenPatterns.map((p, idx) => (
           <div
             key={p.id}
             ref={(el) => {
-              if (el) frozenPatternRefs.current.set(p.id, el);
-              else frozenPatternRefs.current.delete(p.id);
+              if (el) {
+                frozenPatternRefs.current.set(p.id, el);
+                // После завершения перелёта выключаем transition ТОЛЬКО для transform —
+                // дальше узор следует за текстом "FOR YOU" мгновенно, синхронно.
+                // Маска (opacity) получает свой плавный fade-in отдельной transition.
+                if (!(el as any)._settledListenerAdded) {
+                  (el as any)._settledListenerAdded = true;
+                  el.addEventListener("transitionend", (e) => {
+                    if (e.propertyName === "transform") {
+                      el.style.transitionProperty = "opacity";
+                      el.style.transitionDuration = "0.5s";
+                      el.style.transitionTimingFunction = "ease";
+                      el.dataset.settled = "true";
+                    }
+                  });
+                }
+              } else {
+                frozenPatternRefs.current.delete(p.id);
+              }
             }}
             style={{
               position: "fixed",
@@ -1012,12 +1080,16 @@ export default function Home() {
               width: `${p.originW}px`,
               height: `${p.originH}px`,
               transformOrigin: "center center",
-              transition: "transform 1.1s cubic-bezier(0.65, 0, 0.35, 1), clip-path 1.1s cubic-bezier(0.65, 0, 0.35, 1)",
+              transitionProperty: "transform",
+              transitionDuration: "1.1s",
+              transitionTimingFunction: "cubic-bezier(0.65, 0, 0.35, 1)",
               zIndex: 50000 + idx,
               pointerEvents: "none",
-              // Стартовое положение — там, где узор был нарисован, без обрезки
+              opacity: 0,
+              // Стартовое положение — там, где узор был нарисован, маски ещё нет
               transform: `translate(${p.originX}px, ${p.originY}px) scale(1)`,
-              clipPath: "none",
+              maskImage: "none",
+              WebkitMaskImage: "none",
             }}
           >
             <img
