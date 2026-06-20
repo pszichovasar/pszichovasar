@@ -115,6 +115,20 @@ export default function Home() {
   const floatingRefs = useRef<(HTMLDivElement | null)[]>(Array(IMG_COUNT).fill(null));
   const cursorRef = useRef<HTMLDivElement>(null);
   const trailCanvasRef = useRef<HTMLCanvasElement>(null);
+  const iLetterRef = useRef<HTMLSpanElement>(null);
+  // Накопленные застывшие узоры — каждый: маленькая картинка (dataURL) поверх буквы "I"
+  const [frozenPatterns, setFrozenPatterns] = useState<{
+    id: number; src: string;
+    originX: number; originY: number; // экранные координаты, откуда узор "прилетает"
+    originW: number; originH: number; // исходный размер на экране (до уменьшения)
+    animated: boolean; // true = уже долетел до финальной позиции
+  }[]>([]);
+  const frozenIdRef = useRef(0);
+  // DOM-узлы застывших узоров — обновляем transform каждый кадр, чтобы следить за буквой "I"
+  const frozenPatternRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  // Зеркало frozenPatterns в ref — чтобы анимационный цикл (замыкание с [] deps) видел актуальные данные
+  const frozenPatternsRef = useRef<typeof frozenPatterns>([]);
+  useEffect(() => { frozenPatternsRef.current = frozenPatterns; }, [frozenPatterns]);
 
   const physState = useRef(
     FLOATING_INIT.map(() => ({
@@ -141,13 +155,16 @@ export default function Home() {
       const dy = s.y - py;
       const dist = Math.sqrt(dx * dx + dy * dy);
 
+      // За пределами радиуса — никакого воздействия вообще
       if (dist >= radius) return;
 
-      const t = 1 - dist / radius;
-      const force = maxForce * t * t;
+      // Внутри радиуса: плавный спад от центра к краю (0 на границе, max в центре)
+      // Квадратичный falloff — мягче чем 1/dist², без резкого скачка
+      const t = 1 - dist / radius;        // 0..1, 1 = прямо в курсоре
+      const force = maxForce * t * t;     // квадратичное усиление к центру
 
-      const safeDist = Math.max(dist, 1);
-      s.vx += (dx / safeDist) * force * (1 / 16);
+      const safeDist = Math.max(dist, 1); // защита от деления на 0
+      s.vx += (dx / safeDist) * force * (1 / 16); // нормируем под dt~16мс шаг
       s.vy += (dy / safeDist) * force * (1 / 16);
       s.rotSpeed += ((Math.random() - 0.5) * 8) * t;
     });
@@ -217,7 +234,95 @@ export default function Home() {
   const SCROLL_PER_UNIT = 800;
   const TOTAL_SCROLL = 3 * SCROLL_PER_UNIT;
 
+  // ref на сам текстовый span — чтобы getBoundingClientRect() давал точные границы слов
   const iDoDesignTextRef = useRef<HTMLDivElement>(null);
+
+  // ── Canvas трейлов: ресайз под экран ────────────────────────────────────
+  useEffect(() => {
+    const resize = () => {
+      const c = trailCanvasRef.current;
+      if (!c) return;
+      const dpr = window.devicePixelRatio || 1;
+      c.width = window.innerWidth * dpr;
+      c.height = window.innerHeight * dpr;
+      c.style.width = window.innerWidth + "px";
+      c.style.height = window.innerHeight + "px";
+      const ctx = c.getContext("2d");
+      if (ctx) ctx.scale(dpr, dpr);
+    };
+    resize();
+    window.addEventListener("resize", resize);
+    return () => window.removeEventListener("resize", resize);
+  }, []);
+
+  // ── Каждые 10 секунд: снимок трейлов → застывший узор над буквой "I" ───
+  useEffect(() => {
+    const SNAPSHOT_INTERVAL = 10000;
+
+    const captureAndFreeze = () => {
+      const canvas = trailCanvasRef.current;
+      const letterEl = iLetterRef.current;
+      if (!canvas || !letterEl) return;
+
+      // Находим bounding box всех точек трейла, чтобы вырезать только нарисованную область
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      physState.current.forEach(s => {
+        for (const p of s.trail) {
+          if (p.x < minX) minX = p.x;
+          if (p.x > maxX) maxX = p.x;
+          if (p.y < minY) minY = p.y;
+          if (p.y > maxY) maxY = p.y;
+        }
+      });
+
+      // Если ничего не нарисовано — просто очищаем трейлы и выходим
+      if (minX === Infinity) {
+        physState.current.forEach(s => { s.trail = []; });
+        return;
+      }
+
+      const pad = 10;
+      minX = Math.max(0, minX - pad);
+      minY = Math.max(0, minY - pad);
+      maxX = maxX + pad;
+      maxY = maxY + pad;
+      const cropW = Math.max(1, maxX - minX);
+      const cropH = Math.max(1, maxY - minY);
+
+      // Вырезаем нарисованную область в отдельный маленький canvas
+      const dpr = window.devicePixelRatio || 1;
+      const crop = document.createElement("canvas");
+      crop.width = cropW * dpr;
+      crop.height = cropH * dpr;
+      const cropCtx = crop.getContext("2d");
+      if (cropCtx) {
+        cropCtx.drawImage(
+          canvas,
+          minX * dpr, minY * dpr, cropW * dpr, cropH * dpr,
+          0, 0, cropW * dpr, cropH * dpr
+        );
+        const dataUrl = crop.toDataURL("image/png");
+        frozenIdRef.current += 1;
+        setFrozenPatterns(prev => [...prev, {
+          id: frozenIdRef.current,
+          src: dataUrl,
+          originX: minX,
+          originY: minY,
+          originW: cropW,
+          originH: cropH,
+          animated: false,
+        }]);
+      }
+
+      // Очищаем canvas трейлов и сбрасываем историю — трейлы начинаются заново
+      const ctx = canvas.getContext("2d");
+      if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+      physState.current.forEach(s => { s.trail = []; });
+    };
+
+    const intervalId = setInterval(captureAndFreeze, SNAPSHOT_INTERVAL);
+    return () => clearInterval(intervalId);
+  }, []);
 
   useEffect(() => {
     const DAMPING = 0.988;
@@ -276,22 +381,8 @@ export default function Home() {
 
       // Интегрирование + стены
       const { gx, gy } = gyroRef.current;
-      const ROT_DAMPING = 0.985;
-      const MAX_ROT_SPEED = 14;
-
-      // НАСТРОЙКА CANVAS ДЛЯ ТРЕЙСОВ
-      const ctx = trailCanvasRef.current?.getContext("2d");
-      if (ctx) {
-        if (ctx.canvas.width !== W || ctx.canvas.height !== H) {
-          ctx.canvas.width = W;
-          ctx.canvas.height = H;
-        }
-        ctx.clearRect(0, 0, W, H);
-        ctx.strokeStyle = "white"; // Тонкая белая линия
-        ctx.lineWidth = 1;         // Ширина 1px
-        ctx.lineCap = "round";
-      }
-
+      const ROT_DAMPING = 0.985;       // вращение тоже затухает со временем
+      const MAX_ROT_SPEED = 14;        // рад/с — предел, чтобы не "бесило" после серии столкновений
       states.forEach((s, i) => {
         s.vx += gx * dt;
         s.vy += gy * dt;
@@ -300,6 +391,7 @@ export default function Home() {
         const sp = Math.sqrt(s.vx * s.vx + s.vy * s.vy);
         if (sp > MAX_SPEED) { s.vx = s.vx / sp * MAX_SPEED; s.vy = s.vy / sp * MAX_SPEED; }
 
+        // Вращение: лёгкое трение + жёсткий потолок скорости
         s.rotSpeed *= ROT_DAMPING;
         if (s.rotSpeed > MAX_ROT_SPEED) s.rotSpeed = MAX_ROT_SPEED;
         if (s.rotSpeed < -MAX_ROT_SPEED) s.rotSpeed = -MAX_ROT_SPEED;
@@ -320,21 +412,10 @@ export default function Home() {
           el.style.height = `${S}px`;
           el.style.transform = `rotate(${s.ang}rad)`;
         }
-
-        // ЛОГИКА ОТРИСОВКИ ТРЕЙСА
-        s.trail.push({ x: s.x, y: s.y });
-        if (s.trail.length > 15) s.trail.shift(); // Ограничиваем длину хвоста 15 точками
-
-        if (ctx && s.trail.length > 1) {
-          ctx.beginPath();
-          ctx.moveTo(s.trail[0].x, s.trail[0].y);
-          for (let p of s.trail) {
-            ctx.lineTo(p.x, p.y);
-          }
-          ctx.stroke();
-        }
       });
 
+      // Коллизия с текстом "I DO DESIGN" — swept AABB (union prev+current rect)
+      // Это предотвращает "пролёт насквозь" при быстром скролле
       const textEl = iDoDesignTextRef.current;
       if (textEl) {
         const r = textEl.getBoundingClientRect();
@@ -345,11 +426,14 @@ export default function Home() {
         if (textVisible) {
           const half = S / 2;
 
+          // Union rect: объединяем текущий и предыдущий rect текста
+          // Так покрываем всё пространство, через которое текст прошёл за кадр
           const uL = Math.min(r.left, prev ? prev.left : r.left);
           const uR = Math.max(r.right, prev ? prev.right : r.right);
           const uT = Math.min(r.top, prev ? prev.top : r.top);
           const uB = Math.max(r.bottom, prev ? prev.bottom : r.bottom);
 
+          // Minkowski sum: расширяем на half картинки
           const eL = uL - half;
           const eR = uR + half;
           const eT = uT - half;
@@ -384,7 +468,62 @@ export default function Home() {
           }
         }
 
+        // Сохраняем текущий rect для следующего кадра
         prevTextRectRef.current = textVisible ? r : null;
+      }
+
+      // ── Рисуем трейлы: только новый сегмент пути, без перерисовки всего ──
+      // Так линия никогда не теряет прозрачность и не прерывается —
+      // каждый кадр просто дорисовывается маленький отрезок поверх предыдущих.
+      const trailCanvas = trailCanvasRef.current;
+      if (trailCanvas) {
+        const ctx = trailCanvas.getContext("2d");
+        if (ctx) {
+          ctx.strokeStyle = "#ffffff";
+          ctx.lineWidth = 1;
+          ctx.lineCap = "round";
+          for (let i = 0; i < IMG_COUNT; i++) {
+            const s = states[i];
+            if (!s.initialized) continue;
+
+            const last = s.trail[s.trail.length - 1];
+            // Рисуем отрезок от предыдущей сохранённой точки к текущей позиции
+            if (last) {
+              ctx.beginPath();
+              ctx.moveTo(last.x, last.y);
+              ctx.lineTo(s.x, s.y);
+              ctx.stroke();
+            }
+            s.trail.push({ x: s.x, y: s.y });
+          }
+        }
+      }
+
+      // ── Обновляем позицию застывших узоров: следим за буквой "I" каждый кадр ──
+      // Так круг всегда точно над буквой, даже когда текст в движении (скролл).
+      const letterEl = iLetterRef.current;
+      if (letterEl && frozenPatternRefs.current.size > 0) {
+        const lr = letterEl.getBoundingClientRect();
+        const DOT_SIZE = 28; // увеличенный диаметр финального круга (было 14)
+        const targetX = lr.left + lr.width / 2;
+        const targetY = lr.top - DOT_SIZE * 0.6;
+
+        frozenPatternRefs.current.forEach((el, id) => {
+          const p = frozenPatternsRef.current.find(fp => fp.id === id);
+          if (!p) return;
+
+          if (p.animated) {
+            const scale = DOT_SIZE / Math.max(p.originW, p.originH);
+            const curX = targetX - p.originW / 2;
+            const curY = targetY - p.originH / 2;
+            el.style.transform = `translate(${curX}px, ${curY}px) scale(${scale})`;
+            el.style.clipPath = `circle(${(DOT_SIZE / 2) / scale}px at center)`;
+          } else {
+            // До начала перелёта — узор остаётся там, где был нарисован
+            el.style.transform = `translate(${p.originX}px, ${p.originY}px) scale(1)`;
+            el.style.clipPath = "none";
+          }
+        });
       }
 
       rafRef.current = requestAnimationFrame(animate);
@@ -393,6 +532,25 @@ export default function Home() {
     rafRef.current = requestAnimationFrame(animate);
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
   }, []);
+
+  // ── Запускаем "перелёт" нового узора к финальной позиции сразу после монтирования ──
+  useEffect(() => {
+    const unanimated = frozenPatterns.find(p => !p.animated);
+    if (!unanimated) return;
+    let raf2 = 0;
+    // Двойной rAF — гарантирует что браузер применил начальные стили перед transition
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        setFrozenPatterns(prev =>
+          prev.map(p => p.id === unanimated.id ? { ...p, animated: true } : p)
+        );
+      });
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+  }, [frozenPatterns]);
 
   const openImg = (src: string) => {
     setSelectedImg(src);
@@ -607,6 +765,7 @@ export default function Home() {
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
     if (isMobile) return;
 
+    // Курсор показываем сразу и всегда отслеживаем — независимо от модалок
     if (cursorRef.current) {
       cursorRef.current.style.opacity = "1";
       cursorRef.current.style.transition = "none";
@@ -622,7 +781,7 @@ export default function Home() {
 
     window.addEventListener("mousemove", handleMouseMove);
     return () => window.removeEventListener("mousemove", handleMouseMove);
-  }, []);
+  }, []); // пустой массив — вешается один раз, никогда не пересоздаётся
 
   useEffect(() => {
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
@@ -736,6 +895,8 @@ export default function Home() {
           animation: floatIn 0.4s ease forwards;
           animation-delay: var(--delay);
           opacity: 0;
+          /* стартовый угол + лёгкий scale-in задаются инлайн через JS/style,
+             чтобы не конфликтовать с transform от физики после монтирования */
           transform: scale(0.6) rotate(var(--rot));
           box-shadow: 0 4px 16px rgba(0,0,0,0.18);
         }
@@ -758,10 +919,12 @@ export default function Home() {
         <div onClick={(e) => e.target === e.currentTarget && !isSending && closeContact()}
           style={{ position: "fixed", inset: 0, zIndex: 10000, background: contactVisible ? "rgba(0,0,0,0.5)" : "rgba(0,0,0,0)", transition: "background 0.5s ease", display: "flex", alignItems: "center", justifyContent: "center" }}>
           <div style={{ background: "#fff", color: "#000", width: "min(520px,90vw)", padding: "clamp(24px,5vw,40px)", transform: contactVisible ? "translate3d(0,0,0)" : "translate3d(0,60px,0)", opacity: contactVisible ? 1 : 0, transition: "transform 0.5s cubic-bezier(0.32,0.72,0,1),opacity 0.5s ease", display: "flex", flexDirection: "column", gap: "clamp(20px,3vw,28px)" }}>
+            {/* Заголовок */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
               <div className="card-title" style={{ fontSize: "clamp(18px,3.2vw,28px)", lineHeight: 1 }}>LET'S WORK</div>
               <button disabled={isSending} onClick={closeContact} style={{ background: "none", border: "none", fontSize: "24px", cursor: "none" }}>×</button>
             </div>
+            {/* Поля */}
             <div style={{ display: "flex", flexDirection: "column", gap: "clamp(12px,2vw,15px)" }}>
               {[{ label: "YOUR NAME", key: "name" as const, type: "text" }, { label: "EMAIL", key: "email" as const, type: "email" }].map(({ label, key, type }) => (
                 <div key={key}>
@@ -781,6 +944,7 @@ export default function Home() {
                   style={{ ...inputStyle, resize: "none", overflow: "hidden", lineHeight: "1.4", display: "block", minHeight: "24px" }} />
               </div>
             </div>
+            {/* Кнопка — всегда сразу под полями, фиксированный gap */}
             <button onClick={handleSubmit} disabled={isSending} className="card-btn"
               style={{ background: "#000", color: "#fff", border: "none", padding: "14px 32px", fontSize: "10px", cursor: "none", alignSelf: "flex-start" }}>
               {isSending ? "SENDING..." : "SEND"}
@@ -792,19 +956,113 @@ export default function Home() {
       {selectedImg && (
         <div onClick={(e) => e.target === e.currentTarget && closeImg()}
           style={{ position: "fixed", inset: 0, zIndex: 10000, background: imgVisible ? "rgba(0,0,0,0.7)" : "rgba(0,0,0,0)", transition: "background 0.4s ease", display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ background: "#fff", color: "#000", width: "min(520px,90vw)", aspectRatio: "1/1", padding: "clamp(24px,5vw,40px)", transform: imgVisible ? "translate3d(0,0,0)" : "translate3d(0,60px,0)", opacity: imgVisible ? 1 : 0, transition: "transform 0.4s cubic-bezier(0.32,0.72,0,1), opacity 0.4s ease", display: "flex", flexDirection: "column" }}>
+          <div style={{ background: "#fff", color: "#000", width: "min(520px,90vw)", aspectRatio: "1/1", padding: "clamp(24px,5vw,40px)", transform: imgVisible ? "translate3d(0,0,0)" : "translate3d(0,60px,0)", opacity: imgVisible ? 1 : 0, transition: "transform 0.4s cubic-bezier(0.32,0.72,0,1), opacity 0.4s ease", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+              <div className="card-title" style={{ fontSize: "clamp(18px,3.2vw,28px)", lineHeight: 1 }}>WORK</div>
+              <button onClick={closeImg} style={{ background: "none", border: "none", fontSize: "24px", cursor: "none", color: "#000" }}>×</button>
+            </div>
+            <div style={{ flexGrow: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "clamp(12px,3vw,24px) 0" }}>
+              <img src={selectedImg} alt="" style={{ width: "100%", height: "100%", objectFit: "contain", display: "block", borderRadius: "4px" }} />
+            </div>
           </div>
         </div>
       )}
 
-      {/* CANVAS ДЛЯ ОТРИСОВКИ ТРЕЙСОВ */}
-      <canvas
-        ref={trailCanvasRef}
-        style={{
-          position: "fixed", top: 0, left: 0,
-          pointerEvents: "none", zIndex: 1
-        }}
-      />
+      <main ref={mainRef} style={{ position: "fixed", width: "100vw", height: "100vh", top: 0, left: 0, overflow: "hidden", touchAction: "none" }}>
+
+        {/* ЧЁРНЫЙ ФОН */}
+        <div style={{ position: "absolute", inset: 0, background: "#000", zIndex: 2, opacity: pinkOpacity, pointerEvents: "none" }}>
+          {FLOATING_INIT.map((cfg, i) => (
+            <div key={i} ref={(el) => { floatingRefs.current[i] = el; }} className="floating-img"
+              style={{ left: `${cfg.x}%`, top: `${cfg.y}%`, ["--delay" as any]: `${cfg.delay}ms`, ["--rot" as any]: `${cfg.rotation}deg` }}>
+              <img src={cfg.src} alt="" />
+            </div>
+          ))}
+          <div ref={overlayRef} style={{ position: "absolute", inset: 0, zIndex: 10, pointerEvents: (showContact || !!selectedImg) ? "none" : "auto", cursor: "none" }} />
+        </div>
+
+        {/* CANVAS ТРЕЙЛОВ — тонкие белые линии (1px) за каждой картинкой */}
+        <canvas
+          ref={trailCanvasRef}
+          style={{ position: "absolute", inset: 0, zIndex: 4, pointerEvents: "none", opacity: pinkOpacity }}
+        />
+
+        {/* I DO DESIGN */}
+        <div ref={iDoDesignRef} style={{ position: "absolute", inset: 0, zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none", transform: "translateY(110vh)", opacity: 0, willChange: "transform, opacity" }}>
+          {/* ref на сам текст — getBoundingClientRect() даст точные границы */}
+          <div ref={iDoDesignTextRef} style={{ fontFamily: "'Arial Black', Arial, sans-serif", fontWeight: 900, fontSize: "clamp(28px, 7vw, 96px)", letterSpacing: "-0.04em", color: "white", textAlign: "center", lineHeight: 1, whiteSpace: "nowrap" }}>
+            <span ref={iLetterRef} style={{ position: "relative", display: "inline-block" }}>I</span> DO DESIGN
+          </div>
+        </div>
+
+        {/* ЗАСТЫВШИЕ УЗОРЫ — летят от исходной точки на экране к кругу над буквой "I".
+            Позиция/масштаб/маска обновляются в физическом цикле каждый кадр,
+            поэтому круг всегда точно следует за буквой "I", даже если текст в движении. */}
+        {frozenPatterns.map((p, idx) => (
+          <div
+            key={p.id}
+            ref={(el) => {
+              if (el) frozenPatternRefs.current.set(p.id, el);
+              else frozenPatternRefs.current.delete(p.id);
+            }}
+            style={{
+              position: "fixed",
+              left: 0,
+              top: 0,
+              width: `${p.originW}px`,
+              height: `${p.originH}px`,
+              transformOrigin: "center center",
+              transition: "transform 1.1s cubic-bezier(0.65, 0, 0.35, 1), clip-path 1.1s cubic-bezier(0.65, 0, 0.35, 1)",
+              zIndex: 50000 + idx,
+              pointerEvents: "none",
+              // Стартовое положение — там, где узор был нарисован, без обрезки
+              transform: `translate(${p.originX}px, ${p.originY}px) scale(1)`,
+              clipPath: "none",
+            }}
+          >
+            <img
+              src={p.src}
+              alt=""
+              style={{ width: "100%", height: "100%", display: "block", objectFit: "cover" }}
+            />
+          </div>
+        ))}
+
+        <video ref={videoRef} src={videoSrc} muted loop autoPlay playsInline
+          style={{ position: "absolute", top: 0, left: 0, width: "100vw", height: "100vh", objectFit: "cover", zIndex: 0, opacity: 0 }} />
+        <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1, opacity: videoOpacity, pointerEvents: "none" }} />
+
+        <div style={{ position: "absolute", inset: 0, zIndex: 3, overflow: "hidden", pointerEvents: "none", display: "flex", flexDirection: "column", justifyContent: "center", gap: `${GAP}px`, padding: `${GAP}px 0` }}>
+          {ROWS.map((images, rowIndex) => (
+            <div key={rowIndex} ref={(el) => { trackRefs.current[rowIndex] = el; }}
+              style={{ display: "flex", gap: `${GAP}px`, paddingLeft: `${GAP}px`, width: "max-content", willChange: "transform", opacity: 0, flexShrink: 0 }}>
+              {images.map((img, i) => (
+                <div key={i} style={{ width: `${tileSize}px`, height: `${tileSize}px`, borderRadius: "12px", flexShrink: 0, overflow: "hidden" }}>
+                  <img src={img} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+
+        <div ref={textRef} style={{ position: "absolute", inset: 0, zIndex: 10, display: "flex", alignItems: "center", padding: "0 clamp(20px,6vw,80px)", opacity: 0, transform: "translate3d(0,40px,0)", willChange: "transform,opacity", pointerEvents: "none" }}>
+          <div style={{ display: "flex", flexDirection: "column", width: "100%" }}>
+            <div className="text-line" style={{ fontSize: "clamp(32px,6.5vw,88px)" }}>MY NAME <span className="mobile-br" />IS ARTEM</div>
+            <div className="text-line" style={{ fontSize: "clamp(32px,6.5vw,88px)", marginTop: "0.15em" }}>I'M A <span className="mobile-br" />DESIGNER</div>
+            <div className={`text-line contact-trigger ${shaking ? "shakeY" : ""}`}
+              onMouseEnter={handleContactEnter} onMouseLeave={() => setContactHovered(false)} onClick={openContact}
+              style={{ fontSize: "clamp(32px,6.5vw,88px)", marginTop: "1.6em", cursor: "none", userSelect: "none", display: "block", lineHeight: 0.92, minHeight: "1.85em", overflow: "visible" }}>
+              <span className="heartbeat-wrapper">{contactHovered ? "GET YOUR BEST DESIGN EVER" : "CONTACT ME"}</span>
+            </div>
+          </div>
+        </div>
+
+      </main>
+
+      {/* КУРСОР — вне <main>, поверх всех модалок */}
+      <div ref={cursorRef} style={{ position: "fixed", top: 0, left: 0, width: "120px", height: "120px", pointerEvents: "none", zIndex: 999999, opacity: 0, willChange: "transform", transform: "translate(-9999px, -9999px)", marginLeft: "-60px", marginTop: "-60px" }}>
+        <img src="/cursor.png" alt="" style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} />
+      </div>
     </>
   );
 }
