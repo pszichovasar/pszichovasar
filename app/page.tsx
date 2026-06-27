@@ -691,11 +691,17 @@ export default function Home() {
         {/* CANVAS ТРЕЙЛОВ */}
         <canvas ref={trailCanvasRef} style={{ position: "absolute", inset: 0, zIndex: 4, pointerEvents: "none", opacity: pinkOpacity }} />
 
-        {/* I DO DESIGN */}
+        {/* I DO DESIGN + накопленные узоры — всё движется вместе при скролле */}
         <div ref={iDoDesignRef} style={{ position: "absolute", inset: 0, zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none", transform: "translateY(110vh)", opacity: 0, willChange: "transform,opacity" }}>
           <div ref={iDoDesignTextRef} style={{ fontFamily: "'Arial Black',Arial,sans-serif", fontWeight: 900, fontSize: "clamp(28px,7vw,96px)", letterSpacing: "-0.04em", color: "white", textAlign: "center", lineHeight: 1, whiteSpace: "nowrap" }}>
             I DO DESIGN
           </div>
+          {/* Узоры внутри того же контейнера — скроллятся вместе с текстом.
+              Позиции в ThumbItem рассчитываются в экранных координатах и применяются
+              как left/top внутри position:absolute, родитель — inset:0 контейнер. */}
+          {thumbnails.map(t => (
+            <ThumbItem key={t.id} thumb={t} />
+          ))}
         </div>
 
         <video ref={videoRef} src={videoSrc} muted loop autoPlay playsInline
@@ -730,13 +736,6 @@ export default function Home() {
         </div>
 
       </main>
-
-      {/* НАКОПЛЕННЫЕ МИНИАТЮРЫ УЗОРОВ
-          Каждая: position:fixed, начинает с исходных координат трейла (полный размер),
-          плавно через CSS transition улетает в случайное место и уменьшается в 4 раза. */}
-      {thumbnails.map(t => (
-        <ThumbItem key={t.id} thumb={t} />
-      ))}
 
       {/* КУРСОР */}
       <div ref={cursorRef} style={{ position: "fixed", top: 0, left: 0, width: "120px", height: "120px", pointerEvents: "none", zIndex: 999999, opacity: 0, willChange: "transform", transform: "translate(-9999px,-9999px)", marginLeft: "-60px", marginTop: "-60px" }}>
