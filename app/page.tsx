@@ -792,6 +792,8 @@ export default function Home() {
 
         {/* ЧЁРНЫЙ ФОН */}
         <div style={{ position: "absolute", inset: 0, background: "#000", zIndex: 2, opacity: pinkOpacity, pointerEvents: "none" }}>
+          {/* CANVAS ТРЕЙЛОВ — за картинками */}
+          <canvas ref={trailCanvasRef} style={{ position: "absolute", inset: 0, zIndex: 0, pointerEvents: "none" }} />
           {FLOATING_INIT.map((cfg, i) => (
             <div key={i} ref={el => { floatingRefs.current[i] = el; }} className="floating-img"
               style={{ left: `${cfg.x}%`, top: `${cfg.y}%`, ["--delay" as any]: `${cfg.delay}ms`, ["--rot" as any]: `${cfg.rotation}deg` }}>
@@ -800,9 +802,6 @@ export default function Home() {
           ))}
           <div ref={overlayRef} style={{ position: "absolute", inset: 0, zIndex: 10, pointerEvents: (showContact || !!selectedImg) ? "none" : "auto", cursor: "none" }} />
         </div>
-
-        {/* CANVAS ТРЕЙЛОВ */}
-        <canvas ref={trailCanvasRef} style={{ position: "absolute", inset: 0, zIndex: 4, pointerEvents: "none", opacity: pinkOpacity }} />
 
         {/* I DO DESIGN + накопленные узоры — всё движется вместе при скролле */}
         <div ref={iDoDesignRef} style={{ position: "absolute", inset: 0, zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none", transform: "translateY(110vh)", opacity: 0, willChange: "transform,opacity" }}>
