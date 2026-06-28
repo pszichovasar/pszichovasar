@@ -359,14 +359,34 @@ export default function Home() {
       const dstY = (margin + Math.random() * (1 - 2 * margin - dstSize / H)) * H - tyPx;
 
       thumbIdRef.current++;
+      const newThumbId = thumbIdRef.current;
+
+      // Сначала показываем оригинальный трейл (он сразу летит на место)
       setThumbnails(prev => [...prev, {
-        id: thumbIdRef.current,
+        id: newThumbId,
         src,
-        // srcY в координатах контейнера = экранная Y - tyPx
         srcX: minX, srcY: minY - tyPx, srcW: cropW, srcH: cropH,
         dstX, dstY, dstSize,
         offsetY: 0,
       }]);
+
+      // Асинхронно генерируем цветную мозаику через Nano Banana.
+      // Отправляем PNG трейла как референс — белые контуры становятся
+      // границами витражных ячеек, каждая заливается случайным цветом.
+      fetch("/api/generate-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageDataUrl: src }),
+      })
+        .then(r => r.json())
+        .then(data => {
+          if (!data.url) return;
+          // Заменяем PNG трейла на готовую мозаику в том же месте
+          setThumbnails(prev =>
+            prev.map(t => t.id === newThumbId ? { ...t, src: data.url } : t)
+          );
+        })
+        .catch(err => console.warn("Mosaic generation failed:", err));
 
       // Очищаем трейлы
       const c2 = canvas.getContext("2d");
