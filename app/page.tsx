@@ -88,9 +88,9 @@ function obbCollide(
 // Тип для накопленных миниатюр узоров
 type Thumbnail = {
   id: number;
-  src: string;        // PNG dataURL
-  srcX: number; srcY: number; srcW: number; srcH: number; // откуда (экранные координаты)
-  dstX: number; dstY: number;  // куда (случайное место, в долях 0..1 от экрана)
+  src: string;
+  srcX: number; srcY: number; srcW: number; srcH: number;
+  dstX: number; dstY: number; dstSize: number;
 };
 
 export default function Home() {
@@ -122,6 +122,18 @@ export default function Home() {
   // Накопленные миниатюры узоров
   const [thumbnails, setThumbnails] = useState<Thumbnail[]>([]);
   const thumbIdRef = useRef(0);
+
+  // Слайдшоу фото mi1–mi5: случайные позиции, появляются каждые 5 сек
+  const MI_PHOTOS = ["/mi1.jpg", "/mi2.jpg", "/mi3.jpg", "/mi4.jpg", "/mi5.jpg"];
+  // Одна фото за раз: появляется, показывается ~3 сек, исчезает, через паузу следующая
+  const [currentPhoto, setCurrentPhoto] = useState<{
+    id: number; src: string;
+    x: number; y: number;
+    size: number;
+    phase: "in" | "show" | "out";
+  } | null>(null);
+  const slideIdRef = useRef(0);
+  const slideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const physState = useRef(
     FLOATING_INIT.map(() => ({
@@ -219,7 +231,82 @@ export default function Home() {
     return () => window.removeEventListener("resize", resize);
   }, []);
 
-  // ── Каждые 10 сек: снимок трейла → миниатюра → улетает в случайное место ─
+  // Слайдшоу: по одному фото, анимация "двери лифта", без пересечений с узорами
+  useEffect(() => {
+    const PHOTO_SIZE_MIN = 120, PHOTO_SIZE_MAX = 220;
+    const SHOW_MS = 3000, IN_MS = 600, OUT_MS = 500, PAUSE_MS = 1500;
+
+    const rectsOverlap = (
+      ax: number, ay: number, aw: number, ah: number,
+      bx: number, by: number, bw: number, bh: number,
+      pad = 20
+    ) => {
+      return ax - pad < bx + bw && ax + aw + pad > bx &&
+        ay - pad < by + bh && ay + ah + pad > by;
+    };
+
+    const findFreePosition = (size: number, occupied: { x: number; y: number; w: number; h: number }[]) => {
+      const W = window.innerWidth, H = window.innerHeight;
+      for (let attempt = 0; attempt < 40; attempt++) {
+        const cx = size / 2 + Math.random() * (W - size);
+        const cy = size / 2 + Math.random() * (H - size);
+        const x = cx - size / 2, y = cy - size / 2;
+        const ok = occupied.every(o => !rectsOverlap(x, y, size, size, o.x, o.y, o.w, o.h));
+        if (ok) return { cx: cx / W * 100, cy: cy / H * 100 };
+      }
+      // Fallback: просто случайное место
+      return {
+        cx: (size / 2 + Math.random() * (W - size)) / W * 100,
+        cy: (size / 2 + Math.random() * (H - size)) / H * 100,
+      };
+    };
+
+    const showNext = () => {
+      const src = MI_PHOTOS[Math.floor(Math.random() * MI_PHOTOS.length)];
+      const size = PHOTO_SIZE_MIN + Math.random() * (PHOTO_SIZE_MAX - PHOTO_SIZE_MIN);
+      const rot = (Math.random() - 0.5) * 20;
+      const W = window.innerWidth, H = window.innerHeight;
+      // Собираем занятые области: узоры (thumbnails через physState trail bboxes)
+      const occupied = physState.current
+        .filter(s => s.trail.length > 1)
+        .map(s => {
+          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+          for (const p of s.trail) {
+            if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+            if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
+          }
+          return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+        });
+
+      const { cx, cy } = findFreePosition(size, occupied);
+      // tyPx — текущий сдвиг контейнера. Сохраняем чтобы компонент мог
+      // скорректировать absolute Y = экранный Y - tyPx
+      const tyPx = getCurrentTyPx();
+
+      slideIdRef.current++;
+      const id = slideIdRef.current;
+
+      // Фаза IN
+      setCurrentPhoto({ id, src, x: cx, y: cy - tyPx / window.innerHeight * 100, size, phase: "in" });
+
+      // Фаза SHOW
+      slideTimerRef.current = setTimeout(() => {
+        setCurrentPhoto(p => p?.id === id ? { ...p, phase: "show" } : p);
+        // Фаза OUT
+        slideTimerRef.current = setTimeout(() => {
+          setCurrentPhoto(p => p?.id === id ? { ...p, phase: "out" } : p);
+          // Пауза → следующее фото
+          slideTimerRef.current = setTimeout(() => {
+            setCurrentPhoto(null);
+            slideTimerRef.current = setTimeout(showNext, PAUSE_MS);
+          }, OUT_MS);
+        }, SHOW_MS);
+      }, IN_MS);
+    };
+
+    slideTimerRef.current = setTimeout(showNext, 500);
+    return () => { if (slideTimerRef.current) clearTimeout(slideTimerRef.current); };
+  }, []);
   useEffect(() => {
     const capture = () => {
       const canvas = trailCanvasRef.current;
@@ -261,18 +348,23 @@ export default function Home() {
       }
       const src = crop.toDataURL("image/png");
 
-      // Случайное место на экране (в долях, чтобы не выезжало за край)
-      const finalW = cropW / 4;
-      const finalH = cropH / 4;
+      // Корректируем Y на текущий сдвиг контейнера iDoDesignRef
+      const tyPx = getCurrentTyPx();
+      const H = window.innerHeight;
+
+      const dstSize = 120 + Math.random() * 100;
       const margin = 0.05;
-      const dstX = margin + Math.random() * (1 - 2 * margin - finalW / window.innerWidth);
-      const dstY = margin + Math.random() * (1 - 2 * margin - finalH / window.innerHeight);
+      const dstX = (margin + Math.random() * (1 - 2 * margin - dstSize / window.innerWidth)) * window.innerWidth;
+      const dstY = (margin + Math.random() * (1 - 2 * margin - dstSize / H)) * H - tyPx;
 
       thumbIdRef.current++;
       setThumbnails(prev => [...prev, {
         id: thumbIdRef.current,
-        src, srcX: minX, srcY: minY, srcW: cropW, srcH: cropH,
-        dstX, dstY,
+        src,
+        // srcY в координатах контейнера = экранная Y - tyPx
+        srcX: minX, srcY: minY - tyPx, srcW: cropW, srcH: cropH,
+        dstX, dstY, dstSize,
+        offsetY: 0,
       }]);
 
       // Очищаем трейлы
@@ -285,7 +377,6 @@ export default function Home() {
     return () => clearInterval(id);
   }, []);
 
-  // ── Физический цикл ───────────────────────────────────────────────────────
   useEffect(() => {
     const DAMPING = 0.988, MAX_SPEED = 1400, BOUNCE = 0.35, CORRECTION_BIAS = 0.4;
     const ROT_DAMPING = 0.985, MAX_ROT_SPEED = 14;
@@ -455,6 +546,16 @@ export default function Home() {
 
   const iDoDesignRef = useRef<HTMLDivElement>(null);
 
+  // Текущий сдвиг iDoDesignRef в пикселях (нужен для корректировки координат)
+  const getCurrentTyPx = () => {
+    const unit = scrollRef.current / SCROLL_PER_UNIT;
+    let ty: number;
+    if (unit <= 0.35) ty = (1 - unit / 0.35) * 110;
+    else if (unit <= 0.75) ty = -((unit - 0.35) / 0.4) * 110;
+    else ty = -110;
+    return ty / 100 * window.innerHeight;
+  };
+
   const applyAnimations = (scrollY: number, deltaY = 0) => {
     const unit = scrollY / SCROLL_PER_UNIT;
     setPinkOpacity(Math.max(0, 1 - Math.max(0, (unit - 0.8) / 0.4)));
@@ -479,6 +580,7 @@ export default function Home() {
       else if (unit <= 2) { const x = sX + (eX - sX) * (unit - 1); track.style.opacity = "1"; track.style.transform = `translate3d(${x}px,0,0)`; }
       else { track.style.opacity = "0"; track.style.transform = `translate3d(${eX}px,0,0)`; }
     });
+
     const tPhase = Math.max(0, Math.min((unit - 2.2) / 0.5, 1));
     setVideoOpacity(tPhase);
     if (videoRef.current) videoRef.current.style.opacity = tPhase.toString();
@@ -696,9 +798,11 @@ export default function Home() {
           <div ref={iDoDesignTextRef} style={{ fontFamily: "'Arial Black',Arial,sans-serif", fontWeight: 900, fontSize: "clamp(28px,7vw,96px)", letterSpacing: "-0.04em", color: "white", textAlign: "center", lineHeight: 1, whiteSpace: "nowrap" }}>
             I DO DESIGN
           </div>
-          {/* Узоры внутри того же контейнера — скроллятся вместе с текстом.
-              Позиции в ThumbItem рассчитываются в экранных координатах и применяются
-              как left/top внутри position:absolute, родитель — inset:0 контейнер. */}
+          {/* Картинки и узоры — внутри iDoDesignRef, скроллятся вместе с текстом.
+              Координаты скорректированы на текущий translateY контейнера при создании. */}
+          {currentPhoto && (
+            <SlidePhoto key={currentPhoto.id} photo={currentPhoto} />
+          )}
           {thumbnails.map(t => (
             <ThumbItem key={t.id} thumb={t} />
           ))}
@@ -745,43 +849,87 @@ export default function Home() {
   );
 }
 
-// Отдельный компонент миниатюры — монтируется в начальных координатах,
-// после двух rAF запускает CSS transition к финальной позиции (× 0.25 scale).
+// SlidePhoto: анимация "двери лифта" (clip-path раздвигается из центра при появлении,
+// сдвигается к центру при исчезновении). phase управляется из родителя.
+function SlidePhoto({ photo }: {
+  photo: { id: number; src: string; x: number; y: number; size: number; phase: string }
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  // При монтировании: стартуем с закрытого clip-path, потом через двойной rAF открываем
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.transition = "none";
+    el.style.clipPath = "inset(0 50% 0 50%)";
+    const r1 = requestAnimationFrame(() => {
+      const r2 = requestAnimationFrame(() => {
+        el.style.transition = "clip-path 0.6s cubic-bezier(0.16,1,0.3,1)";
+        el.style.clipPath = "inset(0 0% 0 0%)";
+      });
+      return () => cancelAnimationFrame(r2);
+    });
+    return () => cancelAnimationFrame(r1);
+  }, []);
+
+  // При переходе в фазу "out" — закрываем clip-path к центру
+  useEffect(() => {
+    if (photo.phase !== "out") return;
+    const el = ref.current;
+    if (!el) return;
+    el.style.transition = "clip-path 0.5s cubic-bezier(0.65,0,0.35,1)";
+    el.style.clipPath = "inset(0 50% 0 50%)";
+  }, [photo.phase]);
+
+  return (
+    <div
+      ref={ref}
+      style={{
+        position: "absolute",
+        left: `${photo.x}%`,
+        top: `${photo.y}%`,
+        width: `${photo.size}px`,
+        height: `${photo.size}px`,
+        transform: `translate(-50%, -50%)`,
+        borderRadius: "16px",
+        overflow: "hidden",
+        boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
+        pointerEvents: "none",
+        zIndex: 2,
+        clipPath: "inset(0 50% 0 50%)", // начальное состояние (до монтирования)
+      }}
+    >
+      <img src={photo.src} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+    </div>
+  );
+}
+
+// ThumbItem: position:absolute внутри iDoDesignRef (inset:0 — размер экрана).
+// Координаты уже скорректированы на tyPx контейнера при capture.
+// Скроллится вместе с текстом автоматически.
 function ThumbItem({ thumb }: { thumb: Thumbnail }) {
-  const ref = useRef<HTMLImageElement>(null);
+  const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
 
-    const W = window.innerWidth, H = window.innerHeight;
-    const finalW = thumb.srcW / 4, finalH = thumb.srcH / 4;
-    const finalX = thumb.dstX * W;
-    const finalY = thumb.dstY * H;
-
-    // Стартовое состояние: на месте трейла, полный размер, прозрачный
-    el.style.transition = "none";
-    el.style.left = `${thumb.srcX}px`;
-    el.style.top = `${thumb.srcY}px`;
-    el.style.width = `${thumb.srcW}px`;
-    el.style.height = `${thumb.srcH}px`;
-    el.style.opacity = "0";
-
-    // Два rAF: первый применяет начальные стили, второй запускает анимацию
+    // Двойной rAF — запускаем transition к финальному состоянию
     const r1 = requestAnimationFrame(() => {
       const r2 = requestAnimationFrame(() => {
-        el.style.transition = [
+        if (!ref.current) return;
+        ref.current.style.transition = [
           "left 1.4s cubic-bezier(0.65,0,0.35,1)",
           "top 1.4s cubic-bezier(0.65,0,0.35,1)",
           "width 1.4s cubic-bezier(0.65,0,0.35,1)",
           "height 1.4s cubic-bezier(0.65,0,0.35,1)",
-          "opacity 0.5s ease",
+          "border-radius 1.4s cubic-bezier(0.65,0,0.35,1)",
         ].join(",");
-        el.style.left = `${finalX}px`;
-        el.style.top = `${finalY}px`;
-        el.style.width = `${finalW}px`;
-        el.style.height = `${finalH}px`;
-        el.style.opacity = "1";
+        ref.current.style.left = `${thumb.dstX}px`;
+        ref.current.style.top = `${thumb.dstY}px`;
+        ref.current.style.width = `${thumb.dstSize}px`;
+        ref.current.style.height = `${thumb.dstSize}px`;
+        ref.current.style.borderRadius = "16px";
       });
       return () => cancelAnimationFrame(r2);
     });
@@ -789,17 +937,21 @@ function ThumbItem({ thumb }: { thumb: Thumbnail }) {
   }, []);
 
   return (
-    <img
+    <div
       ref={ref}
-      src={thumb.src}
-      alt=""
       style={{
-        position: "fixed",
+        position: "absolute",
+        left: `${thumb.srcX}px`,
+        top: `${thumb.srcY}px`,
+        width: `${thumb.srcW}px`,
+        height: `${thumb.srcH}px`,
+        borderRadius: "0px",
+        overflow: "hidden",
+        opacity: 1,
         pointerEvents: "none",
-        zIndex: 6,
-        display: "block",
-        opacity: 0,
       }}
-    />
+    >
+      <img src={thumb.src} alt="" style={{ width: "100%", height: "100%", display: "block", objectFit: "cover" }} />
+    </div>
   );
 }
