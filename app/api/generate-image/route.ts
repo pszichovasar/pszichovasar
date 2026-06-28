@@ -95,9 +95,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No imageDataUrl" }, { status: 400 });
     }
 
-    // Декодируем base64 → Buffer
+    // Декодируем base64 → Uint8Array (Buffer не принимается как BodyInit в Edge)
     const base64 = imageDataUrl.replace(/^data:image\/png;base64,/, "");
-    const pngBuffer = Buffer.from(base64, "base64");
+    const pngBuffer = Uint8Array.from(Buffer.from(base64, "base64"));
 
     // Загружаем PNG в Higgsfield
     const { upload_url, media_id } = await getUploadUrl();
