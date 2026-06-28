@@ -128,7 +128,7 @@ export default function Home() {
   // Одна фото за раз: появляется, показывается ~3 сек, исчезает, через паузу следующая
   const [currentPhoto, setCurrentPhoto] = useState<{
     id: number; src: string;
-    x: number; y: number;
+    x: number; y: number;   // пиксели в координатах thumbContainer (экран минус tyPx)
     size: number;
     phase: "in" | "show" | "out";
   } | null>(null);
@@ -233,7 +233,7 @@ export default function Home() {
 
   // Слайдшоу: по одному фото, анимация "двери лифта", без пересечений с узорами
   useEffect(() => {
-    const PHOTO_SIZE_MIN = 120, PHOTO_SIZE_MAX = 220;
+    const PHOTO_SIZE_MIN = 340, PHOTO_SIZE_MAX = 340;
     const SHOW_MS = 3000, IN_MS = 600, OUT_MS = 500, PAUSE_MS = 1500;
 
     const rectsOverlap = (
@@ -279,15 +279,16 @@ export default function Home() {
         });
 
       const { cx, cy } = findFreePosition(size, occupied);
-      // tyPx — текущий сдвиг контейнера. Сохраняем чтобы компонент мог
-      // скорректировать absolute Y = экранный Y - tyPx
       const tyPx = getCurrentTyPx();
+      // cx/cy в % от экрана → пиксели, затем корректируем на tyPx контейнера
+      const xPx = cx / 100 * W;
+      const yPx = cy / 100 * H - tyPx;
 
       slideIdRef.current++;
       const id = slideIdRef.current;
 
       // Фаза IN
-      setCurrentPhoto({ id, src, x: cx, y: cy - tyPx / window.innerHeight * 100, size, phase: "in" });
+      setCurrentPhoto({ id, src, x: xPx, y: yPx, size, phase: "in" });
 
       // Фаза SHOW
       slideTimerRef.current = setTimeout(() => {
@@ -348,13 +349,13 @@ export default function Home() {
       }
       const src = crop.toDataURL("image/png");
 
-      // Корректируем Y на текущий сдвиг контейнера iDoDesignRef
       const tyPx = getCurrentTyPx();
       const H = window.innerHeight;
 
-      const dstSize = 120 + Math.random() * 100;
+      const dstSize = 340;
       const margin = 0.05;
       const dstX = (margin + Math.random() * (1 - 2 * margin - dstSize / window.innerWidth)) * window.innerWidth;
+      // dstY в координатах контейнера = случайная экранная Y - tyPx
       const dstY = (margin + Math.random() * (1 - 2 * margin - dstSize / H)) * H - tyPx;
 
       thumbIdRef.current++;
@@ -545,6 +546,7 @@ export default function Home() {
   const getRowWidth = () => (calcTileSize() + GAP) * ALL_IMAGES.length + GAP;
 
   const iDoDesignRef = useRef<HTMLDivElement>(null);
+  const thumbContainerRef = useRef<HTMLDivElement>(null);
 
   // Текущий сдвиг iDoDesignRef в пикселях (нужен для корректировки координат)
   const getCurrentTyPx = () => {
@@ -568,6 +570,15 @@ export default function Home() {
       iDoDesignRef.current.style.opacity =
         unit < 0.02 ? "0" : unit < 0.08 ? String((unit - 0.02) / 0.06)
           : unit > 0.65 ? String(Math.max(0, 1 - (unit - 0.65) / 0.1)) : "1";
+    }
+    // thumbContainer двигается вместе с iDoDesignRef (тот же translateY)
+    if (thumbContainerRef.current) {
+      const unit2 = scrollY / SCROLL_PER_UNIT;
+      let ty2: number;
+      if (unit2 <= 0.35) ty2 = (1 - unit2 / 0.35) * 110;
+      else if (unit2 <= 0.75) ty2 = -((unit2 - 0.35) / 0.4) * 110;
+      else ty2 = -110;
+      thumbContainerRef.current.style.transform = `translateY(${ty2}vh)`;
     }
     if (deltaY > 0 && unit < 0.9) physState.current.forEach(s => { if (!s.initialized) return; s.vy -= Math.min(deltaY * 18, 900); s.rotSpeed += (Math.random() - 0.5) * 4; });
     else if (deltaY < 0 && unit < 0.9) physState.current.forEach(s => { if (!s.initialized) return; s.vy += Math.min(Math.abs(deltaY) * 18, 900); s.rotSpeed += (Math.random() - 0.5) * 4; });
@@ -798,8 +809,12 @@ export default function Home() {
           <div ref={iDoDesignTextRef} style={{ fontFamily: "'Arial Black',Arial,sans-serif", fontWeight: 900, fontSize: "clamp(28px,7vw,96px)", letterSpacing: "-0.04em", color: "white", textAlign: "center", lineHeight: 1, whiteSpace: "nowrap" }}>
             I DO DESIGN
           </div>
-          {/* Картинки и узоры — внутри iDoDesignRef, скроллятся вместе с текстом.
-              Координаты скорректированы на текущий translateY контейнера при создании. */}
+        </div>
+
+        {/* Картинки и узоры — отдельный контейнер с тем же translateY.
+            position:absolute inset:0 без flex-центрирования.
+            Координаты объектов = экранные пиксели минус текущий tyPx. */}
+        <div ref={thumbContainerRef} style={{ position: "absolute", inset: 0, zIndex: 6, pointerEvents: "none", transform: "translateY(110vh)", willChange: "transform" }}>
           {currentPhoto && (
             <SlidePhoto key={currentPhoto.id} photo={currentPhoto} />
           )}
@@ -886,8 +901,8 @@ function SlidePhoto({ photo }: {
       ref={ref}
       style={{
         position: "absolute",
-        left: `${photo.x}%`,
-        top: `${photo.y}%`,
+        left: `${photo.x}px`,
+        top: `${photo.y}px`,
         width: `${photo.size}px`,
         height: `${photo.size}px`,
         transform: `translate(-50%, -50%)`,
