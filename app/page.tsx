@@ -99,42 +99,38 @@ type Thumbnail = {
 function buildStainedGlassMosaic(srcCanvas: HTMLCanvasElement, w: number, h: number): string | null {
   if (w < 2 || h < 2) return null;
 
-  // Читаем пиксели исходного canvas с трейлами
+  // Рисуем на offscreen canvas нужного размера
   const offscreen = document.createElement("canvas");
   offscreen.width = w; offscreen.height = h;
   const ctx = offscreen.getContext("2d", { willReadFrequently: true })!;
+  // Рисуем с утолщением линий: сначала белые линии, потом blur для расширения
+  ctx.filter = "blur(1px)";
   ctx.drawImage(srcCanvas, 0, 0, w, h);
+  ctx.filter = "none";
   const imgData = ctx.getImageData(0, 0, w, h);
   const data = imgData.data;
 
-  // Яркие витражные цвета
   const COLORS: [number, number, number][] = [
-    [220, 30, 50],   // crimson
-    [30, 100, 220],  // electric blue
-    [30, 180, 80],   // emerald
-    [230, 180, 20],  // gold
-    [140, 40, 200],  // violet
-    [220, 100, 20],  // orange
-    [20, 200, 210],  // cyan
-    [210, 30, 160],  // magenta
-    [180, 220, 30],  // lime
-    [20, 120, 200],  // cobalt
+    [220, 30, 50], [30, 100, 220], [30, 180, 80],
+    [230, 180, 20], [140, 40, 200], [220, 100, 20],
+    [20, 200, 210], [210, 30, 160], [180, 220, 30], [20, 120, 200],
   ];
   let colorIdx = 0;
 
-  // Пиксель — линия если достаточно ярлый (белый трейл)
+  // Порог ниже — blur размывает пиксели линий, захватываем шире
   const isLine = (i: number) => {
     const o = i * 4;
-    return data[o + 3] > 30 && (data[o] + data[o + 1] + data[o + 2]) > 200;
+    return data[o + 3] > 20 && (data[o] + data[o + 1] + data[o + 2]) > 100;
   };
 
-  const visited = new Uint8Array(w * h);
-  const queue = new Int32Array(w * h);
+  const n = w * h;
+  const visited = new Uint8Array(n);
+  // Queue достаточно большой для всего canvas
+  const queue = new Int32Array(n);
 
-  for (let start = 0; start < w * h; start++) {
+  for (let start = 0; start < n; start++) {
     if (visited[start] || isLine(start)) continue;
 
-    // BFS flood-fill — закрашиваем одну замкнутую область
     const [cr, cg, cb] = COLORS[colorIdx % COLORS.length];
     colorIdx++;
     let qH = 0, qT = 0;
@@ -145,12 +141,11 @@ function buildStainedGlassMosaic(srcCanvas: HTMLCanvasElement, w: number, h: num
       const idx = queue[qH++];
       const o = idx * 4;
       data[o] = cr; data[o + 1] = cg; data[o + 2] = cb; data[o + 3] = 255;
-
       const x = idx % w, y = (idx / w) | 0;
-      if (x > 0) { const n = idx - 1; if (!visited[n] && !isLine(n)) { visited[n] = 1; queue[qT++] = n; } }
-      if (x < w - 1) { const n = idx + 1; if (!visited[n] && !isLine(n)) { visited[n] = 1; queue[qT++] = n; } }
-      if (y > 0) { const n = idx - w; if (!visited[n] && !isLine(n)) { visited[n] = 1; queue[qT++] = n; } }
-      if (y < h - 1) { const n = idx + w; if (!visited[n] && !isLine(n)) { visited[n] = 1; queue[qT++] = n; } }
+      if (x > 0) { const nb = idx - 1; if (!visited[nb] && !isLine(nb)) { visited[nb] = 1; queue[qT++] = nb; } }
+      if (x < w - 1) { const nb = idx + 1; if (!visited[nb] && !isLine(nb)) { visited[nb] = 1; queue[qT++] = nb; } }
+      if (y > 0) { const nb = idx - w; if (!visited[nb] && !isLine(nb)) { visited[nb] = 1; queue[qT++] = nb; } }
+      if (y < h - 1) { const nb = idx + w; if (!visited[nb] && !isLine(nb)) { visited[nb] = 1; queue[qT++] = nb; } }
     }
   }
 
@@ -425,8 +420,13 @@ export default function Home() {
       });
 
       // Превращаем трейл в витражную мозаику прямо в браузере (flood-fill).
-      // Никаких API — мгновенно, на основе точно тех же линий что нарисовал пользователь.
-      const mosaicSrc = buildStainedGlassMosaic(crop, crop.width, crop.height);
+      // Уменьшаем до 200px чтобы белые линии (1px) были толще относительно размера —
+      // иначе на большом canvas линии слишком тонкие и не образуют замкнутых областей.
+      const MAX_MOSAIC = 200;
+      const mScale = Math.min(1, MAX_MOSAIC / Math.max(crop.width, crop.height, 1));
+      const mW = Math.max(2, Math.round(crop.width * mScale));
+      const mH = Math.max(2, Math.round(crop.height * mScale));
+      const mosaicSrc = buildStainedGlassMosaic(crop, mW, mH);
       if (mosaicSrc) {
         setThumbnails(prev =>
           prev.map(t => t.id === newThumbId ? { ...t, src: mosaicSrc } : t)
