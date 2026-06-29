@@ -1,34 +1,56 @@
 // app/api/generate-image/route.ts
-// Pollinations.ai — бесплатная генерация изображений без API ключа
 import { NextRequest, NextResponse } from "next/server";
 
 export const maxDuration = 60;
 
-const PROMPTS = [
-  "stained glass mosaic, abstract white line contours on black background, vivid flat colors: crimson, electric blue, emerald, gold, violet, cyan. no gradients, vector art",
-  "vitrage artwork, white lines dividing black space into cells, each cell vivid flat color: ruby, sapphire, jade, amber, purple, turquoise. graphic art style",
-  "geometric stained glass, white wireframe on black, areas filled: scarlet, cobalt, lime, ochre, magenta, teal. flat design, white borders prominent",
-  "abstract mosaic, bright white contours on black, enclosed regions: crimson, ultramarine, chartreuse, saffron, violet, cerulean. minimal vector illustration",
-];
-
 export async function POST(req: NextRequest) {
   try {
-    const prompt = PROMPTS[Math.floor(Math.random() * PROMPTS.length)];
-    const encoded = encodeURIComponent(prompt);
+    const { imageDataUrl } = await req.json();
+    if (!imageDataUrl) {
+      return NextResponse.json({ error: "No imageDataUrl" }, { status: 400 });
+    }
 
-    // Pollinations.ai — GET запрос возвращает PNG напрямую, без ключей
-    const imageUrl = `https://image.pollinations.ai/prompt/${encoded}?width=512&height=512&model=flux&seed=${Math.floor(Math.random() * 99999)}&nologo=true`;
+    // 1. Загружаем PNG трейла на Pollinations чтобы получить публичный URL
+    const base64 = (imageDataUrl as string).replace(/^data:image\/png;base64,/, "");
+    const binaryStr = Buffer.from(base64, "base64");
 
-    // Загружаем картинку на сервере и возвращаем как dataURL — без CORS проблем
+    const uploadRes = await fetch("https://gen.pollinations.ai/upload", {
+      method: "POST",
+      headers: { "Content-Type": "image/png" },
+      body: binaryStr,
+    });
+
+    let referenceImageUrl: string | null = null;
+    if (uploadRes.ok) {
+      const uploadData = await uploadRes.json();
+      referenceImageUrl = uploadData.url || uploadData.hash_url || null;
+    }
+
+    // 2. Генерируем мозаику — с референсом если удалось загрузить, иначе text-only
+    const prompt = encodeURIComponent(
+      "stained glass mosaic vitrage. " +
+      "keep all white line contours from the reference exactly as borders. " +
+      "fill every enclosed cell with vivid flat solid color: crimson, electric blue, emerald, gold, violet, orange, cyan, magenta. " +
+      "black background. no gradients. no textures. white lines stay white on top. graphic art."
+    );
+
+    const seed = Math.floor(Math.random() * 99999);
+    let imageUrl = `https://image.pollinations.ai/prompt/${prompt}?width=512&height=512&model=flux&seed=${seed}&nologo=true`;
+
+    // Добавляем референс если есть
+    if (referenceImageUrl) {
+      imageUrl += `&image=${encodeURIComponent(referenceImageUrl)}`;
+    }
+
     const imgRes = await fetch(imageUrl);
     if (!imgRes.ok) {
-      return NextResponse.json({ error: `Image fetch failed: ${imgRes.status}` }, { status: 500 });
+      return NextResponse.json({ error: `Generation failed: ${imgRes.status}` }, { status: 500 });
     }
-    const buffer = await imgRes.arrayBuffer();
-    const base64 = Buffer.from(buffer).toString("base64");
-    const dataUrl = `data:image/png;base64,${base64}`;
 
-    return NextResponse.json({ url: dataUrl });
+    const buffer = await imgRes.arrayBuffer();
+    const b64 = Buffer.from(buffer).toString("base64");
+
+    return NextResponse.json({ url: `data:image/png;base64,${b64}` });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
