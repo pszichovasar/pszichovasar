@@ -99,16 +99,33 @@ type Thumbnail = {
 function buildStainedGlassMosaic(srcCanvas: HTMLCanvasElement, w: number, h: number): string | null {
   if (w < 2 || h < 2) return null;
 
-  // Рисуем на offscreen canvas нужного размера
   const offscreen = document.createElement("canvas");
   offscreen.width = w; offscreen.height = h;
   const ctx = offscreen.getContext("2d", { willReadFrequently: true })!;
-  // Рисуем с утолщением линий: сначала белые линии, потом blur для расширения
-  ctx.filter = "blur(1px)";
+
+  // Рисуем оригинал
   ctx.drawImage(srcCanvas, 0, 0, w, h);
-  ctx.filter = "none";
+
   const imgData = ctx.getImageData(0, 0, w, h);
   const data = imgData.data;
+  const n = w * h;
+
+  // Дилатация: расширяем белые пиксели на 1 шаг чтобы линии стали толще
+  const isWhite = (i: number) => {
+    const o = i * 4;
+    return data[o + 3] > 20 && (data[o] + data[o + 1] + data[o + 2]) > 150;
+  };
+  const expanded = new Uint8Array(n);
+  for (let i = 0; i < n; i++) {
+    if (isWhite(i)) {
+      expanded[i] = 1;
+      const x = i % w, y = (i / w) | 0;
+      if (x > 0) expanded[i - 1] = 1;
+      if (x < w - 1) expanded[i + 1] = 1;
+      if (y > 0) expanded[i - w] = 1;
+      if (y < h - 1) expanded[i + w] = 1;
+    }
+  }
 
   const COLORS: [number, number, number][] = [
     [220, 30, 50], [30, 100, 220], [30, 180, 80],
@@ -117,19 +134,11 @@ function buildStainedGlassMosaic(srcCanvas: HTMLCanvasElement, w: number, h: num
   ];
   let colorIdx = 0;
 
-  // Порог ниже — blur размывает пиксели линий, захватываем шире
-  const isLine = (i: number) => {
-    const o = i * 4;
-    return data[o + 3] > 20 && (data[o] + data[o + 1] + data[o + 2]) > 100;
-  };
-
-  const n = w * h;
   const visited = new Uint8Array(n);
-  // Queue достаточно большой для всего canvas
   const queue = new Int32Array(n);
 
   for (let start = 0; start < n; start++) {
-    if (visited[start] || isLine(start)) continue;
+    if (visited[start] || expanded[start]) continue;
 
     const [cr, cg, cb] = COLORS[colorIdx % COLORS.length];
     colorIdx++;
@@ -142,10 +151,10 @@ function buildStainedGlassMosaic(srcCanvas: HTMLCanvasElement, w: number, h: num
       const o = idx * 4;
       data[o] = cr; data[o + 1] = cg; data[o + 2] = cb; data[o + 3] = 255;
       const x = idx % w, y = (idx / w) | 0;
-      if (x > 0) { const nb = idx - 1; if (!visited[nb] && !isLine(nb)) { visited[nb] = 1; queue[qT++] = nb; } }
-      if (x < w - 1) { const nb = idx + 1; if (!visited[nb] && !isLine(nb)) { visited[nb] = 1; queue[qT++] = nb; } }
-      if (y > 0) { const nb = idx - w; if (!visited[nb] && !isLine(nb)) { visited[nb] = 1; queue[qT++] = nb; } }
-      if (y < h - 1) { const nb = idx + w; if (!visited[nb] && !isLine(nb)) { visited[nb] = 1; queue[qT++] = nb; } }
+      if (x > 0) { const nb = idx - 1; if (!visited[nb] && !expanded[nb]) { visited[nb] = 1; queue[qT++] = nb; } }
+      if (x < w - 1) { const nb = idx + 1; if (!visited[nb] && !expanded[nb]) { visited[nb] = 1; queue[qT++] = nb; } }
+      if (y > 0) { const nb = idx - w; if (!visited[nb] && !expanded[nb]) { visited[nb] = 1; queue[qT++] = nb; } }
+      if (y < h - 1) { const nb = idx + w; if (!visited[nb] && !expanded[nb]) { visited[nb] = 1; queue[qT++] = nb; } }
     }
   }
 
@@ -419,14 +428,31 @@ export default function Home() {
         }];
       });
 
-      // Превращаем трейл в витражную мозаику прямо в браузере (flood-fill).
-      // Уменьшаем до 200px чтобы белые линии (1px) были толще относительно размера —
-      // иначе на большом canvas линии слишком тонкие и не образуют замкнутых областей.
-      const MAX_MOSAIC = 200;
-      const mScale = Math.min(1, MAX_MOSAIC / Math.max(crop.width, crop.height, 1));
-      const mW = Math.max(2, Math.round(crop.width * mScale));
-      const mH = Math.max(2, Math.round(crop.height * mScale));
-      const mosaicSrc = buildStainedGlassMosaic(crop, mW, mH);
+      // Рисуем трейлы толстыми линиями на маленький canvas для mosaic
+      // (на маленьком размере линии образуют замкнутые области)
+      const MAX_MOSAIC = 180;
+      const scaleM = Math.min(1, MAX_MOSAIC / Math.max(cropW, cropH, 1));
+      const mW = Math.max(2, Math.round(cropW * scaleM));
+      const mH = Math.max(2, Math.round(cropH * scaleM));
+      const mosaicCanvas = document.createElement("canvas");
+      mosaicCanvas.width = mW; mosaicCanvas.height = mH;
+      const mCtx = mosaicCanvas.getContext("2d")!;
+      mCtx.fillStyle = "#000";
+      mCtx.fillRect(0, 0, mW, mH);
+      mCtx.strokeStyle = "#fff";
+      mCtx.lineWidth = 2.5; // толще чем 1px — образует замкнутые области
+      mCtx.lineCap = "round";
+      mCtx.lineJoin = "round";
+      physState.current.forEach(s => {
+        if (s.trail.length < 2) return;
+        mCtx.beginPath();
+        mCtx.moveTo((s.trail[0].x - minX) * scaleM, (s.trail[0].y - minY) * scaleM);
+        for (let i = 1; i < s.trail.length; i++) {
+          mCtx.lineTo((s.trail[i].x - minX) * scaleM, (s.trail[i].y - minY) * scaleM);
+        }
+        mCtx.stroke();
+      });
+      const mosaicSrc = buildStainedGlassMosaic(mosaicCanvas, mW, mH);
       if (mosaicSrc) {
         setThumbnails(prev =>
           prev.map(t => t.id === newThumbId ? { ...t, src: mosaicSrc } : t)
