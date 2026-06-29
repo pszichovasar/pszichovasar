@@ -347,23 +347,29 @@ export default function Home() {
       const canvas = trailCanvasRef.current;
       if (!canvas) return;
 
-      // Bounding box всех точек трейла
-      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-      physState.current.forEach(s => {
-        for (const p of s.trail) {
-          if (p.x < minX) minX = p.x;
-          if (p.x > maxX) maxX = p.x;
-          if (p.y < minY) minY = p.y;
-          if (p.y > maxY) maxY = p.y;
-        }
-      });
+      // Сохраняем копию трейлов ДО очистки
+      const trails = physState.current
+        .filter(s => s.trail.length > 1)
+        .map(s => s.trail.slice());
 
-      if (minX === Infinity) {
+      if (trails.length === 0) {
         physState.current.forEach(s => { s.trail = []; });
+        const c2 = canvas.getContext("2d");
+        if (c2) c2.clearRect(0, 0, canvas.width, canvas.height);
         return;
       }
 
+      // Bounding box
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      trails.forEach(trail => {
+        trail.forEach(p => {
+          if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+          if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
+        });
+      });
+
       const pad = 10;
+      const rawMinX = minX, rawMinY = minY;
       minX = Math.max(0, minX - pad); minY = Math.max(0, minY - pad);
       maxX = maxX + pad; maxY = maxY + pad;
       const cropW = Math.max(1, maxX - minX);
@@ -440,15 +446,16 @@ export default function Home() {
       mCtx.fillStyle = "#000";
       mCtx.fillRect(0, 0, mW, mH);
       mCtx.strokeStyle = "#fff";
-      mCtx.lineWidth = 2.5; // толще чем 1px — образует замкнутые области
+      mCtx.lineWidth = 2.5;
       mCtx.lineCap = "round";
       mCtx.lineJoin = "round";
-      physState.current.forEach(s => {
-        if (s.trail.length < 2) return;
+      // Используем сохранённую копию трейлов
+      trails.forEach(trail => {
+        if (trail.length < 2) return;
         mCtx.beginPath();
-        mCtx.moveTo((s.trail[0].x - minX) * scaleM, (s.trail[0].y - minY) * scaleM);
-        for (let i = 1; i < s.trail.length; i++) {
-          mCtx.lineTo((s.trail[i].x - minX) * scaleM, (s.trail[i].y - minY) * scaleM);
+        mCtx.moveTo((trail[0].x - minX) * scaleM, (trail[0].y - minY) * scaleM);
+        for (let i = 1; i < trail.length; i++) {
+          mCtx.lineTo((trail[i].x - minX) * scaleM, (trail[i].y - minY) * scaleM);
         }
         mCtx.stroke();
       });
