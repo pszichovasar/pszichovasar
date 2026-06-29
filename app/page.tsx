@@ -233,7 +233,8 @@ export default function Home() {
 
   // Слайдшоу: по одному фото, анимация "двери лифта", без пересечений с узорами
   useEffect(() => {
-    const PHOTO_SIZE_MIN = 340, PHOTO_SIZE_MAX = 340;
+    const isMobileDevice = window.innerWidth <= 768;
+    const PHOTO_SIZE_MIN = isMobileDevice ? 120 : 340, PHOTO_SIZE_MAX = isMobileDevice ? 120 : 340;
     const SHOW_MS = 3000, IN_MS = 600, OUT_MS = 500, PAUSE_MS = 1500;
 
     const rectsOverlap = (
@@ -352,7 +353,8 @@ export default function Home() {
       const tyPx = getCurrentTyPx();
       const H = window.innerHeight;
 
-      const dstSize = 340;
+      const isMobileDevice = window.innerWidth <= 768;
+      const dstSize = isMobileDevice ? 120 : 340;
       const margin = 0.05;
       const dstX = (margin + Math.random() * (1 - 2 * margin - dstSize / window.innerWidth)) * window.innerWidth;
       // dstY в координатах контейнера = случайная экранная Y - tyPx
@@ -748,6 +750,10 @@ export default function Home() {
           .card-label{-webkit-text-stroke:0.3px #000;paint-order:stroke fill}
           .card-input{-webkit-text-stroke:0.4px #000;paint-order:stroke fill}
           .card-btn{-webkit-text-stroke:0.4px #fff;paint-order:stroke fill}
+          .cursor-el{display:none!important;}
+        }
+        @media(min-width:769px){
+          .cursor-el{display:block!important;}
         }
         /* Миниатюры узоров: анимация перелёта */
         .thumb-item{
@@ -813,33 +819,35 @@ export default function Home() {
         {/* ЧЁРНЫЙ ФОН */}
         <div style={{ position: "absolute", inset: 0, background: "#000", zIndex: 2, opacity: pinkOpacity, pointerEvents: "none" }}>
           {/* CANVAS ТРЕЙЛОВ — за картинками */}
-          <canvas ref={trailCanvasRef} style={{ position: "absolute", inset: 0, zIndex: 0, pointerEvents: "none" }} />
-          {FLOATING_INIT.map((cfg, i) => (
-            <div key={i} ref={el => { floatingRefs.current[i] = el; }} className="floating-img"
-              style={{ left: `${cfg.x}%`, top: `${cfg.y}%`, ["--delay" as any]: `${cfg.delay}ms`, ["--rot" as any]: `${cfg.rotation}deg` }}>
-              <img src={cfg.src} alt="" />
-            </div>
-          ))}
+          <canvas ref={trailCanvasRef} style={{ position: "absolute", inset: 0, zIndex: 0, pointerEvents: "none", opacity: 0.5 }} />
           <div ref={overlayRef} style={{ position: "absolute", inset: 0, zIndex: 10, pointerEvents: (showContact || !!selectedImg) ? "none" : "auto", cursor: "none" }} />
         </div>
 
-        {/* I DO DESIGN + накопленные узоры — всё движется вместе при скролле */}
-        <div ref={iDoDesignRef} style={{ position: "absolute", inset: 0, zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none", transform: "translateY(110vh)", opacity: 0, willChange: "transform,opacity" }}>
-          <div ref={iDoDesignTextRef} style={{ fontFamily: "'Arial Black',Arial,sans-serif", fontWeight: 900, fontSize: "clamp(28px,7vw,96px)", letterSpacing: "-0.04em", color: "white", textAlign: "center", lineHeight: 1, whiteSpace: "nowrap" }}>
-            I DO DESIGN
-          </div>
-        </div>
-
-        {/* Картинки и узоры — отдельный контейнер с тем же translateY.
-            position:absolute inset:0 без flex-центрирования.
-            Координаты объектов = экранные пиксели минус текущий tyPx. */}
-        <div ref={thumbContainerRef} style={{ position: "absolute", inset: 0, zIndex: 6, pointerEvents: "none", transform: "translateY(110vh)", willChange: "transform" }}>
+        {/* Картинки и узоры — ниже кубиков */}
+        <div ref={thumbContainerRef} style={{ position: "absolute", inset: 0, zIndex: 3, pointerEvents: "none", transform: "translateY(110vh)", willChange: "transform", opacity: pinkOpacity * 0.5 }}>
           {currentPhoto && (
             <SlidePhoto key={currentPhoto.id} photo={currentPhoto} />
           )}
           {thumbnails.map(t => (
             <ThumbItem key={t.id} thumb={t} />
           ))}
+        </div>
+
+        {/* КУБИКИ — поверх картинок и узоров */}
+        <div style={{ position: "absolute", inset: 0, zIndex: 4, opacity: pinkOpacity, pointerEvents: "none" }}>
+          {FLOATING_INIT.map((cfg, i) => (
+            <div key={i} ref={el => { floatingRefs.current[i] = el; }} className="floating-img"
+              style={{ left: `${cfg.x}%`, top: `${cfg.y}%`, ["--delay" as any]: `${cfg.delay}ms`, ["--rot" as any]: `${cfg.rotation}deg` }}>
+              <img src={cfg.src} alt="" />
+            </div>
+          ))}
+        </div>
+
+        {/* I DO DESIGN */}
+        <div ref={iDoDesignRef} style={{ position: "absolute", inset: 0, zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none", transform: "translateY(110vh)", opacity: 0, willChange: "transform,opacity" }}>
+          <div ref={iDoDesignTextRef} style={{ fontFamily: "'Arial Black',Arial,sans-serif", fontWeight: 900, fontSize: "clamp(28px,7vw,96px)", letterSpacing: "-0.04em", color: "white", textAlign: "center", lineHeight: 1, whiteSpace: "nowrap" }}>
+            I DO DESIGN
+          </div>
         </div>
 
         <video ref={videoRef} src={videoSrc} muted loop autoPlay playsInline
@@ -876,7 +884,7 @@ export default function Home() {
       </main>
 
       {/* КУРСОР */}
-      <div ref={cursorRef} style={{ position: "fixed", top: 0, left: 0, width: "240px", height: "240px", pointerEvents: "none", zIndex: 999999, opacity: 0, willChange: "transform", transform: "translate(-9999px,-9999px)", marginLeft: "-120px", marginTop: "-120px" }}>
+      <div ref={cursorRef} style={{ position: "fixed", top: 0, left: 0, width: "240px", height: "240px", pointerEvents: "none", zIndex: 999999, opacity: 0, willChange: "transform", transform: "translate(-9999px,-9999px)", marginLeft: "-120px", marginTop: "-120px", display: "none" }} className="cursor-el">
         <img src="/cursor.png" alt="" style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} />
       </div>
     </>
