@@ -197,6 +197,15 @@ export default function Home() {
   const thumbIdRef = useRef(0);
 
   // Слайдшоу фото mi1–mi5: случайные позиции, появляются каждые 5 сек
+  const MI_PHOTOS = ["/mi1.jpg", "/mi2.jpg", "/mi3.jpg", "/mi4.jpg", "/mi5.jpg"];
+  const [artemPhoto, setArtemPhoto] = useState<{
+    id: number; src: string; x: number; y: number; size: number;
+    phase: "in" | "show" | "out";
+  } | null>(null);
+  const artemSlideIdRef = useRef(0);
+  const artemTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const videoOpacityRef = useRef(0); // ref-версия для доступа в таймере
+
   const physState = useRef(
     FLOATING_INIT.map(() => ({
       x: 0, y: 0, vx: 0, vy: 0, ang: 0, rotSpeed: 0, initialized: false,
@@ -293,6 +302,42 @@ export default function Home() {
     return () => window.removeEventListener("resize", resize);
   }, []);
 
+  // Слайдшоу mi1–mi5 на секции "MY NAME IS ARTEM"
+  useEffect(() => {
+    const SIZE = 280;
+    const SHOW = 3500, IN = 600, OUT = 500, PAUSE = 1200;
+    let lastId = 0;
+
+    const showNext = () => {
+      // Показываем только когда секция видна
+      if (videoOpacityRef.current < 0.3) {
+        artemTimerRef.current = setTimeout(showNext, 1000);
+        return;
+      }
+      const W = window.innerWidth, H = window.innerHeight;
+      const src = MI_PHOTOS[Math.floor(Math.random() * MI_PHOTOS.length)];
+      const x = SIZE / 2 + Math.random() * (W - SIZE);
+      const y = SIZE / 2 + Math.random() * (H - SIZE);
+      artemSlideIdRef.current++;
+      const id = artemSlideIdRef.current;
+      lastId = id;
+      setArtemPhoto({ id, src, x, y, size: SIZE, phase: "in" });
+      artemTimerRef.current = setTimeout(() => {
+        setArtemPhoto(p => p?.id === id ? { ...p, phase: "show" } : p);
+        artemTimerRef.current = setTimeout(() => {
+          setArtemPhoto(p => p?.id === id ? { ...p, phase: "out" } : p);
+          artemTimerRef.current = setTimeout(() => {
+            setArtemPhoto(null);
+            artemTimerRef.current = setTimeout(showNext, PAUSE);
+          }, OUT);
+        }, SHOW);
+      }, IN);
+    };
+
+    artemTimerRef.current = setTimeout(showNext, 1000);
+    return () => { if (artemTimerRef.current) clearTimeout(artemTimerRef.current); };
+  }, []);
+
   useEffect(() => {
     const capture = () => {
       const canvas = trailCanvasRef.current;
@@ -336,25 +381,48 @@ export default function Home() {
 
       const tyPx = getCurrentTyPx();
       const H = window.innerHeight;
+      const W = window.innerWidth;
 
-      const isMobileDevice = window.innerWidth <= 768;
-      const dstSize = isMobileDevice ? 120 : 340;
-      const margin = 0.05;
-      const dstX = (margin + Math.random() * (1 - 2 * margin - dstSize / window.innerWidth)) * window.innerWidth;
-      // dstY в координатах контейнера = случайная экранная Y - tyPx
-      const dstY = (margin + Math.random() * (1 - 2 * margin - dstSize / H)) * H - tyPx;
+      // Единый размер для всех узоров (в 2 раза меньше прежнего)
+      const DST_SIZE = 170;
+      const PAD = 16; // отступ между узорами
+
+      // Находим свободное место — не пересекается с уже размещёнными узорами
+      const findFreeSpot = (existing: Thumbnail[]): { dstX: number; dstY: number } => {
+        for (let attempt = 0; attempt < 60; attempt++) {
+          const margin = 0.04;
+          const x = (margin + Math.random() * (1 - 2 * margin - DST_SIZE / W)) * W;
+          const y = (margin + Math.random() * (1 - 2 * margin - DST_SIZE / H)) * H - tyPx;
+          // Проверяем пересечение с каждым существующим узором
+          const ok = existing.every(t =>
+            x + DST_SIZE + PAD < t.dstX ||
+            x > t.dstX + DST_SIZE + PAD ||
+            y + DST_SIZE + PAD < t.dstY ||
+            y > t.dstY + DST_SIZE + PAD
+          );
+          if (ok) return { dstX: x, dstY: y };
+        }
+        // Fallback: просто случайное место если не нашли свободное
+        return {
+          dstX: (0.04 + Math.random() * 0.88) * W,
+          dstY: (0.04 + Math.random() * 0.88) * H - tyPx,
+        };
+      };
 
       thumbIdRef.current++;
       const newThumbId = thumbIdRef.current;
 
       // Сначала показываем оригинальный трейл (он сразу летит на место)
-      setThumbnails(prev => [...prev, {
-        id: newThumbId,
-        src,
-        srcX: minX, srcY: minY - tyPx, srcW: cropW, srcH: cropH,
-        dstX, dstY, dstSize,
-        offsetY: 0,
-      }]);
+      setThumbnails(prev => {
+        const { dstX, dstY } = findFreeSpot(prev);
+        return [...prev, {
+          id: newThumbId,
+          src,
+          srcX: minX, srcY: minY - tyPx, srcW: cropW, srcH: cropH,
+          dstX, dstY, dstSize: DST_SIZE,
+          offsetY: 0,
+        }];
+      });
 
       // Превращаем трейл в витражную мозаику прямо в браузере (flood-fill).
       // Никаких API — мгновенно, на основе точно тех же линий что нарисовал пользователь.
@@ -595,6 +663,7 @@ export default function Home() {
 
     const tPhase = Math.max(0, Math.min((unit - 2.2) / 0.5, 1));
     setVideoOpacity(tPhase);
+    videoOpacityRef.current = tPhase;
     if (videoRef.current) videoRef.current.style.opacity = tPhase.toString();
     if (textRef.current) {
       textRef.current.style.opacity = tPhase.toString();
@@ -849,8 +918,10 @@ export default function Home() {
           ))}
         </div>
 
-        {/* ТЕКСТ */}
+        {/* ТЕКСТ + слайдшоу картинок поверх */}
         <div ref={textRef} style={{ position: "absolute", inset: 0, zIndex: 10, display: "flex", alignItems: "center", padding: "0 clamp(20px,6vw,80px)", opacity: 0, transform: "translate3d(0,40px,0)", willChange: "transform,opacity", pointerEvents: "none" }}>
+          {/* Картинки слайдшоу поверх текста */}
+          {artemPhoto && <ArtemSlidePhoto key={artemPhoto.id} photo={artemPhoto} />}
           <div style={{ display: "flex", flexDirection: "column", width: "100%" }}>
             <div className="text-line" style={{ fontSize: "clamp(32px,6.5vw,88px)" }}>MY NAME <span className="mobile-br" />IS ARTEM</div>
             <div className="text-line" style={{ fontSize: "clamp(32px,6.5vw,88px)", marginTop: "0.15em" }}>I'M A <span className="mobile-br" />DESIGNER</div>
@@ -869,6 +940,49 @@ export default function Home() {
         <img src="/cursor.png" alt="" style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} />
       </div>
     </>
+  );
+}
+
+// ArtemSlidePhoto — картинка на секции "MY NAME IS ARTEM", анимация "двери лифта"
+function ArtemSlidePhoto({ photo }: {
+  photo: { id: number; src: string; x: number; y: number; size: number; phase: string }
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = ref.current; if (!el) return;
+    el.style.transition = "none";
+    el.style.clipPath = "inset(0 50% 0 50%)";
+    const r1 = requestAnimationFrame(() => {
+      const r2 = requestAnimationFrame(() => {
+        el.style.transition = "clip-path 0.6s cubic-bezier(0.16,1,0.3,1)";
+        el.style.clipPath = "inset(0 0% 0 0%)";
+      });
+      return () => cancelAnimationFrame(r2);
+    });
+    return () => cancelAnimationFrame(r1);
+  }, []);
+
+  useEffect(() => {
+    if (photo.phase !== "out") return;
+    const el = ref.current; if (!el) return;
+    el.style.transition = "clip-path 0.5s cubic-bezier(0.65,0,0.35,1)";
+    el.style.clipPath = "inset(0 50% 0 50%)";
+  }, [photo.phase]);
+
+  return (
+    <div ref={ref} style={{
+      position: "absolute",
+      left: `${photo.x}px`, top: `${photo.y}px`,
+      width: `${photo.size}px`, height: `${photo.size}px`,
+      transform: "translate(-50%, -50%)",
+      borderRadius: "16px", overflow: "hidden",
+      boxShadow: "0 8px 40px rgba(0,0,0,0.5)",
+      pointerEvents: "none", zIndex: 11,
+      clipPath: "inset(0 50% 0 50%)",
+    }}>
+      <img src={photo.src} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+    </div>
   );
 }
 
