@@ -93,81 +93,48 @@ type Thumbnail = {
   dstX: number; dstY: number; dstSize: number;
 };
 
-// Витражная мозаика прямо в браузере: flood-fill по замкнутым областям между
-// белыми линиями трейла. Каждая область получает случайный яркий цвет.
-// Работает мгновенно, без API, на основе точных линий пользователя.
-function buildStainedGlassMosaic(srcCanvas: HTMLCanvasElement, w: number, h: number): string | null {
-  if (w < 2 || h < 2) return null;
+// Цветная мозаика: каждый трейл рисуется своим ярким цветом на чёрном фоне.
+// Просто, быстро, уникально — цвета меняются каждый раз случайно.
+function buildColoredMosaic(
+  trails: { x: number; y: number }[][],
+  minX: number, minY: number,
+  cropW: number, cropH: number
+): string | null {
+  const SIZE = 340;
+  const scale = Math.min(SIZE / Math.max(cropW, cropH, 1), 1);
+  const w = Math.max(2, Math.round(cropW * scale));
+  const h = Math.max(2, Math.round(cropH * scale));
 
-  const offscreen = document.createElement("canvas");
-  offscreen.width = w; offscreen.height = h;
-  const ctx = offscreen.getContext("2d", { willReadFrequently: true })!;
+  const canvas = document.createElement("canvas");
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext("2d")!;
 
-  // Рисуем оригинал
-  ctx.drawImage(srcCanvas, 0, 0, w, h);
+  // Чёрный фон
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, w, h);
 
-  const imgData = ctx.getImageData(0, 0, w, h);
-  const data = imgData.data;
-  const n = w * h;
-
-  // Дилатация: расширяем белые пиксели на 1 шаг чтобы линии стали толще
-  const isWhite = (i: number) => {
-    const o = i * 4;
-    return data[o + 3] > 20 && (data[o] + data[o + 1] + data[o + 2]) > 150;
-  };
-  const expanded = new Uint8Array(n);
-  for (let i = 0; i < n; i++) {
-    if (isWhite(i)) {
-      expanded[i] = 1;
-      const x = i % w, y = (i / w) | 0;
-      if (x > 0) expanded[i - 1] = 1;
-      if (x < w - 1) expanded[i + 1] = 1;
-      if (y > 0) expanded[i - w] = 1;
-      if (y < h - 1) expanded[i + w] = 1;
-    }
-  }
-
-  const COLORS: [number, number, number][] = [
-    [220, 30, 50], [30, 100, 220], [30, 180, 80],
-    [230, 180, 20], [140, 40, 200], [220, 100, 20],
-    [20, 200, 210], [210, 30, 160], [180, 220, 30], [20, 120, 200],
+  const COLORS = [
+    "#DC1E32", "#1E64DC", "#1EB450", "#E6B414",
+    "#8C28C8", "#DC6414", "#14C8D2", "#D21EA0",
+    "#B4DC1E", "#1478C8", "#FF4444", "#44FF88",
   ];
-  let colorIdx = 0;
 
-  const visited = new Uint8Array(n);
-  const queue = new Int32Array(n);
-
-  for (let start = 0; start < n; start++) {
-    if (visited[start] || expanded[start]) continue;
-
-    const [cr, cg, cb] = COLORS[colorIdx % COLORS.length];
-    colorIdx++;
-    let qH = 0, qT = 0;
-    queue[qT++] = start;
-    visited[start] = 1;
-
-    while (qH < qT) {
-      const idx = queue[qH++];
-      const o = idx * 4;
-      data[o] = cr; data[o + 1] = cg; data[o + 2] = cb; data[o + 3] = 255;
-      const x = idx % w, y = (idx / w) | 0;
-      if (x > 0) { const nb = idx - 1; if (!visited[nb] && !expanded[nb]) { visited[nb] = 1; queue[qT++] = nb; } }
-      if (x < w - 1) { const nb = idx + 1; if (!visited[nb] && !expanded[nb]) { visited[nb] = 1; queue[qT++] = nb; } }
-      if (y > 0) { const nb = idx - w; if (!visited[nb] && !expanded[nb]) { visited[nb] = 1; queue[qT++] = nb; } }
-      if (y < h - 1) { const nb = idx + w; if (!visited[nb] && !expanded[nb]) { visited[nb] = 1; queue[qT++] = nb; } }
+  // Каждый трейл — свой случайный цвет, толстая линия
+  trails.forEach((trail, i) => {
+    if (trail.length < 2) return;
+    ctx.strokeStyle = COLORS[i % COLORS.length];
+    ctx.lineWidth = 3;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    ctx.moveTo((trail[0].x - minX) * scale, (trail[0].y - minY) * scale);
+    for (let j = 1; j < trail.length; j++) {
+      ctx.lineTo((trail[j].x - minX) * scale, (trail[j].y - minY) * scale);
     }
-  }
+    ctx.stroke();
+  });
 
-  // Линии оставляем белыми поверх (контуры витража)
-  for (let i = 0; i < w * h; i++) {
-    if (isLine(i)) {
-      const o = i * 4;
-      data[o] = 255; data[o + 1] = 255; data[o + 2] = 255; data[o + 3] = 255;
-    }
-  }
-
-  ctx.putImageData(imgData, 0, 0);
-  return offscreen.toDataURL("image/png");
+  return canvas.toDataURL("image/png");
 }
 
 export default function Home() {
@@ -436,30 +403,10 @@ export default function Home() {
 
       // Рисуем трейлы толстыми линиями на маленький canvas для mosaic
       // (на маленьком размере линии образуют замкнутые области)
-      const MAX_MOSAIC = 180;
-      const scaleM = Math.min(1, MAX_MOSAIC / Math.max(cropW, cropH, 1));
-      const mW = Math.max(2, Math.round(cropW * scaleM));
-      const mH = Math.max(2, Math.round(cropH * scaleM));
-      const mosaicCanvas = document.createElement("canvas");
-      mosaicCanvas.width = mW; mosaicCanvas.height = mH;
-      const mCtx = mosaicCanvas.getContext("2d")!;
-      mCtx.fillStyle = "#000";
-      mCtx.fillRect(0, 0, mW, mH);
-      mCtx.strokeStyle = "#fff";
-      mCtx.lineWidth = 2.5;
-      mCtx.lineCap = "round";
-      mCtx.lineJoin = "round";
-      // Используем сохранённую копию трейлов
-      trails.forEach(trail => {
-        if (trail.length < 2) return;
-        mCtx.beginPath();
-        mCtx.moveTo((trail[0].x - minX) * scaleM, (trail[0].y - minY) * scaleM);
-        for (let i = 1; i < trail.length; i++) {
-          mCtx.lineTo((trail[i].x - minX) * scaleM, (trail[i].y - minY) * scaleM);
-        }
-        mCtx.stroke();
-      });
-      const mosaicSrc = buildStainedGlassMosaic(mosaicCanvas, mW, mH);
+      // Рисуем цветную мозаику — каждый трейл своим цветом
+      console.log("Mosaic: trails=", trails.length, "totalPts=", trails.reduce((a, t) => a + t.length, 0), "cropW=", cropW, "cropH=", cropH);
+      const mosaicSrc = buildColoredMosaic(trails, minX, minY, cropW, cropH);
+      console.log("Mosaic src length:", mosaicSrc?.length);
       if (mosaicSrc) {
         setThumbnails(prev =>
           prev.map(t => t.id === newThumbId ? { ...t, src: mosaicSrc } : t)
