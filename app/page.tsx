@@ -93,39 +93,30 @@ type Thumbnail = {
   dstX: number; dstY: number; dstSize: number;
 };
 
-// Цветная мозаика: каждый трейл рисуется своим ярким цветом на чёрном фоне.
-// Просто, быстро, уникально — цвета меняются каждый раз случайно.
+// Витражная мозаика: рисуем все трейлы белыми линиями на чёрном фоне,
+// затем flood-fill заливает каждую замкнутую область ярким цветом.
 function buildColoredMosaic(
   trails: { x: number; y: number }[][],
   minX: number, minY: number,
   cropW: number, cropH: number
 ): string | null {
-  const SIZE = 340;
-  const scale = Math.min(SIZE / Math.max(cropW, cropH, 1), 1);
-  const w = Math.max(2, Math.round(cropW * scale));
-  const h = Math.max(2, Math.round(cropH * scale));
+  const SIZE = 300;
+  const scale = Math.min(SIZE / Math.max(cropW, cropH, 1), 2);
+  const w = Math.max(4, Math.round(cropW * scale));
+  const h = Math.max(4, Math.round(cropH * scale));
 
+  // Шаг 1: рисуем все трейлы белыми линиями на чёрном фоне
   const canvas = document.createElement("canvas");
   canvas.width = w; canvas.height = h;
-  const ctx = canvas.getContext("2d")!;
-
-  // Чёрный фон
+  const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, w, h);
-
-  const COLORS = [
-    "#DC1E32", "#1E64DC", "#1EB450", "#E6B414",
-    "#8C28C8", "#DC6414", "#14C8D2", "#D21EA0",
-    "#B4DC1E", "#1478C8", "#FF4444", "#44FF88",
-  ];
-
-  // Каждый трейл — свой случайный цвет, толстая линия
-  trails.forEach((trail, i) => {
+  ctx.strokeStyle = "#fff";
+  ctx.lineWidth = 3;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  trails.forEach(trail => {
     if (trail.length < 2) return;
-    ctx.strokeStyle = COLORS[i % COLORS.length];
-    ctx.lineWidth = 3;
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
     ctx.beginPath();
     ctx.moveTo((trail[0].x - minX) * scale, (trail[0].y - minY) * scale);
     for (let j = 1; j < trail.length; j++) {
@@ -134,6 +125,58 @@ function buildColoredMosaic(
     ctx.stroke();
   });
 
+  // Шаг 2: flood-fill заливает области между линиями
+  const imgData = ctx.getImageData(0, 0, w, h);
+  const data = imgData.data;
+  const n = w * h;
+
+  const COLORS: [number, number, number][] = [
+    [220, 30, 50], [30, 100, 220], [30, 180, 80],
+    [230, 180, 20], [140, 40, 200], [220, 100, 20],
+    [20, 200, 210], [210, 30, 160], [180, 220, 30],
+    [20, 120, 200], [255, 80, 0], [0, 200, 150],
+  ];
+  let colorIdx = Math.floor(Math.random() * COLORS.length);
+
+  // Линия = яркий пиксель (белый трейл)
+  const isLine = (i: number) => {
+    const o = i * 4;
+    return data[o] + data[o + 1] + data[o + 2] > 200;
+  };
+
+  const visited = new Uint8Array(n);
+  const queue = new Int32Array(n);
+
+  for (let start = 0; start < n; start++) {
+    if (visited[start] || isLine(start)) continue;
+
+    const [cr, cg, cb] = COLORS[colorIdx % COLORS.length];
+    colorIdx++;
+    let qH = 0, qT = 0;
+    queue[qT++] = start;
+    visited[start] = 1;
+
+    while (qH < qT) {
+      const idx = queue[qH++];
+      const o = idx * 4;
+      data[o] = cr; data[o + 1] = cg; data[o + 2] = cb; data[o + 3] = 255;
+      const x = idx % w, y = (idx / w) | 0;
+      if (x > 0) { const nb = idx - 1; if (!visited[nb] && !isLine(nb)) { visited[nb] = 1; queue[qT++] = nb; } }
+      if (x < w - 1) { const nb = idx + 1; if (!visited[nb] && !isLine(nb)) { visited[nb] = 1; queue[qT++] = nb; } }
+      if (y > 0) { const nb = idx - w; if (!visited[nb] && !isLine(nb)) { visited[nb] = 1; queue[qT++] = nb; } }
+      if (y < h - 1) { const nb = idx + w; if (!visited[nb] && !isLine(nb)) { visited[nb] = 1; queue[qT++] = nb; } }
+    }
+  }
+
+  // Линии поверх — белые
+  for (let i = 0; i < n; i++) {
+    if (isLine(i)) {
+      const o = i * 4;
+      data[o] = 255; data[o + 1] = 255; data[o + 2] = 255; data[o + 3] = 255;
+    }
+  }
+
+  ctx.putImageData(imgData, 0, 0);
   return canvas.toDataURL("image/png");
 }
 
