@@ -93,6 +93,79 @@ type Thumbnail = {
   dstX: number; dstY: number; dstSize: number;
 };
 
+// Витражная мозаика прямо в браузере: flood-fill по замкнутым областям между
+// белыми линиями трейла. Каждая область получает случайный яркий цвет.
+// Работает мгновенно, без API, на основе точных линий пользователя.
+function buildStainedGlassMosaic(srcCanvas: HTMLCanvasElement, w: number, h: number): string | null {
+  if (w < 2 || h < 2) return null;
+
+  // Читаем пиксели исходного canvas с трейлами
+  const offscreen = document.createElement("canvas");
+  offscreen.width = w; offscreen.height = h;
+  const ctx = offscreen.getContext("2d", { willReadFrequently: true })!;
+  ctx.drawImage(srcCanvas, 0, 0, w, h);
+  const imgData = ctx.getImageData(0, 0, w, h);
+  const data = imgData.data;
+
+  // Яркие витражные цвета
+  const COLORS: [number, number, number][] = [
+    [220, 30, 50],   // crimson
+    [30, 100, 220],  // electric blue
+    [30, 180, 80],   // emerald
+    [230, 180, 20],  // gold
+    [140, 40, 200],  // violet
+    [220, 100, 20],  // orange
+    [20, 200, 210],  // cyan
+    [210, 30, 160],  // magenta
+    [180, 220, 30],  // lime
+    [20, 120, 200],  // cobalt
+  ];
+  let colorIdx = 0;
+
+  // Пиксель — линия если достаточно ярлый (белый трейл)
+  const isLine = (i: number) => {
+    const o = i * 4;
+    return data[o + 3] > 30 && (data[o] + data[o + 1] + data[o + 2]) > 200;
+  };
+
+  const visited = new Uint8Array(w * h);
+  const queue = new Int32Array(w * h);
+
+  for (let start = 0; start < w * h; start++) {
+    if (visited[start] || isLine(start)) continue;
+
+    // BFS flood-fill — закрашиваем одну замкнутую область
+    const [cr, cg, cb] = COLORS[colorIdx % COLORS.length];
+    colorIdx++;
+    let qH = 0, qT = 0;
+    queue[qT++] = start;
+    visited[start] = 1;
+
+    while (qH < qT) {
+      const idx = queue[qH++];
+      const o = idx * 4;
+      data[o] = cr; data[o + 1] = cg; data[o + 2] = cb; data[o + 3] = 255;
+
+      const x = idx % w, y = (idx / w) | 0;
+      if (x > 0) { const n = idx - 1; if (!visited[n] && !isLine(n)) { visited[n] = 1; queue[qT++] = n; } }
+      if (x < w - 1) { const n = idx + 1; if (!visited[n] && !isLine(n)) { visited[n] = 1; queue[qT++] = n; } }
+      if (y > 0) { const n = idx - w; if (!visited[n] && !isLine(n)) { visited[n] = 1; queue[qT++] = n; } }
+      if (y < h - 1) { const n = idx + w; if (!visited[n] && !isLine(n)) { visited[n] = 1; queue[qT++] = n; } }
+    }
+  }
+
+  // Линии оставляем белыми поверх (контуры витража)
+  for (let i = 0; i < w * h; i++) {
+    if (isLine(i)) {
+      const o = i * 4;
+      data[o] = 255; data[o + 1] = 255; data[o + 2] = 255; data[o + 3] = 255;
+    }
+  }
+
+  ctx.putImageData(imgData, 0, 0);
+  return offscreen.toDataURL("image/png");
+}
+
 export default function Home() {
   const [videoSrc, setVideoSrc] = useState("/me.mp4");
 
@@ -124,17 +197,6 @@ export default function Home() {
   const thumbIdRef = useRef(0);
 
   // Слайдшоу фото mi1–mi5: случайные позиции, появляются каждые 5 сек
-  const MI_PHOTOS = ["/mi1.jpg", "/mi2.jpg", "/mi3.jpg", "/mi4.jpg", "/mi5.jpg"];
-  // Одна фото за раз: появляется, показывается ~3 сек, исчезает, через паузу следующая
-  const [currentPhoto, setCurrentPhoto] = useState<{
-    id: number; src: string;
-    x: number; y: number;   // пиксели в координатах thumbContainer (экран минус tyPx)
-    size: number;
-    phase: "in" | "show" | "out";
-  } | null>(null);
-  const slideIdRef = useRef(0);
-  const slideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   const physState = useRef(
     FLOATING_INIT.map(() => ({
       x: 0, y: 0, vx: 0, vy: 0, ang: 0, rotSpeed: 0, initialized: false,
@@ -231,84 +293,6 @@ export default function Home() {
     return () => window.removeEventListener("resize", resize);
   }, []);
 
-  // Слайдшоу: по одному фото, анимация "двери лифта", без пересечений с узорами
-  useEffect(() => {
-    const isMobileDevice = window.innerWidth <= 768;
-    const PHOTO_SIZE_MIN = isMobileDevice ? 120 : 340, PHOTO_SIZE_MAX = isMobileDevice ? 120 : 340;
-    const SHOW_MS = 3000, IN_MS = 600, OUT_MS = 500, PAUSE_MS = 1500;
-
-    const rectsOverlap = (
-      ax: number, ay: number, aw: number, ah: number,
-      bx: number, by: number, bw: number, bh: number,
-      pad = 20
-    ) => {
-      return ax - pad < bx + bw && ax + aw + pad > bx &&
-        ay - pad < by + bh && ay + ah + pad > by;
-    };
-
-    const findFreePosition = (size: number, occupied: { x: number; y: number; w: number; h: number }[]) => {
-      const W = window.innerWidth, H = window.innerHeight;
-      for (let attempt = 0; attempt < 40; attempt++) {
-        const cx = size / 2 + Math.random() * (W - size);
-        const cy = size / 2 + Math.random() * (H - size);
-        const x = cx - size / 2, y = cy - size / 2;
-        const ok = occupied.every(o => !rectsOverlap(x, y, size, size, o.x, o.y, o.w, o.h));
-        if (ok) return { cx: cx / W * 100, cy: cy / H * 100 };
-      }
-      // Fallback: просто случайное место
-      return {
-        cx: (size / 2 + Math.random() * (W - size)) / W * 100,
-        cy: (size / 2 + Math.random() * (H - size)) / H * 100,
-      };
-    };
-
-    const showNext = () => {
-      const src = MI_PHOTOS[Math.floor(Math.random() * MI_PHOTOS.length)];
-      const size = PHOTO_SIZE_MIN + Math.random() * (PHOTO_SIZE_MAX - PHOTO_SIZE_MIN);
-      const rot = (Math.random() - 0.5) * 20;
-      const W = window.innerWidth, H = window.innerHeight;
-      // Собираем занятые области: узоры (thumbnails через physState trail bboxes)
-      const occupied = physState.current
-        .filter(s => s.trail.length > 1)
-        .map(s => {
-          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-          for (const p of s.trail) {
-            if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
-            if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
-          }
-          return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
-        });
-
-      const { cx, cy } = findFreePosition(size, occupied);
-      const tyPx = getCurrentTyPx();
-      // cx/cy в % от экрана → пиксели, затем корректируем на tyPx контейнера
-      const xPx = cx / 100 * W;
-      const yPx = cy / 100 * H - tyPx;
-
-      slideIdRef.current++;
-      const id = slideIdRef.current;
-
-      // Фаза IN
-      setCurrentPhoto({ id, src, x: xPx, y: yPx, size, phase: "in" });
-
-      // Фаза SHOW
-      slideTimerRef.current = setTimeout(() => {
-        setCurrentPhoto(p => p?.id === id ? { ...p, phase: "show" } : p);
-        // Фаза OUT
-        slideTimerRef.current = setTimeout(() => {
-          setCurrentPhoto(p => p?.id === id ? { ...p, phase: "out" } : p);
-          // Пауза → следующее фото
-          slideTimerRef.current = setTimeout(() => {
-            setCurrentPhoto(null);
-            slideTimerRef.current = setTimeout(showNext, PAUSE_MS);
-          }, OUT_MS);
-        }, SHOW_MS);
-      }, IN_MS);
-    };
-
-    slideTimerRef.current = setTimeout(showNext, 500);
-    return () => { if (slideTimerRef.current) clearTimeout(slideTimerRef.current); };
-  }, []);
   useEffect(() => {
     const capture = () => {
       const canvas = trailCanvasRef.current;
@@ -372,23 +356,14 @@ export default function Home() {
         offsetY: 0,
       }]);
 
-      // Асинхронно генерируем цветную мозаику через Nano Banana.
-      // Отправляем PNG трейла как референс — белые контуры становятся
-      // границами витражных ячеек, каждая заливается случайным цветом.
-      fetch("/api/generate-image", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageDataUrl: src }),
-      })
-        .then(r => r.json())
-        .then(data => {
-          if (!data.url) return;
-          // Заменяем PNG трейла на готовую мозаику в том же месте
-          setThumbnails(prev =>
-            prev.map(t => t.id === newThumbId ? { ...t, src: data.url } : t)
-          );
-        })
-        .catch(err => console.warn("Mosaic generation failed:", err));
+      // Превращаем трейл в витражную мозаику прямо в браузере (flood-fill).
+      // Никаких API — мгновенно, на основе точно тех же линий что нарисовал пользователь.
+      const mosaicSrc = buildStainedGlassMosaic(crop, crop.width, crop.height);
+      if (mosaicSrc) {
+        setThumbnails(prev =>
+          prev.map(t => t.id === newThumbId ? { ...t, src: mosaicSrc } : t)
+        );
+      }
 
       // Очищаем трейлы
       const c2 = canvas.getContext("2d");
@@ -569,6 +544,7 @@ export default function Home() {
 
   const iDoDesignRef = useRef<HTMLDivElement>(null);
   const thumbContainerRef = useRef<HTMLDivElement>(null);
+  const thumbPatternRef = useRef<HTMLDivElement>(null);
 
   // Текущий сдвиг iDoDesignRef в пикселях (нужен для корректировки координат)
   const getCurrentTyPx = () => {
@@ -601,6 +577,9 @@ export default function Home() {
       else if (unit2 <= 0.75) ty2 = -((unit2 - 0.35) / 0.4) * 110;
       else ty2 = -110;
       thumbContainerRef.current.style.transform = `translateY(${ty2}vh)`;
+      if (thumbPatternRef.current) {
+        thumbPatternRef.current.style.transform = `translateY(${ty2}vh)`;
+      }
     }
     if (deltaY > 0 && unit < 0.9) physState.current.forEach(s => { if (!s.initialized) return; s.vy -= Math.min(deltaY * 18, 900); s.rotSpeed += (Math.random() - 0.5) * 4; });
     else if (deltaY < 0 && unit < 0.9) physState.current.forEach(s => { if (!s.initialized) return; s.vy += Math.min(Math.abs(deltaY) * 18, 900); s.rotSpeed += (Math.random() - 0.5) * 4; });
@@ -824,10 +803,12 @@ export default function Home() {
         </div>
 
         {/* Картинки и узоры — ниже кубиков */}
-        <div ref={thumbContainerRef} style={{ position: "absolute", inset: 0, zIndex: 3, pointerEvents: "none", transform: "translateY(110vh)", willChange: "transform", opacity: pinkOpacity * 0.5 }}>
-          {currentPhoto && (
-            <SlidePhoto key={currentPhoto.id} photo={currentPhoto} />
-          )}
+        {/* Картинки — полностью непрозрачные, исчезают только со скроллом */}
+        <div ref={thumbContainerRef} style={{ position: "absolute", inset: 0, zIndex: 3, pointerEvents: "none", transform: "translateY(110vh)", willChange: "transform", opacity: pinkOpacity }}>
+        </div>
+
+        {/* Узоры — 50% прозрачность */}
+        <div ref={thumbPatternRef} style={{ position: "absolute", inset: 0, zIndex: 3, pointerEvents: "none", transform: "translateY(110vh)", willChange: "transform", opacity: pinkOpacity * 0.5 }}>
           {thumbnails.map(t => (
             <ThumbItem key={t.id} thumb={t} />
           ))}
@@ -891,63 +872,8 @@ export default function Home() {
   );
 }
 
-// SlidePhoto: анимация "двери лифта" (clip-path раздвигается из центра при появлении,
-// сдвигается к центру при исчезновении). phase управляется из родителя.
-function SlidePhoto({ photo }: {
-  photo: { id: number; src: string; x: number; y: number; size: number; phase: string }
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-
-  // При монтировании: стартуем с закрытого clip-path, потом через двойной rAF открываем
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    el.style.transition = "none";
-    el.style.clipPath = "inset(0 50% 0 50%)";
-    const r1 = requestAnimationFrame(() => {
-      const r2 = requestAnimationFrame(() => {
-        el.style.transition = "clip-path 0.6s cubic-bezier(0.16,1,0.3,1)";
-        el.style.clipPath = "inset(0 0% 0 0%)";
-      });
-      return () => cancelAnimationFrame(r2);
-    });
-    return () => cancelAnimationFrame(r1);
-  }, []);
-
-  // При переходе в фазу "out" — закрываем clip-path к центру
-  useEffect(() => {
-    if (photo.phase !== "out") return;
-    const el = ref.current;
-    if (!el) return;
-    el.style.transition = "clip-path 0.5s cubic-bezier(0.65,0,0.35,1)";
-    el.style.clipPath = "inset(0 50% 0 50%)";
-  }, [photo.phase]);
-
-  return (
-    <div
-      ref={ref}
-      style={{
-        position: "absolute",
-        left: `${photo.x}px`,
-        top: `${photo.y}px`,
-        width: `${photo.size}px`,
-        height: `${photo.size}px`,
-        transform: `translate(-50%, -50%)`,
-        borderRadius: "16px",
-        overflow: "hidden",
-        boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
-        pointerEvents: "none",
-        zIndex: 2,
-        clipPath: "inset(0 50% 0 50%)", // начальное состояние (до монтирования)
-      }}
-    >
-      <img src={photo.src} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-    </div>
-  );
-}
-
 // ThumbItem: position:absolute внутри thumbContainerRef.
-// imgRef позволяет обновить src без перемонтирования когда Pollinations возвращает URL.
+// imgRef позволяет обновить src без перемонтирования когда мозаика готова.
 function ThumbItem({ thumb }: { thumb: Thumbnail }) {
   const ref = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
