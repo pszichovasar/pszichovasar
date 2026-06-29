@@ -946,17 +946,23 @@ function SlidePhoto({ photo }: {
   );
 }
 
-// ThumbItem: position:absolute внутри iDoDesignRef (inset:0 — размер экрана).
-// Координаты уже скорректированы на tyPx контейнера при capture.
-// Скроллится вместе с текстом автоматически.
+// ThumbItem: position:absolute внутри thumbContainerRef.
+// imgRef позволяет обновить src без перемонтирования когда Pollinations возвращает URL.
 function ThumbItem({ thumb }: { thumb: Thumbnail }) {
   const ref = useRef<HTMLDivElement>(null);
+  const imgRef = useRef<HTMLImageElement>(null);
+
+  // Обновляем src картинки когда приходит URL от Pollinations (без ремонтирования)
+  useEffect(() => {
+    if (imgRef.current && thumb.src) {
+      imgRef.current.src = thumb.src;
+    }
+  }, [thumb.src]);
 
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
 
-    // Двойной rAF — запускаем transition к финальному состоянию
     const r1 = requestAnimationFrame(() => {
       const r2 = requestAnimationFrame(() => {
         if (!ref.current) return;
@@ -993,7 +999,7 @@ function ThumbItem({ thumb }: { thumb: Thumbnail }) {
         pointerEvents: "none",
       }}
     >
-      <img src={thumb.src} alt="" style={{ width: "100%", height: "100%", display: "block", objectFit: "cover" }} />
+      <img ref={imgRef} src={thumb.src} alt="" style={{ width: "100%", height: "100%", display: "block", objectFit: "cover" }} />
     </div>
   );
 }
