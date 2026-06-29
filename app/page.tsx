@@ -93,26 +93,61 @@ type Thumbnail = {
   dstX: number; dstY: number; dstSize: number;
 };
 
-// Витражная мозаика: рисуем все трейлы белыми линиями на чёрном фоне,
-// затем flood-fill заливает каждую замкнутую область ярким цветом.
+// Заливка как в Paint: толстые белые линии создают замкнутые области,
+// flood-fill BFS заливает каждую область своим цветом.
 function buildColoredMosaic(
   trails: { x: number; y: number }[][],
   minX: number, minY: number,
   cropW: number, cropH: number
 ): string | null {
-  const SIZE = 300;
-  const scale = Math.min(SIZE / Math.max(cropW, cropH, 1), 2);
+  const SIZE = 280;
+  const scale = Math.min(SIZE / Math.max(cropW, cropH, 1), 3);
   const w = Math.max(4, Math.round(cropW * scale));
   const h = Math.max(4, Math.round(cropH * scale));
 
-  // Шаг 1: рисуем все трейлы белыми линиями на чёрном фоне
+  // Генерируем 12 уникальных агрессивных цветов через золотое сечение
+  // Каждый вызов — новый случайный стартовый тон → разные палитры
+  const hueStart = Math.random() * 360;
+  const hsl2rgb = (hue: number): [number, number, number] => {
+    const sat = 0.95, light = 0.50 + Math.random() * 0.1;
+    const c2 = (1 - Math.abs(2 * light - 1)) * sat;
+    const x2 = c2 * (1 - Math.abs((hue / 60) % 2 - 1));
+    const m = light - c2 / 2;
+    let r = 0, g = 0, b = 0;
+    if (hue < 60) { r = c2; g = x2; }
+    else if (hue < 120) { r = x2; g = c2; }
+    else if (hue < 180) { g = c2; b = x2; }
+    else if (hue < 240) { g = x2; b = c2; }
+    else if (hue < 300) { r = x2; b = c2; }
+    else { r = c2; b = x2; }
+    return [Math.round((r + m) * 255), Math.round((g + m) * 255), Math.round((b + m) * 255)];
+  };
+  // Перемешиваем Fisher-Yates чтобы соседние области получали разные цвета
+  const COLORS: [number, number, number][] = Array.from({ length: 12 }, (_, i) =>
+    hsl2rgb((hueStart + i * 137.508) % 360)
+  );
+  for (let i = COLORS.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [COLORS[i], COLORS[j]] = [COLORS[j], COLORS[i]];
+  }
+
   const canvas = document.createElement("canvas");
   canvas.width = w; canvas.height = h;
   const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
+
+  // Если трейлов нет — заливаем сплошным ярким случайным цветом
+  if (trails.length === 0 || trails.every(t => t.length < 2)) {
+    const [r, g, b] = COLORS[0];
+    ctx.fillStyle = `rgb(${r},${g},${b})`;
+    ctx.fillRect(0, 0, w, h);
+    return canvas.toDataURL("image/png");
+  }
+
+  // Рисуем толстые белые линии
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, w, h);
   ctx.strokeStyle = "#fff";
-  ctx.lineWidth = 3;
+  ctx.lineWidth = Math.max(2, Math.round(5 * scale));
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
   trails.forEach(trail => {
@@ -125,37 +160,22 @@ function buildColoredMosaic(
     ctx.stroke();
   });
 
-  // Шаг 2: flood-fill заливает области между линиями
   const imgData = ctx.getImageData(0, 0, w, h);
   const data = imgData.data;
   const n = w * h;
 
-  const COLORS: [number, number, number][] = [
-    [220, 30, 50], [30, 100, 220], [30, 180, 80],
-    [230, 180, 20], [140, 40, 200], [220, 100, 20],
-    [20, 200, 210], [210, 30, 160], [180, 220, 30],
-    [20, 120, 200], [255, 80, 0], [0, 200, 150],
-  ];
-  let colorIdx = Math.floor(Math.random() * COLORS.length);
-
-  // Линия = яркий пиксель (белый трейл)
-  const isLine = (i: number) => {
-    const o = i * 4;
-    return data[o] + data[o + 1] + data[o + 2] > 200;
-  };
-
+  const isLine = (i: number) => data[i * 4] > 128;
   const visited = new Uint8Array(n);
   const queue = new Int32Array(n);
+  let colorIdx = 0;
 
   for (let start = 0; start < n; start++) {
     if (visited[start] || isLine(start)) continue;
-
     const [cr, cg, cb] = COLORS[colorIdx % COLORS.length];
     colorIdx++;
     let qH = 0, qT = 0;
     queue[qT++] = start;
     visited[start] = 1;
-
     while (qH < qT) {
       const idx = queue[qH++];
       const o = idx * 4;
@@ -168,12 +188,9 @@ function buildColoredMosaic(
     }
   }
 
-  // Линии поверх — белые
+  // Линии — белые поверх
   for (let i = 0; i < n; i++) {
-    if (isLine(i)) {
-      const o = i * 4;
-      data[o] = 255; data[o + 1] = 255; data[o + 2] = 255; data[o + 3] = 255;
-    }
+    if (isLine(i)) { const o = i * 4; data[o] = 255; data[o + 1] = 255; data[o + 2] = 255; data[o + 3] = 255; }
   }
 
   ctx.putImageData(imgData, 0, 0);
