@@ -19,8 +19,16 @@ export async function POST(req: NextRequest) {
     // Pollinations.ai — GET запрос возвращает PNG напрямую, без ключей
     const imageUrl = `https://image.pollinations.ai/prompt/${encoded}?width=512&height=512&model=flux&seed=${Math.floor(Math.random() * 99999)}&nologo=true`;
 
-    // Pollinations генерирует изображение при GET запросе — просто возвращаем URL
-    return NextResponse.json({ url: imageUrl });
+    // Загружаем картинку на сервере и возвращаем как dataURL — без CORS проблем
+    const imgRes = await fetch(imageUrl);
+    if (!imgRes.ok) {
+      return NextResponse.json({ error: `Image fetch failed: ${imgRes.status}` }, { status: 500 });
+    }
+    const buffer = await imgRes.arrayBuffer();
+    const base64 = Buffer.from(buffer).toString("base64");
+    const dataUrl = `data:image/png;base64,${base64}`;
+
+    return NextResponse.json({ url: dataUrl });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
