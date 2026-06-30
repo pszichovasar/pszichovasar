@@ -133,7 +133,7 @@ function buildColoredMosaic(
 
   // Разделители — тёмно-серые (не белые!) чтобы flood-fill их видел как границы
   ctx.strokeStyle = "#404040";
-  ctx.lineWidth = Math.max(1, Math.round(1.2 * scale));
+  ctx.lineWidth = Math.max(2, Math.round(2 * scale));
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
   trails.forEach(trail => {
@@ -154,11 +154,19 @@ function buildColoredMosaic(
   const isBorder = (i: number) => data[i * 4] > 30;
   const visited = new Uint8Array(n);
   const queue = new Int32Array(n);
-  let ci = 0;
+  const recentColors: number[] = [];
 
   for (let start = 0; start < n; start++) {
     if (visited[start] || isBorder(start)) continue;
-    const [cr, cg, cb] = COLORS[ci % COLORS.length]; ci++;
+    // Выбираем случайный цвет, исключая последние 4 использованных
+    let ci = Math.floor(Math.random() * COLORS.length);
+    for (let attempt = 0; attempt < 8; attempt++) {
+      if (!recentColors.includes(ci)) break;
+      ci = Math.floor(Math.random() * COLORS.length);
+    }
+    recentColors.push(ci);
+    if (recentColors.length > 4) recentColors.shift();
+    const [cr, cg, cb] = COLORS[ci];
     let qH = 0, qT = 0;
     queue[qT++] = start; visited[start] = 1;
     while (qH < qT) {
@@ -175,9 +183,16 @@ function buildColoredMosaic(
 
   ctx.putImageData(imgData, 0, 0);
 
+  // Закрашиваем края canvas чёрным чтобы убрать артефакты заливки
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, w, 2);
+  ctx.fillRect(0, h - 2, w, 2);
+  ctx.fillRect(0, 0, 2, h);
+  ctx.fillRect(w - 2, 0, 2, h);
+
   // Тонкие чёрные линии поверх — аккуратный контур витража
   ctx.strokeStyle = "#000";
-  ctx.lineWidth = 1;
+  ctx.lineWidth = Math.max(1, Math.round(1.2 * scale));
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
   trails.forEach(trail => {
