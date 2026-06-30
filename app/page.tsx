@@ -13,7 +13,7 @@ function shuffleWithSeed(arr: string[], seed: number): string[] {
   return a;
 }
 
-const IMG_COUNT = 50;
+const IMG_COUNT = 100;
 const IMG_SIZE_DESKTOP = 60;
 const IMG_SIZE_MOBILE = 20;
 const getImgSize = () =>
@@ -93,8 +93,8 @@ type Thumbnail = {
   dstX: number; dstY: number; dstSize: number;
 };
 
-// Заливка как в Paint: толстые белые линии создают замкнутые области,
-// flood-fill BFS заливает каждую область своим цветом.
+// Заливка как в Paint: линии-разделители создают области, flood-fill заливает каждую ярким цветом.
+// Фон тоже получает случайный цвет. Белого и серого нет.
 function buildColoredMosaic(
   trails: { x: number; y: number }[][],
   minX: number, minY: number,
@@ -105,49 +105,35 @@ function buildColoredMosaic(
   const w = Math.max(4, Math.round(cropW * scale));
   const h = Math.max(4, Math.round(cropH * scale));
 
-  // Генерируем 12 уникальных агрессивных цветов через золотое сечение
-  // Каждый вызов — новый случайный стартовый тон → разные палитры
-  const hueStart = Math.random() * 360;
-  const hsl2rgb = (hue: number): [number, number, number] => {
-    const sat = 0.95, light = 0.50 + Math.random() * 0.1;
-    const c2 = (1 - Math.abs(2 * light - 1)) * sat;
-    const x2 = c2 * (1 - Math.abs((hue / 60) % 2 - 1));
-    const m = light - c2 / 2;
-    let r = 0, g = 0, b = 0;
-    if (hue < 60) { r = c2; g = x2; }
-    else if (hue < 120) { r = x2; g = c2; }
-    else if (hue < 180) { g = c2; b = x2; }
-    else if (hue < 240) { g = x2; b = c2; }
-    else if (hue < 300) { r = x2; b = c2; }
-    else { r = c2; b = x2; }
-    return [Math.round((r + m) * 255), Math.round((g + m) * 255), Math.round((b + m) * 255)];
-  };
-  // Перемешиваем Fisher-Yates чтобы соседние области получали разные цвета
-  const COLORS: [number, number, number][] = Array.from({ length: 12 }, (_, i) =>
-    hsl2rgb((hueStart + i * 137.508) % 360)
-  );
-  for (let i = COLORS.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [COLORS[i], COLORS[j]] = [COLORS[j], COLORS[i]];
-  }
+  // 16 ярких цветов по всему спектру — явные RGB без HSL багов
+  const ALL: [number, number, number][] = [
+    [255, 0, 60], [255, 80, 0], [255, 200, 0], [180, 255, 0],
+    [0, 255, 80], [0, 255, 220], [0, 140, 255], [80, 0, 255],
+    [200, 0, 255], [255, 0, 180], [255, 120, 120], [120, 255, 120],
+    [120, 120, 255], [255, 220, 100], [100, 255, 220], [220, 100, 255],
+  ];
+  // Случайное перемешивание → каждый узор уникален
+  const COLORS = [...ALL].sort(() => Math.random() - 0.5);
 
   const canvas = document.createElement("canvas");
   canvas.width = w; canvas.height = h;
   const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
 
-  // Если трейлов нет — заливаем сплошным ярким случайным цветом
-  if (trails.length === 0 || trails.every(t => t.length < 2)) {
+  // Fallback — нет трейлов
+  if (!trails.length || trails.every(t => t.length < 2)) {
     const [r, g, b] = COLORS[0];
     ctx.fillStyle = `rgb(${r},${g},${b})`;
     ctx.fillRect(0, 0, w, h);
     return canvas.toDataURL("image/png");
   }
 
-  // Рисуем толстые белые линии
-  ctx.fillStyle = "#000";
+  // Тёмный фон (не чёрный, не белый — почти чёрный чтобы isLine работал)
+  ctx.fillStyle = "#050505";
   ctx.fillRect(0, 0, w, h);
-  ctx.strokeStyle = "#fff";
-  ctx.lineWidth = Math.max(2, Math.round(5 * scale));
+
+  // Разделители — тёмно-серые (не белые!) чтобы flood-fill их видел как границы
+  ctx.strokeStyle = "#606060";
+  ctx.lineWidth = Math.max(3, Math.round(7 * scale));
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
   trails.forEach(trail => {
@@ -164,36 +150,45 @@ function buildColoredMosaic(
   const data = imgData.data;
   const n = w * h;
 
-  const isLine = (i: number) => data[i * 4] > 128;
+  // Граница = пиксель достаточно серый (R > 40)
+  const isBorder = (i: number) => data[i * 4] > 40;
   const visited = new Uint8Array(n);
   const queue = new Int32Array(n);
-  let colorIdx = 0;
+  let ci = 0;
 
   for (let start = 0; start < n; start++) {
-    if (visited[start] || isLine(start)) continue;
-    const [cr, cg, cb] = COLORS[colorIdx % COLORS.length];
-    colorIdx++;
+    if (visited[start] || isBorder(start)) continue;
+    const [cr, cg, cb] = COLORS[ci % COLORS.length]; ci++;
     let qH = 0, qT = 0;
-    queue[qT++] = start;
-    visited[start] = 1;
+    queue[qT++] = start; visited[start] = 1;
     while (qH < qT) {
       const idx = queue[qH++];
       const o = idx * 4;
       data[o] = cr; data[o + 1] = cg; data[o + 2] = cb; data[o + 3] = 255;
       const x = idx % w, y = (idx / w) | 0;
-      if (x > 0) { const nb = idx - 1; if (!visited[nb] && !isLine(nb)) { visited[nb] = 1; queue[qT++] = nb; } }
-      if (x < w - 1) { const nb = idx + 1; if (!visited[nb] && !isLine(nb)) { visited[nb] = 1; queue[qT++] = nb; } }
-      if (y > 0) { const nb = idx - w; if (!visited[nb] && !isLine(nb)) { visited[nb] = 1; queue[qT++] = nb; } }
-      if (y < h - 1) { const nb = idx + w; if (!visited[nb] && !isLine(nb)) { visited[nb] = 1; queue[qT++] = nb; } }
+      if (x > 0) { const nb = idx - 1; if (!visited[nb] && !isBorder(nb)) { visited[nb] = 1; queue[qT++] = nb; } }
+      if (x < w - 1) { const nb = idx + 1; if (!visited[nb] && !isBorder(nb)) { visited[nb] = 1; queue[qT++] = nb; } }
+      if (y > 0) { const nb = idx - w; if (!visited[nb] && !isBorder(nb)) { visited[nb] = 1; queue[qT++] = nb; } }
+      if (y < h - 1) { const nb = idx + w; if (!visited[nb] && !isBorder(nb)) { visited[nb] = 1; queue[qT++] = nb; } }
     }
   }
 
-  // Линии — белые поверх
-  for (let i = 0; i < n; i++) {
-    if (isLine(i)) { const o = i * 4; data[o] = 255; data[o + 1] = 255; data[o + 2] = 255; data[o + 3] = 255; }
-  }
-
   ctx.putImageData(imgData, 0, 0);
+
+  // Белые линии поверх как финальный витражный контур
+  ctx.strokeStyle = "#fff";
+  ctx.lineWidth = Math.max(1, Math.round(2 * scale));
+  ctx.lineCap = "round"; ctx.lineJoin = "round";
+  trails.forEach(trail => {
+    if (trail.length < 2) return;
+    ctx.beginPath();
+    ctx.moveTo((trail[0].x - minX) * scale, (trail[0].y - minY) * scale);
+    for (let j = 1; j < trail.length; j++) {
+      ctx.lineTo((trail[j].x - minX) * scale, (trail[j].y - minY) * scale);
+    }
+    ctx.stroke();
+  });
+
   return canvas.toDataURL("image/png");
 }
 
