@@ -13,7 +13,7 @@ function shuffleWithSeed(arr: string[], seed: number): string[] {
   return a;
 }
 
-const IMG_COUNT = 100;
+const IMG_COUNT = 30;
 const IMG_SIZE_DESKTOP = 60;
 const IMG_SIZE_MOBILE = 20;
 const getImgSize = () =>
@@ -128,7 +128,7 @@ function buildColoredMosaic(
   }
 
   // Тёмный фон (не чёрный, не белый — почти чёрный чтобы isLine работал)
-  ctx.fillStyle = "#050505";
+  ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, w, h);
 
   // Разделители — тёмно-серые (не белые!) чтобы flood-fill их видел как границы
@@ -151,7 +151,7 @@ function buildColoredMosaic(
   const n = w * h;
 
   // Граница = пиксель достаточно серый (R > 40)
-  const isBorder = (i: number) => data[i * 4] > 30;
+  const isBorder = (i: number) => data[i * 4] > 25;
   const visited = new Uint8Array(n);
   const queue = new Int32Array(n);
   const recentColors: number[] = [];
@@ -185,14 +185,14 @@ function buildColoredMosaic(
 
   // Закрашиваем края canvas чёрным чтобы убрать артефакты заливки
   ctx.fillStyle = "#000";
-  ctx.fillRect(0, 0, w, 2);
-  ctx.fillRect(0, h - 2, w, 2);
-  ctx.fillRect(0, 0, 2, h);
-  ctx.fillRect(w - 2, 0, 2, h);
+  ctx.fillRect(0, 0, w, 3);
+  ctx.fillRect(0, h - 3, w, 3);
+  ctx.fillRect(0, 0, 3, h);
+  ctx.fillRect(w - 3, 0, 3, h);
 
   // Тонкие чёрные линии поверх — аккуратный контур витража
   ctx.strokeStyle = "#000";
-  ctx.lineWidth = Math.max(1, Math.round(1.2 * scale));
+  ctx.lineWidth = Math.max(0.5, 0.4 * scale);
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
   trails.forEach(trail => {
@@ -432,7 +432,8 @@ export default function Home() {
       const W = window.innerWidth;
 
       // Единый размер для всех узоров (в 2 раза меньше прежнего)
-      const DST_SIZE = 170;
+      const isMobile = window.innerWidth <= 768;
+      const DST_SIZE = isMobile ? 57 : 170;
       const PAD = 16; // отступ между узорами
 
       // Находим свободное место — не пересекается с уже размещёнными узорами
