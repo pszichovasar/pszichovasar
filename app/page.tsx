@@ -132,8 +132,8 @@ function buildColoredMosaic(
   ctx.fillRect(0, 0, w, h);
 
   // Разделители — тёмно-серые (не белые!) чтобы flood-fill их видел как границы
-  ctx.strokeStyle = "#606060";
-  ctx.lineWidth = Math.max(3, Math.round(7 * scale));
+  ctx.strokeStyle = "#404040";
+  ctx.lineWidth = Math.max(1, Math.round(1.2 * scale));
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
   trails.forEach(trail => {
@@ -151,7 +151,7 @@ function buildColoredMosaic(
   const n = w * h;
 
   // Граница = пиксель достаточно серый (R > 40)
-  const isBorder = (i: number) => data[i * 4] > 40;
+  const isBorder = (i: number) => data[i * 4] > 30;
   const visited = new Uint8Array(n);
   const queue = new Int32Array(n);
   let ci = 0;
@@ -175,10 +175,11 @@ function buildColoredMosaic(
 
   ctx.putImageData(imgData, 0, 0);
 
-  // Белые линии поверх как финальный витражный контур
-  ctx.strokeStyle = "#fff";
-  ctx.lineWidth = Math.max(1, Math.round(2 * scale));
-  ctx.lineCap = "round"; ctx.lineJoin = "round";
+  // Тонкие чёрные линии поверх — аккуратный контур витража
+  ctx.strokeStyle = "#000";
+  ctx.lineWidth = 1;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
   trails.forEach(trail => {
     if (trail.length < 2) return;
     ctx.beginPath();
