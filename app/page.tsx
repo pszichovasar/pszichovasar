@@ -538,120 +538,101 @@ function project3DPoints(
 
 // Генерирует контурные точки текста через canvas
 function generateTextPoints(text: string, W: number, H: number): { x: number; y: number }[] {
-  const size = Math.min(W, H) * 0.18;
+  const SCALE = 4;
+  const cW = W * SCALE, cH = H * SCALE;
   const offscreen = document.createElement("canvas");
-  offscreen.width = W; offscreen.height = H;
+  offscreen.width = cW; offscreen.height = cH;
   const ctx = offscreen.getContext("2d", { willReadFrequently: true })!;
   ctx.fillStyle = "#000";
-  ctx.fillRect(0, 0, W, H);
+  ctx.fillRect(0, 0, cW, cH);
+
+  const lines = ["I DO", "DESIGN"];
+  let fontSize = cW * 0.30;
+  ctx.font = `900 ${fontSize}px "Arial Black", Arial, sans-serif`;
+  while (ctx.measureText(lines[1]).width > cW * 0.86 && fontSize > 20) {
+    fontSize *= 0.92;
+    ctx.font = `900 ${fontSize}px "Arial Black", Arial, sans-serif`;
+  }
+
   ctx.fillStyle = "#fff";
-  ctx.font = `900 ${size}px "Arial Black", Arial, sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(text, W / 2, H / 2);
+  const lineH = fontSize * 1.15;
+  lines.forEach((line, i) => ctx.fillText(line, cW / 2, cH / 2 - lineH / 2 + i * lineH));
 
-  const imgData = ctx.getImageData(0, 0, W, H);
+  const imgData = ctx.getImageData(0, 0, cW, cH);
   const data = imgData.data;
-
-  // Sobel edge detection — находим границы букв
   const pts: { x: number; y: number }[] = [];
-  const step = 3; // шаг сэмплирования
-  for (let y = step; y < H - step; y += step) {
-    for (let x = step; x < W - step; x += step) {
-      const idx = (y * W + x) * 4;
+  const step = SCALE * 2;
+  for (let y = step; y < cH - step; y += step) {
+    for (let x = step; x < cW - step; x += step) {
       const gx =
-        -data[((y - 1) * W + (x - 1)) * 4] - 2 * data[((y) * W + (x - 1)) * 4] - data[((y + 1) * W + (x - 1)) * 4]
-        + data[((y - 1) * W + (x + 1)) * 4] + 2 * data[((y) * W + (x + 1)) * 4] + data[((y + 1) * W + (x + 1)) * 4];
+        -data[((y - step) * cW + (x - step)) * 4] - 2 * data[((y) * cW + (x - step)) * 4] - data[((y + step) * cW + (x - step)) * 4]
+        + data[((y - step) * cW + (x + step)) * 4] + 2 * data[((y) * cW + (x + step)) * 4] + data[((y + step) * cW + (x + step)) * 4];
       const gy =
-        -data[((y - 1) * W + (x - 1)) * 4] - 2 * data[((y - 1) * W + (x)) * 4] - data[((y - 1) * W + (x + 1)) * 4]
-        + data[((y + 1) * W + (x - 1)) * 4] + 2 * data[((y + 1) * W + (x)) * 4] + data[((y + 1) * W + (x + 1)) * 4];
-      const mag = Math.sqrt(gx * gx + gy * gy);
-      if (mag > 100) pts.push({ x, y });
+        -data[((y - step) * cW + (x - step)) * 4] - 2 * data[((y - step) * cW + (x)) * 4] - data[((y - step) * cW + (x + step)) * 4]
+        + data[((y + step) * cW + (x - step)) * 4] + 2 * data[((y + step) * cW + (x)) * 4] + data[((y + step) * cW + (x + step)) * 4];
+      if (Math.sqrt(gx * gx + gy * gy) > 50) pts.push({ x: x / SCALE, y: y / SCALE });
     }
   }
-
-  // Сортируем точки по близости — непрерывный трейл
-  if (pts.length === 0) return [];
-  const sorted: { x: number; y: number }[] = [pts[0]];
-  const used = new Set([0]);
-  for (let i = 1; i < pts.length; i++) {
-    const last = sorted[sorted.length - 1];
-    let bestIdx = -1, bestDist = Infinity;
-    for (let j = 0; j < pts.length; j++) {
-      if (used.has(j)) continue;
-      const dx = pts[j].x - last.x, dy = pts[j].y - last.y;
-      const d = dx * dx + dy * dy;
-      if (d < bestDist) { bestDist = d; bestIdx = j; }
-      if (bestDist < step * step * 2) break; // достаточно близко — берём
-    }
-    if (bestIdx === -1) break;
-    used.add(bestIdx);
-    sorted.push(pts[bestIdx]);
-  }
-  return sorted;
+  // Змейка по строкам
+  const ss = step / SCALE;
+  pts.sort((a, b) => {
+    const ra = Math.floor(a.y / ss), rb = Math.floor(b.y / ss);
+    if (ra !== rb) return ra - rb;
+    return ra % 2 === 0 ? a.x - b.x : b.x - a.x;
+  });
+  return pts;
 }
 
-// Загружает картину и возвращает контурные точки через Sobel
+// Знаменитые картины как векторные контуры — нормализованные координаты [0..1]
+// Каждый массив — один непрерывный путь пера
 async function generateArtworkPoints(url: string, W: number, H: number): Promise<{ x: number; y: number }[]> {
   return new Promise((resolve) => {
     const img = new Image();
-    img.crossOrigin = "anonymous";
     img.onload = () => {
+      const scale = Math.min(W / img.width, H / img.height) * 0.92;
+      const sw = img.width * scale, sh = img.height * scale;
       const offscreen = document.createElement("canvas");
       offscreen.width = W; offscreen.height = H;
       const ctx = offscreen.getContext("2d", { willReadFrequently: true })!;
-      // Центрируем картину
-      const scale = Math.min(W / img.width, H / img.height) * 0.85;
-      const sw = img.width * scale, sh = img.height * scale;
       ctx.fillStyle = "#000";
       ctx.fillRect(0, 0, W, H);
       ctx.drawImage(img, (W - sw) / 2, (H - sh) / 2, sw, sh);
-
       const imgData = ctx.getImageData(0, 0, W, H);
       const data = imgData.data;
 
-      // Sobel с шагом 3px — детальные контуры
+      // Sobel edge detection — только главные контуры
       const pts: { x: number; y: number }[] = [];
       const step = 3;
       for (let y = step; y < H - step; y += step) {
         for (let x = step; x < W - step; x += step) {
-          const getGray = (px: number, py: number) => {
+          const g = (px: number, py: number) => {
             const o = (py * W + px) * 4;
-            return (data[o] * 0.299 + data[o + 1] * 0.587 + data[o + 2] * 0.114);
+            return data[o] * 0.299 + data[o + 1] * 0.587 + data[o + 2] * 0.114;
           };
-          const gx =
-            -getGray(x - step, y - step) - 2 * getGray(x - step, y) - getGray(x - step, y + step)
-            + getGray(x + step, y - step) + 2 * getGray(x + step, y) + getGray(x + step, y + step);
-          const gy =
-            -getGray(x - step, y - step) - 2 * getGray(x, y - step) - getGray(x + step, y - step)
-            + getGray(x - step, y + step) + 2 * getGray(x, y + step) + getGray(x + step, y + step);
-          if (Math.sqrt(gx * gx + gy * gy) > 25) pts.push({ x, y });
+          const gx = -g(x - step, y - step) - 2 * g(x - step, y) - g(x - step, y + step)
+            + g(x + step, y - step) + 2 * g(x + step, y) + g(x + step, y + step);
+          const gy = -g(x - step, y - step) - 2 * g(x, y - step) - g(x + step, y - step)
+            + g(x - step, y + step) + 2 * g(x, y + step) + g(x + step, y + step);
+          if (Math.sqrt(gx * gx + gy * gy) > 60) pts.push({ x, y });
         }
       }
 
-      // Строим трейл — идём по строкам змейкой для непрерывности
-      if (pts.length === 0) { resolve([]); return; }
-      // Сортируем по Y потом по X (чередуя направление)
+      // Змейка — непрерывный трейл без прыжков
       pts.sort((a, b) => {
-        const rowA = Math.floor(a.y / step);
-        const rowB = Math.floor(b.y / step);
-        if (rowA !== rowB) return rowA - rowB;
-        return rowA % 2 === 0 ? a.x - b.x : b.x - a.x;
+        const ra = Math.floor(a.y / step), rb = Math.floor(b.y / step);
+        if (ra !== rb) return ra - rb;
+        return ra % 2 === 0 ? a.x - b.x : b.x - a.x;
       });
-      resolve(pts.slice(0, 3000));
+      resolve(pts.slice(0, 6000));
     };
     img.onerror = () => resolve([]);
     img.src = url;
   });
 }
 
-// Картины лежат в public/ проекта
-const ARTWORKS = [
-  { name: "Mona Lisa", url: "/art1.png" },
-  { name: "Starry Night", url: "/art2.png" },
-  { name: "American Gothic", url: "/art3.png" },
-  { name: "Son of Man", url: "/art4.png" },
-];
+const ARTWORKS = ["/art1.png", "/art2.png", "/art3.png", "/art4.png"];
 
 function generate3DShapePoints(
   seed: number,
@@ -1009,6 +990,14 @@ export default function Home() {
     let schedTimer: ReturnType<typeof setTimeout> | null = null;
     const activeRef = { current: true };
     let artworkIdx = 0;
+    // Предзагружаем все картины сразу — чтобы в runPhase3 не было async задержки
+    const preloadedArtworks: ({ x: number; y: number }[])[] = [];
+    Promise.all(ARTWORKS.map(url =>
+      generateArtworkPoints(url, window.innerWidth, window.innerHeight)
+    )).then(results => {
+      preloadedArtworks.push(...results);
+      console.log("Artworks preloaded:", results.map(r => r.length));
+    });
 
     // Общая функция отрисовки любого набора точек → мозаика → следующая фаза
     const runDrawPhase = (pts: { x: number; y: number }[], onDone: () => void) => {
@@ -1074,26 +1063,27 @@ export default function Home() {
       if (!activeRef.current) return;
       const W = window.innerWidth, H = window.innerHeight;
       const pts = generate3DShapePoints(Math.floor(Math.random() * 999999), W, H, 0, 0);
-      runDrawPhase(pts, runPhase2);
-    };
-
-    // Фаза 2: текст "I DO DESIGN"
-    const runPhase2 = () => {
-      if (!activeRef.current) return;
-      const W = window.innerWidth, H = window.innerHeight;
-      const pts = generateTextPoints("I DO DESIGN", W, H);
       runDrawPhase(pts, runPhase3);
     };
 
-    // Фаза 3: произведение искусства
-    const runPhase3 = async () => {
+    // Фаза 3: произведение искусства (синхронно из предзагруженного)
+    const runPhase3 = () => {
       if (!activeRef.current) return;
-      const W = window.innerWidth, H = window.innerHeight;
-      const artwork = ARTWORKS[artworkIdx % ARTWORKS.length];
+      const idx = artworkIdx % ARTWORKS.length;
       artworkIdx++;
-      const pts = await generateArtworkPoints(artwork.url, W, H);
-      if (!activeRef.current) return;
-      runDrawPhase(pts.length > 10 ? pts : generateTextPoints("ART", W, H), runPhase0);
+      const pts = preloadedArtworks[idx];
+      console.log("Phase3: artwork", idx, "pts:", pts?.length ?? "not ready");
+      if (pts && pts.length > 10) {
+        runDrawPhase(pts, runPhase0);
+      } else {
+        // Ещё не загружено — грузим на месте
+        const W = window.innerWidth, H = window.innerHeight;
+        generateArtworkPoints(ARTWORKS[idx], W, H).then(loaded => {
+          if (!activeRef.current) return;
+          if (loaded.length > 10) runDrawPhase(loaded, runPhase0);
+          else runPhase0();
+        });
+      }
     };
 
     // Старт
