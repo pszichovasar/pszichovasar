@@ -1102,8 +1102,10 @@ export default function Home() {
       const totalDuration = 10000;
       const startTime = performance.now();
       let idx = 0;
-      // Максимальный прыжок между точками — если больше, поднимаем перо
-      const maxJump = 20;
+      let lastX = pts[0]?.x ?? 0;
+      let lastY = pts[0]?.y ?? 0;
+      let pathOpen = false;
+
       const drawNext = () => {
         if (!activeRef.current || !autoDrawActiveRef.current) return;
         const c = trailCanvasRef.current;
@@ -1113,30 +1115,33 @@ export default function Home() {
         if (targetIdx > idx) {
           const ctx = c.getContext("2d");
           if (ctx) {
-            ctx.lineWidth = 1.2;
+            ctx.lineWidth = 1.5;
             ctx.lineCap = "round";
             ctx.lineJoin = "round";
             ctx.strokeStyle = "rgba(255,255,255,0.92)";
-            ctx.beginPath();
-            let penDown = false;
-            let prevX = 0, prevY = 0;
-            for (let i = idx; i <= targetIdx && i < pts.length; i++) {
+
+            for (let i = idx; i < targetIdx && i < pts.length; i++) {
               const p = pts[i];
               if (isNaN(p.x)) {
-                if (penDown) { ctx.stroke(); ctx.beginPath(); penDown = false; }
-              } else if (!penDown) {
-                ctx.moveTo(p.x, p.y);
-                prevX = p.x; prevY = p.y;
-                penDown = true;
+                // Конец штриха — закрываем и сбрасываем
+                if (pathOpen) { ctx.stroke(); pathOpen = false; }
               } else {
-                // Плавная кривая через средние точки
-                const mx = (prevX + p.x) / 2;
-                const my = (prevY + p.y) / 2;
-                ctx.quadraticCurveTo(prevX, prevY, mx, my);
-                prevX = p.x; prevY = p.y;
+                if (!pathOpen) {
+                  ctx.beginPath();
+                  ctx.moveTo(p.x, p.y);
+                  lastX = p.x; lastY = p.y;
+                  pathOpen = true;
+                } else {
+                  // Плавная кривая через среднюю точку
+                  const mx = (lastX + p.x) / 2;
+                  const my = (lastY + p.y) / 2;
+                  ctx.quadraticCurveTo(lastX, lastY, mx, my);
+                  lastX = p.x; lastY = p.y;
+                }
               }
             }
-            if (penDown) ctx.stroke();
+            // Не закрываем path — продолжим в следующем кадре
+            if (pathOpen) ctx.stroke();
           }
           idx = targetIdx;
         }
