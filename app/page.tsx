@@ -591,51 +591,93 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
+      // Рисуем картину по центру
       const scale = Math.min(W / img.width, H / img.height) * 0.90;
       const sw = img.width * scale, sh = img.height * scale;
       const ox = (W - sw) / 2, oy = (H - sh) / 2;
-
-      const offscreen = document.createElement("canvas");
-      offscreen.width = W; offscreen.height = H;
-      const ctx = offscreen.getContext("2d", { willReadFrequently: true })!;
+      const canvas = document.createElement("canvas");
+      canvas.width = W; canvas.height = H;
+      const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
       ctx.fillStyle = "#000";
       ctx.fillRect(0, 0, W, H);
       ctx.drawImage(img, ox, oy, sw, sh);
+      const { data } = ctx.getImageData(0, 0, W, H);
 
-      const imgData = ctx.getImageData(0, 0, W, H);
-      const data = imgData.data;
+      // Sobel — карта силы края в каждом пикселе
+      const S = 3; // шаг
+      const cols = Math.floor(W / S), rows = Math.floor(H / S);
+      const mag = new Float32Array(cols * rows);
+      let maxMag = 0;
 
-      // Sobel — просто собираем точки краёв
-      const step = 4;
-      const pts: { x: number; y: number }[] = [];
-
-      for (let y = step; y < H - step; y += step) {
-        for (let x = step; x < W - step; x += step) {
-          const g = (px: number, py: number) => {
-            const o = (py * W + px) * 4;
+      for (let r = 1; r < rows - 1; r++) {
+        for (let c = 1; c < cols - 1; c++) {
+          const gv = (dc: number, dr: number) => {
+            const o = ((r + dr) * S * W + (c + dc) * S) * 4;
             return data[o] * 0.299 + data[o + 1] * 0.587 + data[o + 2] * 0.114;
           };
-          const gx = -g(x - step, y - step) - 2 * g(x - step, y) - g(x - step, y + step)
-            + g(x + step, y - step) + 2 * g(x + step, y) + g(x + step, y + step);
-          const gy = -g(x - step, y - step) - 2 * g(x, y - step) - g(x + step, y - step)
-            + g(x - step, y + step) + 2 * g(x, y + step) + g(x + step, y + step);
-          if (Math.sqrt(gx * gx + gy * gy) > 60) {
-            pts.push({ x, y });
-          }
+          const gx = -gv(-1, -1) - 2 * gv(-1, 0) - gv(-1, 1) + gv(1, -1) + 2 * gv(1, 0) + gv(1, 1);
+          const gy = -gv(-1, -1) - 2 * gv(0, -1) - gv(1, -1) + gv(-1, 1) + 2 * gv(0, 1) + gv(1, 1);
+          const m = Math.sqrt(gx * gx + gy * gy);
+          mag[r * cols + c] = m;
+          if (m > maxMag) maxMag = m;
         }
       }
 
-      // Перемешиваем чтобы рисование шло по всей картине сразу
-      for (let i = pts.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [pts[i], pts[j]] = [pts[j], pts[i]];
+      // Берём только топ 15% самых ярких краёв
+      const threshold = maxMag * 0.35;
+      const edgePts: { x: number, y: number, m: number }[] = [];
+      for (let r = 1; r < rows - 1; r++) {
+        for (let c = 1; c < cols - 1; c++) {
+          const m = mag[r * cols + c];
+          if (m > threshold) edgePts.push({ x: c * S, y: r * S, m });
+        }
       }
 
-      // Вставляем NaN между каждой точкой — каждая рисуется отдельно
-      const result: { x: number; y: number }[] = [];
-      for (const p of pts.slice(0, 4000)) {
-        result.push(p);
-        result.push({ x: NaN, y: NaN });
+      // Сортируем по силе края — сначала самые яркие контуры
+      edgePts.sort((a, b) => b.m - a.m);
+      const topPts = edgePts.slice(0, 3000);
+
+      // Строим связные штрихи: жадный обход ближайших соседей
+      // Это даёт плавные линии вдоль контуров
+      const used = new Set<number>();
+      const result: { x: number, y: number }[] = [];
+
+      // Индекс по сетке для быстрого поиска соседей
+      const grid = new Map<string, number>();
+      topPts.forEach((p, i) => grid.set(`${Math.round(p.x / S)},${Math.round(p.y / S)}`, i));
+
+      for (let si = 0; si < topPts.length; si++) {
+        if (used.has(si)) continue;
+
+        // Начинаем новый штрих
+        const stroke: { x: number, y: number }[] = [];
+        let cur = si;
+
+        while (cur !== -1 && !used.has(cur)) {
+          used.add(cur);
+          const p = topPts[cur];
+          stroke.push({ x: p.x, y: p.y });
+
+          // Ищем ближайшего незатронутого соседа в радиусе 2*S
+          let next = -1, bestD = Infinity;
+          for (let dr = -2; dr <= 2; dr++) {
+            for (let dc = -2; dc <= 2; dc++) {
+              if (dr === 0 && dc === 0) continue;
+              const key = `${Math.round(p.x / S) + dc},${Math.round(p.y / S) + dr}`;
+              const ni = grid.get(key);
+              if (ni !== undefined && !used.has(ni)) {
+                const d = (topPts[ni].x - p.x) ** 2 + (topPts[ni].y - p.y) ** 2;
+                if (d < bestD) { bestD = d; next = ni; }
+              }
+            }
+          }
+          cur = (bestD < (S * 3) ** 2) ? next : -1;
+        }
+
+        if (stroke.length >= 1) {
+          result.push(...stroke);
+          result.push({ x: NaN, y: NaN }); // поднять перо
+        }
       }
 
       resolve(result);
@@ -644,6 +686,7 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
     img.src = url;
   });
 }
+
 
 const ARTWORKS = ["/art1.png", "/art2.png", "/art3.png", "/art4.png"];
 
@@ -1034,24 +1077,18 @@ export default function Home() {
           if (ctx) {
             ctx.lineWidth = 1.5;
             ctx.lineCap = "round";
+            ctx.lineJoin = "round";
             ctx.strokeStyle = "rgba(255,255,255,0.9)";
             ctx.beginPath();
             let penDown = false;
             for (let i = idx; i <= targetIdx && i < pts.length; i++) {
-              if (isNaN(pts[i].x)) {
+              const p = pts[i];
+              if (isNaN(p.x)) {
                 if (penDown) { ctx.stroke(); ctx.beginPath(); penDown = false; }
               } else if (!penDown) {
-                ctx.moveTo(pts[i].x, pts[i].y);
-                penDown = true;
+                ctx.moveTo(p.x, p.y); penDown = true;
               } else {
-                const dx = pts[i].x - pts[i - 1].x;
-                const dy = pts[i].y - pts[i - 1].y;
-                if (Math.sqrt(dx * dx + dy * dy) > maxJump) {
-                  ctx.stroke(); ctx.beginPath();
-                  ctx.moveTo(pts[i].x, pts[i].y);
-                } else {
-                  ctx.lineTo(pts[i].x, pts[i].y);
-                }
+                ctx.lineTo(p.x, p.y);
               }
             }
             if (penDown) ctx.stroke();
