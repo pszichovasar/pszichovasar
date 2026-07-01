@@ -591,20 +591,24 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
-      const scale = Math.min(W / img.width, H / img.height) * 0.92;
+      const scale = Math.min(W / img.width, H / img.height) * 0.90;
       const sw = img.width * scale, sh = img.height * scale;
+      const ox = (W - sw) / 2, oy = (H - sh) / 2;
+
       const offscreen = document.createElement("canvas");
       offscreen.width = W; offscreen.height = H;
       const ctx = offscreen.getContext("2d", { willReadFrequently: true })!;
       ctx.fillStyle = "#000";
       ctx.fillRect(0, 0, W, H);
-      ctx.drawImage(img, (W - sw) / 2, (H - sh) / 2, sw, sh);
+      ctx.drawImage(img, ox, oy, sw, sh);
+
       const imgData = ctx.getImageData(0, 0, W, H);
       const data = imgData.data;
 
-      // Sobel edge detection — только сильные главные контуры
+      // Sobel — просто собираем точки краёв
+      const step = 4;
       const pts: { x: number; y: number }[] = [];
-      const step = 5;
+
       for (let y = step; y < H - step; y += step) {
         for (let x = step; x < W - step; x += step) {
           const g = (px: number, py: number) => {
@@ -615,17 +619,26 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
             + g(x + step, y - step) + 2 * g(x + step, y) + g(x + step, y + step);
           const gy = -g(x - step, y - step) - 2 * g(x, y - step) - g(x + step, y - step)
             + g(x - step, y + step) + 2 * g(x, y + step) + g(x + step, y + step);
-          if (Math.sqrt(gx * gx + gy * gy) > 80) pts.push({ x, y });
+          if (Math.sqrt(gx * gx + gy * gy) > 60) {
+            pts.push({ x, y });
+          }
         }
       }
 
-      // Змейка — порядок обхода
-      pts.sort((a, b) => {
-        const ra = Math.floor(a.y / step), rb = Math.floor(b.y / step);
-        if (ra !== rb) return ra - rb;
-        return ra % 2 === 0 ? a.x - b.x : b.x - a.x;
-      });
-      resolve(pts.slice(0, 3000));
+      // Перемешиваем чтобы рисование шло по всей картине сразу
+      for (let i = pts.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [pts[i], pts[j]] = [pts[j], pts[i]];
+      }
+
+      // Вставляем NaN между каждой точкой — каждая рисуется отдельно
+      const result: { x: number; y: number }[] = [];
+      for (const p of pts.slice(0, 4000)) {
+        result.push(p);
+        result.push({ x: NaN, y: NaN });
+      }
+
+      resolve(result);
     };
     img.onerror = () => resolve([]);
     img.src = url;
@@ -1019,25 +1032,29 @@ export default function Home() {
         if (targetIdx > idx) {
           const ctx = c.getContext("2d");
           if (ctx) {
-            ctx.strokeStyle = "rgba(255,255,255,0.9)";
             ctx.lineWidth = 1.5;
             ctx.lineCap = "round";
-            ctx.lineJoin = "round";
+            ctx.strokeStyle = "rgba(255,255,255,0.9)";
             ctx.beginPath();
-            ctx.moveTo(pts[idx].x, pts[idx].y);
-            for (let i = idx + 1; i <= targetIdx && i < pts.length; i++) {
-              const dx = pts[i].x - pts[i - 1].x;
-              const dy = pts[i].y - pts[i - 1].y;
-              // Поднимаем перо при большом прыжке
-              if (Math.sqrt(dx * dx + dy * dy) > maxJump) {
-                ctx.stroke();
-                ctx.beginPath();
+            let penDown = false;
+            for (let i = idx; i <= targetIdx && i < pts.length; i++) {
+              if (isNaN(pts[i].x)) {
+                if (penDown) { ctx.stroke(); ctx.beginPath(); penDown = false; }
+              } else if (!penDown) {
                 ctx.moveTo(pts[i].x, pts[i].y);
+                penDown = true;
               } else {
-                ctx.lineTo(pts[i].x, pts[i].y);
+                const dx = pts[i].x - pts[i - 1].x;
+                const dy = pts[i].y - pts[i - 1].y;
+                if (Math.sqrt(dx * dx + dy * dy) > maxJump) {
+                  ctx.stroke(); ctx.beginPath();
+                  ctx.moveTo(pts[i].x, pts[i].y);
+                } else {
+                  ctx.lineTo(pts[i].x, pts[i].y);
+                }
               }
             }
-            ctx.stroke();
+            if (penDown) ctx.stroke();
           }
           idx = targetIdx;
         }
