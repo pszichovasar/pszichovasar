@@ -591,7 +591,6 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
-      // Рисуем картину по центру
       const scale = Math.min(W / img.width, H / img.height) * 0.90;
       const sw = img.width * scale, sh = img.height * scale;
       const ox = (W - sw) / 2, oy = (H - sh) / 2;
@@ -603,16 +602,19 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
       ctx.drawImage(img, ox, oy, sw, sh);
       const { data } = ctx.getImageData(0, 0, W, H);
 
-      // Sobel — карта силы края в каждом пикселе
-      const S = 3; // шаг
-      const cols = Math.floor(W / S), rows = Math.floor(H / S);
+      // Шаг 1: Sobel на каждом пикселе (без прореживания)
+      const S = 2; // очень мелкий шаг → плавные линии
+      const cols = Math.floor(W / S);
+      const rows = Math.floor(H / S);
       const mag = new Float32Array(cols * rows);
       let maxMag = 0;
 
       for (let r = 1; r < rows - 1; r++) {
         for (let c = 1; c < cols - 1; c++) {
           const gv = (dc: number, dr: number) => {
-            const o = ((r + dr) * S * W + (c + dc) * S) * 4;
+            const px = Math.min((c + dc) * S, W - 1);
+            const py = Math.min((r + dr) * S, H - 1);
+            const o = (py * W + px) * 4;
             return data[o] * 0.299 + data[o + 1] * 0.587 + data[o + 2] * 0.114;
           };
           const gx = -gv(-1, -1) - 2 * gv(-1, 0) - gv(-1, 1) + gv(1, -1) + 2 * gv(1, 0) + gv(1, 1);
@@ -623,61 +625,84 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
         }
       }
 
-      // Берём только топ 15% самых ярких краёв
-      const threshold = maxMag * 0.35;
-      const edgePts: { x: number, y: number, m: number }[] = [];
+      // Шаг 2: Non-maximum suppression — оставляем только локальные максимумы
+      // Это делает линии тонкими и чёткими (1 пиксель в ширину)
+      const edge = new Uint8Array(cols * rows);
+      const threshold = maxMag * 0.25;
       for (let r = 1; r < rows - 1; r++) {
         for (let c = 1; c < cols - 1; c++) {
           const m = mag[r * cols + c];
-          if (m > threshold) edgePts.push({ x: c * S, y: r * S, m });
+          if (m < threshold) continue;
+          // Проверяем что это локальный максимум среди соседей
+          let isMax = true;
+          for (let dr = -1; dr <= 1; dr++) {
+            for (let dc = -1; dc <= 1; dc++) {
+              if (dr === 0 && dc === 0) continue;
+              if (mag[(r + dr) * cols + (c + dc)] > m) { isMax = false; break; }
+            }
+            if (!isMax) break;
+          }
+          if (isMax) edge[r * cols + c] = 1;
         }
       }
 
-      // Сортируем по силе края — сначала самые яркие контуры
-      edgePts.sort((a, b) => b.m - a.m);
-      const topPts = edgePts.slice(0, 3000);
+      // Шаг 3: Трассировка контуров — обходим связные цепочки краёв
+      // Каждый штрих = один непрерывный контур
+      const visited = new Uint8Array(cols * rows);
+      const result: { x: number; y: number }[] = [];
+      const dirs8 = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 1], [1, -1], [1, 0], [1, 1]];
 
-      // Строим связные штрихи: жадный обход ближайших соседей
-      // Это даёт плавные линии вдоль контуров
-      const used = new Set<number>();
-      const result: { x: number, y: number }[] = [];
+      // Строим штрихи начиная с сильнейших краёв
+      const edgeList: [number, number, number][] = []; // [r, c, mag]
+      for (let r = 1; r < rows - 1; r++)
+        for (let c = 1; c < cols - 1; c++)
+          if (edge[r * cols + c]) edgeList.push([r, c, mag[r * cols + c]]);
+      edgeList.sort((a, b) => b[2] - a[2]); // сначала сильные
 
-      // Индекс по сетке для быстрого поиска соседей
-      const grid = new Map<string, number>();
-      topPts.forEach((p, i) => grid.set(`${Math.round(p.x / S)},${Math.round(p.y / S)}`, i));
+      for (const [sr, sc] of edgeList) {
+        if (visited[sr * cols + sc]) continue;
 
-      for (let si = 0; si < topPts.length; si++) {
-        if (used.has(si)) continue;
+        // Жадная трассировка контура
+        const stroke: { x: number; y: number }[] = [];
+        let r = sr, c = sc;
 
-        // Начинаем новый штрих
-        const stroke: { x: number, y: number }[] = [];
-        let cur = si;
+        while (edge[r * cols + c] && !visited[r * cols + c]) {
+          visited[r * cols + c] = 1;
+          stroke.push({ x: c * S, y: r * S });
 
-        while (cur !== -1 && !used.has(cur)) {
-          used.add(cur);
-          const p = topPts[cur];
-          stroke.push({ x: p.x, y: p.y });
-
-          // Ищем ближайшего незатронутого соседа в радиусе 2*S
-          let next = -1, bestD = Infinity;
-          for (let dr = -2; dr <= 2; dr++) {
-            for (let dc = -2; dc <= 2; dc++) {
-              if (dr === 0 && dc === 0) continue;
-              const key = `${Math.round(p.x / S) + dc},${Math.round(p.y / S) + dr}`;
-              const ni = grid.get(key);
-              if (ni !== undefined && !used.has(ni)) {
-                const d = (topPts[ni].x - p.x) ** 2 + (topPts[ni].y - p.y) ** 2;
-                if (d < bestD) { bestD = d; next = ni; }
-              }
+          let next: [number, number] | null = null;
+          let bestM = -1;
+          for (const [dr, dc] of dirs8) {
+            const nr = r + dr, nc = c + dc;
+            if (nr >= 0 && nr < rows && nc >= 0 && nc < cols && edge[nr * cols + nc] && !visited[nr * cols + nc]) {
+              const m = mag[nr * cols + nc];
+              if (m > bestM) { bestM = m; next = [nr, nc]; }
             }
           }
-          cur = (bestD < (S * 3) ** 2) ? next : -1;
+          if (!next) break;
+          [r, c] = next;
         }
 
-        if (stroke.length >= 1) {
+        // Сглаживаем штрих — интерполируем через catmull-rom
+        if (stroke.length >= 3) {
+          const smoothed: { x: number; y: number }[] = [];
+          smoothed.push(stroke[0]);
+          for (let i = 1; i < stroke.length - 1; i++) {
+            // Среднее между соседями — убирает ступеньки
+            smoothed.push({
+              x: (stroke[i - 1].x + stroke[i].x * 2 + stroke[i + 1].x) / 4,
+              y: (stroke[i - 1].y + stroke[i].y * 2 + stroke[i + 1].y) / 4,
+            });
+          }
+          smoothed.push(stroke[stroke.length - 1]);
+          result.push(...smoothed);
+          result.push({ x: NaN, y: NaN });
+        } else if (stroke.length > 0) {
           result.push(...stroke);
-          result.push({ x: NaN, y: NaN }); // поднять перо
+          result.push({ x: NaN, y: NaN });
         }
+
+        if (result.length > 8000) break;
       }
 
       resolve(result);
@@ -686,7 +711,6 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
     img.src = url;
   });
 }
-
 
 const ARTWORKS = ["/art1.png", "/art2.png", "/art3.png", "/art4.png"];
 
@@ -1075,20 +1099,27 @@ export default function Home() {
         if (targetIdx > idx) {
           const ctx = c.getContext("2d");
           if (ctx) {
-            ctx.lineWidth = 1.5;
+            ctx.lineWidth = 1.2;
             ctx.lineCap = "round";
             ctx.lineJoin = "round";
-            ctx.strokeStyle = "rgba(255,255,255,0.9)";
+            ctx.strokeStyle = "rgba(255,255,255,0.92)";
             ctx.beginPath();
             let penDown = false;
+            let prevX = 0, prevY = 0;
             for (let i = idx; i <= targetIdx && i < pts.length; i++) {
               const p = pts[i];
               if (isNaN(p.x)) {
                 if (penDown) { ctx.stroke(); ctx.beginPath(); penDown = false; }
               } else if (!penDown) {
-                ctx.moveTo(p.x, p.y); penDown = true;
+                ctx.moveTo(p.x, p.y);
+                prevX = p.x; prevY = p.y;
+                penDown = true;
               } else {
-                ctx.lineTo(p.x, p.y);
+                // Плавная кривая через средние точки
+                const mx = (prevX + p.x) / 2;
+                const my = (prevY + p.y) / 2;
+                ctx.quadraticCurveTo(prevX, prevY, mx, my);
+                prevX = p.x; prevY = p.y;
               }
             }
             if (penDown) ctx.stroke();
