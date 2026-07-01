@@ -591,9 +591,12 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
-      const scale = Math.min(W / img.width, H / img.height) * 0.90;
-      const sw = img.width * scale, sh = img.height * scale;
-      const ox = (W - sw) / 2, oy = (H - sh) / 2;
+      const scale = Math.min(W / img.width, H / img.height) * 0.88;
+      const sw = Math.round(img.width * scale);
+      const sh = Math.round(img.height * scale);
+      const ox = Math.round((W - sw) / 2);
+      const oy = Math.round((H - sh) / 2);
+
       const canvas = document.createElement("canvas");
       canvas.width = W; canvas.height = H;
       const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
@@ -602,19 +605,15 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
       ctx.drawImage(img, ox, oy, sw, sh);
       const { data } = ctx.getImageData(0, 0, W, H);
 
-      // Шаг 1: Sobel на каждом пикселе (без прореживания)
-      const S = 1; // пиксель в пиксель — максимальная точность
-      const cols = Math.floor(W / S);
-      const rows = Math.floor(H / S);
+      // Sobel
+      const S = 2;
+      const cols = Math.floor(W / S), rows = Math.floor(H / S);
       const mag = new Float32Array(cols * rows);
       let maxMag = 0;
-
       for (let r = 1; r < rows - 1; r++) {
         for (let c = 1; c < cols - 1; c++) {
           const gv = (dc: number, dr: number) => {
-            const px = Math.min((c + dc) * S, W - 1);
-            const py = Math.min((r + dr) * S, H - 1);
-            const o = (py * W + px) * 4;
+            const o = (Math.min((r + dr) * S, H - 1) * W + Math.min((c + dc) * S, W - 1)) * 4;
             return data[o] * 0.299 + data[o + 1] * 0.587 + data[o + 2] * 0.114;
           };
           const gx = -gv(-1, -1) - 2 * gv(-1, 0) - gv(-1, 1) + gv(1, -1) + 2 * gv(1, 0) + gv(1, 1);
@@ -625,53 +624,39 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
         }
       }
 
-      // Шаг 2: Non-maximum suppression — оставляем только локальные максимумы
-      // Это делает линии тонкими и чёткими (1 пиксель в ширину)
+      // NMS
+      const threshold = maxMag * 0.22;
       const edge = new Uint8Array(cols * rows);
-      const threshold = maxMag * 0.20;
       for (let r = 1; r < rows - 1; r++) {
         for (let c = 1; c < cols - 1; c++) {
           const m = mag[r * cols + c];
           if (m < threshold) continue;
-          // Проверяем что это локальный максимум среди соседей
           let isMax = true;
-          for (let dr = -1; dr <= 1; dr++) {
-            for (let dc = -1; dc <= 1; dc++) {
-              if (dr === 0 && dc === 0) continue;
-              if (mag[(r + dr) * cols + (c + dc)] > m) { isMax = false; break; }
-            }
-            if (!isMax) break;
-          }
+          for (let dr = -1; dr <= 1 && isMax; dr++)
+            for (let dc = -1; dc <= 1; dc++)
+              if ((dr || dc) && mag[(r + dr) * cols + (c + dc)] > m) { isMax = false; break; }
           if (isMax) edge[r * cols + c] = 1;
         }
       }
 
-      // Шаг 3: Трассировка контуров — обходим связные цепочки краёв
-      // Каждый штрих = один непрерывный контур
+      // Трассировка контуров
       const visited = new Uint8Array(cols * rows);
-      const result: { x: number; y: number }[] = [];
+      const result: { x: number, y: number }[] = [];
       const dirs8 = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 1], [1, -1], [1, 0], [1, 1]];
-
-      // Строим штрихи начиная с сильнейших краёв
-      const edgeList: [number, number, number][] = []; // [r, c, mag]
+      const edgeList: [number, number, number][] = [];
       for (let r = 1; r < rows - 1; r++)
         for (let c = 1; c < cols - 1; c++)
           if (edge[r * cols + c]) edgeList.push([r, c, mag[r * cols + c]]);
-      edgeList.sort((a, b) => b[2] - a[2]); // сначала сильные
+      edgeList.sort((a, b) => b[2] - a[2]);
 
       for (const [sr, sc] of edgeList) {
         if (visited[sr * cols + sc]) continue;
-
-        // Жадная трассировка контура
-        const stroke: { x: number; y: number }[] = [];
+        const stroke: { x: number, y: number }[] = [];
         let r = sr, c = sc;
-
         while (edge[r * cols + c] && !visited[r * cols + c]) {
           visited[r * cols + c] = 1;
           stroke.push({ x: c * S, y: r * S });
-
-          let next: [number, number] | null = null;
-          let bestM = -1;
+          let next: [number, number] | null = null, bestM = -1;
           for (const [dr, dc] of dirs8) {
             const nr = r + dr, nc = c + dc;
             if (nr >= 0 && nr < rows && nc >= 0 && nc < cols && edge[nr * cols + nc] && !visited[nr * cols + nc]) {
@@ -682,29 +667,21 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
           if (!next) break;
           [r, c] = next;
         }
-
-
-        // Тройное сглаживание — убирает все ступеньки
-        if (stroke.length >= 5) {  // только достаточно длинные штрихи
-          let pts2 = stroke;
-          for (let pass = 0; pass < 3; pass++) {
-            const s2: { x: number; y: number }[] = [pts2[0]];
-            for (let i = 1; i < pts2.length - 1; i++) {
-              s2.push({
-                x: (pts2[i - 1].x + pts2[i].x * 2 + pts2[i + 1].x) / 4,
-                y: (pts2[i - 1].y + pts2[i].y * 2 + pts2[i + 1].y) / 4,
-              });
-            }
-            s2.push(pts2[pts2.length - 1]);
-            pts2 = s2;
+        if (stroke.length >= 4) {
+          // Сглаживание
+          let pts = stroke;
+          for (let p = 0; p < 2; p++) {
+            const s2 = [pts[0]];
+            for (let i = 1; i < pts.length - 1; i++)
+              s2.push({ x: (pts[i - 1].x + pts[i].x * 2 + pts[i + 1].x) / 4, y: (pts[i - 1].y + pts[i].y * 2 + pts[i + 1].y) / 4 });
+            s2.push(pts[pts.length - 1]);
+            pts = s2;
           }
-          result.push(...pts2);
+          result.push(...pts);
           result.push({ x: NaN, y: NaN });
         }
-
-        if (result.length > 15000) break;
+        if (result.length > 12000) break;
       }
-
       resolve(result);
     };
     img.onerror = () => resolve([]);
@@ -712,7 +689,131 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
   });
 }
 
+
 const ARTWORKS = ["/art1.png", "/art2.png", "/art3.png", "/art4.png"];
+
+// Спираль на торе — линия обвивает бублик p раз по большому кругу и q по малому
+function makeTorusSpiral(R: number, r: number, p: number, q: number): { x: number, y: number, z: number }[] {
+  const pts = [];
+  for (let i = 0; i <= 800; i++) {
+    const t = (i / 800) * Math.PI * 2 * p;
+    const phi = t * q / p;
+    pts.push({
+      x: (R + r * Math.cos(phi)) * Math.cos(t),
+      y: (R + r * Math.cos(phi)) * Math.sin(t),
+      z: r * Math.sin(phi),
+    });
+  }
+  return pts;
+}
+
+// Клейновская бутылка — 4D объект проецированный в 3D
+function makeKleinBottle(): { x: number, y: number, z: number }[] {
+  const pts = [];
+  const U = 40, V = 40;
+  for (let ui = 0; ui <= U; ui++) {
+    const u = (ui / U) * Math.PI * 2;
+    for (let vi = 0; vi <= V; vi++) {
+      const v = (vi / V) * Math.PI * 2;
+      let x, y, z;
+      if (u < Math.PI) {
+        x = 3 * Math.cos(u) * (1 + Math.sin(u)) + (2 * (1 - Math.cos(u) / 2)) * Math.cos(u) * Math.cos(v);
+        y = 8 * Math.sin(u) + (2 * (1 - Math.cos(u) / 2)) * Math.sin(u) * Math.cos(v);
+      } else {
+        x = 3 * Math.cos(u) * (1 + Math.sin(u)) + (2 * (1 - Math.cos(u) / 2)) * Math.cos(v + Math.PI);
+        y = 8 * Math.sin(u);
+      }
+      z = (2 * (1 - Math.cos(u) / 2)) * Math.sin(v);
+      pts.push({ x: x / 10, y: y / 10, z: z / 5 });
+    }
+    if (ui < U) pts.push({ x: NaN, y: NaN, z: NaN });
+  }
+  return pts;
+}
+
+// Поверхность Боя — проекция проективной плоскости
+function makeBoysSurface(): { x: number, y: number, z: number }[] {
+  const pts = [];
+  const N = 50;
+  for (let ui = 0; ui <= N; ui++) {
+    const u = (ui / N) * Math.PI;
+    for (let vi = 0; vi <= N; vi++) {
+      const v = (vi / N) * Math.PI;
+      const x = (Math.sqrt(2) * Math.cos(2 * u) * Math.cos(v) * Math.cos(v) + Math.cos(u) * Math.sin(2 * v)) / (2 - Math.sqrt(2) * Math.sin(3 * u) * Math.sin(2 * v));
+      const y = (Math.sqrt(2) * Math.sin(2 * u) * Math.cos(v) * Math.cos(v) - Math.sin(u) * Math.sin(2 * v)) / (2 - Math.sqrt(2) * Math.sin(3 * u) * Math.sin(2 * v));
+      const z = (3 * Math.cos(v) * Math.cos(v)) / (2 - Math.sqrt(2) * Math.sin(3 * u) * Math.sin(2 * v));
+      pts.push({ x, y: y, z: z - 1 });
+    }
+    if (ui < N) pts.push({ x: NaN, y: NaN, z: NaN });
+  }
+  return pts;
+}
+
+// Аттрактор Томаса — хаотическая 3D траектория
+function makeThomasAttractor(): { x: number, y: number, z: number }[] {
+  const pts = [];
+  let x = 1, y = 0, z = 0;
+  const b = 0.208186, dt = 0.05;
+  for (let i = 0; i < 12000; i++) {
+    const dx = Math.sin(y) - b * x;
+    const dy = Math.sin(z) - b * y;
+    const dz = Math.sin(x) - b * z;
+    x += dx * dt; y += dy * dt; z += dz * dt;
+    if (i > 500) pts.push({ x: x / 3, y: y / 3, z: z / 3 });
+  }
+  return pts;
+}
+
+// Аттрактор Рёсслера
+function makeRosslerAttractor(): { x: number, y: number, z: number }[] {
+  const pts = [];
+  let x = 1, y = 0, z = 0;
+  const a = 0.2, b = 0.2, c = 5.7, dt = 0.02;
+  for (let i = 0; i < 15000; i++) {
+    const dx = -y - z;
+    const dy = x + a * y;
+    const dz = b + z * (x - c);
+    x += dx * dt; y += dy * dt; z += dz * dt;
+    if (i > 200) pts.push({ x: x / 15, y: y / 15, z: z / 15 - 0.5 });
+  }
+  return pts;
+}
+
+// Поверхность Эннепера — минимальная поверхность
+function makeEnneperSurface(): { x: number, y: number, z: number }[] {
+  const pts = [];
+  const N = 40;
+  for (let ui = 0; ui <= N; ui++) {
+    const u = (ui / N) * 2 - 1;
+    for (let vi = 0; vi <= N; vi++) {
+      const v = (vi / N) * 2 - 1;
+      const x = u - u * u * u / 3 + u * v * v;
+      const y = v - v * v * v / 3 + v * u * u;
+      const z = u * u - v * v;
+      pts.push({ x: x / 3, y: y / 3, z: z / 3 });
+    }
+    if (ui < N) pts.push({ x: NaN, y: NaN, z: NaN });
+  }
+  return pts;
+}
+
+// 600-cell wireframe — красивейший 4D политоп
+function make600CellWire(): { x: number, y: number, z: number, w: number }[] {
+  const phi = (1 + Math.sqrt(5)) / 2;
+  const verts: number[][] = [];
+  // 8 пермутаций (±1,0,0,0)
+  for (const s of [-1, 1]) { verts.push([s, 0, 0, 0]); verts.push([0, s, 0, 0]); verts.push([0, 0, s, 0]); verts.push([0, 0, 0, s]); }
+  // 16 пермутаций (±½,±½,±½,±½)
+  for (const a of [-1, 1]) for (const b of [-1, 1]) for (const c of [-1, 1]) for (const d of [-1, 1])
+    verts.push([a / 2, b / 2, c / 2, d / 2]);
+  // 96 пермутаций с φ
+  const half_phi = phi / 2, half_inv = 1 / (2 * phi), half_1 = 0.5;
+  const combos = [[0, half_1, half_inv, half_phi], [half_1, half_inv, half_phi, 0], [half_inv, half_phi, 0, half_1], [half_phi, 0, half_1, half_inv]];
+  for (const [a, b, c, d] of combos)
+    for (const sa of [-1, 1]) for (const sb of [-1, 1]) for (const sc of [-1, 1]) for (const sd of [-1, 1])
+      verts.push([sa * a, sb * b, sc * c, sd * d]);
+  return verts.map(v => ({ x: v[0], y: v[1], z: v[2], w: v[3] || 0 }));
+}
 
 function generate3DShapePoints(
   seed: number,
@@ -725,60 +826,46 @@ function generate3DShapePoints(
   const cx = W * 0.5, cy = H * 0.5;
   const rotX = rng() * Math.PI * 2;
   const rotY = rng() * Math.PI * 2;
-
-  // Случайно выбираем тип фигуры
-  const shapeType = Math.floor(rng() * 9);
+  const shapeType = Math.floor(rng() * 16); // 16 типов
 
   // Непрерывные кривые — проецируем напрямую
-  if (shapeType === 0) {
-    // Аттрактор Лоренца
-    const pts3d = makeLorenzAttractor();
-    const scale = Math.min(W, H) * 0.008;
-    return project3DPoints(pts3d, rotX, rotY, scale, cx, cy);
-  }
-  if (shapeType === 1) {
-    // ДНК двойная спираль
-    const pts3d = makeDNAHelix();
-    const scale = Math.min(W, H) * 0.28;
-    return project3DPoints(pts3d, rotX, rotY, scale, cx, cy);
-  }
-  if (shapeType === 2) {
-    // Торический узел (3,2) — трилистник
-    const pts3d = makeTorusKnot(3, 2);
-    const scale = Math.min(W, H) * 0.22;
-    return project3DPoints(pts3d, rotX, rotY, scale, cx, cy);
-  }
-  if (shapeType === 3) {
-    // Торический узел (5,3)
-    const pts3d = makeTorusKnot(5, 3);
-    const scale = Math.min(W, H) * 0.22;
-    return project3DPoints(pts3d, rotX, rotY, scale, cx, cy);
-  }
-  if (shapeType === 4) {
-    // Кривые Лиссажу 3:4:5
-    const pts3d = makeLissajous3D(3, 4, 5, rng() * Math.PI);
-    const scale = Math.min(W, H) * 0.32;
-    return project3DPoints(pts3d, rotX, rotY, scale, cx, cy);
-  }
-  if (shapeType === 5) {
-    // Кривые Лиссажу 2:3:4
-    const pts3d = makeLissajous3D(2, 3, 4, rng() * Math.PI);
-    const scale = Math.min(W, H) * 0.32;
-    return project3DPoints(pts3d, rotX, rotY, scale, cx, cy);
-  }
-  if (shapeType === 6) {
-    // Спираль Фибоначчи
-    const pts3d = makeFibonacciSpiral();
-    const scale = Math.min(W, H) * 0.38;
-    return project3DPoints(pts3d, rotX, rotY, scale, cx, cy);
-  }
+  const scaleAndProject = (pts3d: { x: number, y: number, z: number }[], sc: number) =>
+    project3DPoints(pts3d.filter(p => !isNaN(p.x)), rotX, rotY, sc, cx, cy);
 
-  // 4D политопы с рёбрами
+  const withNaN = (pts3d: { x: number, y: number, z: number }[], sc: number) => {
+    const result: { x: number, y: number }[] = [];
+    for (const p of pts3d) {
+      if (isNaN(p.x)) result.push({ x: NaN, y: NaN });
+      else {
+        const cosY = Math.cos(rotY), sinY = Math.sin(rotY);
+        const x1 = p.x * cosY - p.z * sinY, z1 = p.x * sinY + p.z * cosY;
+        const cosX = Math.cos(rotX), sinX = Math.sin(rotX);
+        const y1 = p.y * cosX - z1 * sinX, z2 = p.y * sinX + z1 * cosX;
+        const fov = 5 / (5 + z2);
+        result.push({ x: cx + x1 * sc * fov, y: cy + y1 * sc * fov });
+      }
+    }
+    return result;
+  };
+
+  if (shapeType === 0) return scaleAndProject(makeLorenzAttractor(), Math.min(W, H) * 0.008);
+  if (shapeType === 1) return scaleAndProject(makeDNAHelix(), Math.min(W, H) * 0.28);
+  if (shapeType === 2) return scaleAndProject(makeTorusKnot(3, 2), Math.min(W, H) * 0.22);
+  if (shapeType === 3) return scaleAndProject(makeTorusKnot(5, 3), Math.min(W, H) * 0.22);
+  if (shapeType === 4) return scaleAndProject(makeTorusKnot(7, 4), Math.min(W, H) * 0.20);
+  if (shapeType === 5) return scaleAndProject(makeLissajous3D(3, 4, 5, rng() * Math.PI), Math.min(W, H) * 0.32);
+  if (shapeType === 6) return scaleAndProject(makeLissajous3D(5, 7, 8, rng() * Math.PI), Math.min(W, H) * 0.30);
+  if (shapeType === 7) return scaleAndProject(makeFibonacciSpiral(), Math.min(W, H) * 0.38);
+  if (shapeType === 8) return withNaN(makeKleinBottle(), Math.min(W, H) * 0.06);
+  if (shapeType === 9) return withNaN(makeBoysSurface(), Math.min(W, H) * 0.22);
+  if (shapeType === 10) return scaleAndProject(makeThomasAttractor(), Math.min(W, H) * 0.28);
+  if (shapeType === 11) return scaleAndProject(makeRosslerAttractor(), Math.min(W, H) * 0.22);
+  if (shapeType === 12) return withNaN(makeEnneperSurface(), Math.min(W, H) * 0.25);
+  if (shapeType === 13) return withNaN(makeTorusSpiral(1.5, 0.5, 7, 13).map(p => ({ ...p, z: isNaN(p.x) ? NaN : p.z })), Math.min(W, H) * 0.24);
+
+  // 4D политопы
   const scale4D = Math.min(W, H) * 0.14;
-  const rotXY = rng() * Math.PI * 2;
-  const rotXZ = rng() * Math.PI * 2;
-  const rotXW = rng() * Math.PI * 2;
-
+  const rotXY = rng() * Math.PI * 2, rotXZ = rng() * Math.PI * 2, rotXW = rng() * Math.PI * 2;
   const polytopes = [makeTesseract, make16Cell, make24Cell];
   const shape = polytopes[Math.floor(rng() * polytopes.length)]();
   const projected = shape.verts.map(v => project4D(v, rotXY, rotXZ, rotXW, scale4D, cx, cy));
@@ -1189,19 +1276,27 @@ export default function Home() {
       const idx = artworkIdx % ARTWORKS.length;
       artworkIdx++;
       const url = ARTWORKS[idx];
+      console.log('[Phase3] Starting, url:', url, 'cached:', preloadedArtworks[idx]?.length ?? 'none');
 
       const startDraw = (pts: { x: number; y: number }[]) => {
+        console.log('[Phase3] startDraw, pts:', pts.length, 'activeRef:', activeRef.current);
         if (!activeRef.current) return;
-        if (pts.length < 10) { runPhase0(); return; }
-        // runDrawPhase сам устанавливает autoDrawActiveRef и очищает canvas
+        if (pts.length < 10) {
+          console.warn('[Phase3] Not enough points, skipping to phase0');
+          runPhase0();
+          return;
+        }
         runDrawPhase(pts, runPhase0);
       };
 
       const cached = preloadedArtworks[idx];
       if (cached && cached.length > 10) {
+        console.log('[Phase3] Using cached pts:', cached.length);
         startDraw(cached);
       } else {
+        console.log('[Phase3] Loading fresh from:', url);
         generateArtworkPoints(url, W, H).then(pts => {
+          console.log('[Phase3] Loaded pts:', pts.length, 'activeRef:', activeRef.current);
           if (!activeRef.current) return;
           preloadedArtworks[idx] = pts;
           startDraw(pts);
@@ -1706,35 +1801,42 @@ export default function Home() {
 
         {/* I DO DESIGN + биография */}
         <div ref={iDoDesignRef} style={{ position: "absolute", inset: 0, zIndex: 5, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", pointerEvents: "none", transform: "translateY(110vh)", opacity: 0, willChange: "transform,opacity" }}>
-          {/* Заголовок по центру */}
-          <div ref={iDoDesignTextRef} style={{
-            fontFamily: "'Arial Black',Arial,sans-serif",
-            fontWeight: 900,
-            fontSize: "clamp(14px,3.5vw,48px)",
-            letterSpacing: "-0.04em",
-            color: "white",
-            lineHeight: 0.95,
-            whiteSpace: "nowrap",
-            textAlign: "center",
-          }}>
-            I DO DESIGN
-          </div>
-          {/* Текст — ширина = ширина заголовка через matchWidth */}
-          <div ref={bioTextRef} style={{
-            fontFamily: "'Arial Black',Arial,sans-serif",
-            fontWeight: 900,
-            fontSize: "clamp(5px,0.925vw,13px)",
-            color: "white",
-            lineHeight: 1.2,
-            marginTop: "0.5em",
-            textAlign: "justify",
-            textAlignLast: "left",
-            textTransform: "uppercase",
-            letterSpacing: "0em",
-            wordSpacing: "0em",
-            hyphens: "auto" as const,
-          }}>
-            Hi! My name is Artem. I&apos;m here to create unique illustrations and visual design for any of your creative needs. I work across illustration, 3D design, video editing, visual effects, concept art, motion design, cartoons, music, theatre, film, and stop-motion animation. I&apos;ve had a camera in my hands for as long as I can remember — since I was around 5 years old. Creating visuals and telling stories has always been a natural part of my life. I&apos;m a truly dedicated artist who lives through creativity, visual expression, and filmmaking. Every project is an opportunity to build something original, memorable, and crafted with attention to detail. Don&apos;t hesitate to contact me — I&apos;ll bring your ideas to life and deliver unique, high-quality work with the dedication and professionalism of someone who genuinely loves what&nbsp;they&nbsp;create.
+          {/* Весь блок с размытым фоном */}
+          <div style={{ position: "relative", display: "inline-flex", flexDirection: "column", alignItems: "center" }}>
+            {/* Блюр прослойка — абсолютная, чуть больше контента */}
+            <div style={{ position: "absolute", inset: "-1.5em -1em", background: "rgba(0,0,0,0.55)", backdropFilter: "blur(18px)", WebkitBackdropFilter: "blur(18px)", borderRadius: "20px", maskImage: "radial-gradient(ellipse 100% 100% at 50% 50%, black 60%, transparent 100%)", WebkitMaskImage: "radial-gradient(ellipse 100% 100% at 50% 50%, black 60%, transparent 100%)" }} />
+            {/* Заголовок по центру */}
+            <div ref={iDoDesignTextRef} style={{
+              position: "relative",
+              fontFamily: "'Arial Black',Arial,sans-serif",
+              fontWeight: 900,
+              fontSize: "clamp(14px,3.5vw,48px)",
+              letterSpacing: "-0.04em",
+              color: "white",
+              lineHeight: 0.95,
+              whiteSpace: "nowrap",
+              textAlign: "center",
+            }}>
+              I DO DESIGN
+            </div>
+            {/* Текст биографии */}
+            <div ref={bioTextRef} style={{
+              position: "relative",
+              fontFamily: "'Arial Black',Arial,sans-serif",
+              fontWeight: 900,
+              fontSize: "clamp(5px,0.925vw,13px)",
+              color: "white",
+              lineHeight: 1.2,
+              marginTop: "0.4em",
+              textAlign: "justify",
+              textAlignLast: "left",
+              textTransform: "uppercase",
+              letterSpacing: "0em",
+              wordSpacing: "0em",
+              hyphens: "auto" as const,
+            }}>
+              Hi! My name is Artem. I&apos;m here to create unique illustrations and visual design for any of your creative needs. I work across illustration, 3D design, video editing, visual effects, concept art, motion design, cartoons, music, theatre, film, and stop-motion animation. I&apos;ve had a camera in my hands for as long as I can remember — since I was around 5 years old. Creating visuals and telling stories has always been a natural part of my life. I&apos;m a truly dedicated artist who lives through creativity, visual expression, and filmmaking. Every project is an opportunity to build something original, memorable, and crafted with attention to detail. Don&apos;t hesitate to contact me — I&apos;ll bring your ideas to life and deliver unique, high-quality work with the dedication and professionalism of someone who genuinely loves what&nbsp;they&nbsp;create.
+            </div>
           </div>
         </div>
 
@@ -1875,6 +1977,8 @@ function ThumbItem({ thumb }: { thumb: Thumbnail }) {
         overflow: "hidden",
         opacity: 1,
         pointerEvents: "none",
+        boxShadow: "0 0 0 4px rgba(0,0,0,0.7), 0 8px 32px rgba(0,0,0,0.6)",
+        outline: "4px solid rgba(0,0,0,0.7)",
       }}
     >
       <img ref={imgRef} src={thumb.src} alt="" style={{ width: "100%", height: "100%", display: "block", objectFit: "cover" }} />
