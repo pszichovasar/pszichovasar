@@ -605,86 +605,84 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
       ctx.drawImage(img, ox, oy, sw, sh);
       const { data } = ctx.getImageData(0, 0, W, H);
 
-      // Sobel
-      const S = 2;
-      const cols = Math.floor(W / S), rows = Math.floor(H / S);
-      const mag = new Float32Array(cols * rows);
+      // Простой Sobel без NMS — берём все пиксели с силой края выше порога
+      const step = 4;
+      const pts: { x: number, y: number, m: number }[] = [];
       let maxMag = 0;
-      for (let r = 1; r < rows - 1; r++) {
-        for (let c = 1; c < cols - 1; c++) {
-          const gv = (dc: number, dr: number) => {
-            const o = (Math.min((r + dr) * S, H - 1) * W + Math.min((c + dc) * S, W - 1)) * 4;
+
+      for (let y = step; y < H - step; y += step) {
+        for (let x = step; x < W - step; x += step) {
+          const g = (px: number, py: number) => {
+            const o = (Math.min(py, H - 1) * W + Math.min(px, W - 1)) * 4;
             return data[o] * 0.299 + data[o + 1] * 0.587 + data[o + 2] * 0.114;
           };
-          const gx = -gv(-1, -1) - 2 * gv(-1, 0) - gv(-1, 1) + gv(1, -1) + 2 * gv(1, 0) + gv(1, 1);
-          const gy = -gv(-1, -1) - 2 * gv(0, -1) - gv(1, -1) + gv(-1, 1) + 2 * gv(0, 1) + gv(1, 1);
+          const gx = -g(x - step, y - step) - 2 * g(x - step, y) - g(x - step, y + step) + g(x + step, y - step) + 2 * g(x + step, y) + g(x + step, y + step);
+          const gy = -g(x - step, y - step) - 2 * g(x, y - step) - g(x + step, y - step) + g(x - step, y + step) + 2 * g(x, y + step) + g(x + step, y + step);
           const m = Math.sqrt(gx * gx + gy * gy);
-          mag[r * cols + c] = m;
           if (m > maxMag) maxMag = m;
+          pts.push({ x, y, m });
         }
       }
 
-      // NMS
-      const threshold = maxMag * 0.22;
-      const edge = new Uint8Array(cols * rows);
-      for (let r = 1; r < rows - 1; r++) {
-        for (let c = 1; c < cols - 1; c++) {
-          const m = mag[r * cols + c];
-          if (m < threshold) continue;
-          let isMax = true;
-          for (let dr = -1; dr <= 1 && isMax; dr++)
-            for (let dc = -1; dc <= 1; dc++)
-              if ((dr || dc) && mag[(r + dr) * cols + (c + dc)] > m) { isMax = false; break; }
-          if (isMax) edge[r * cols + c] = 1;
-        }
-      }
+      // Берём топ 20% самых ярких краёв
+      const threshold = maxMag * 0.30;
+      const edgePts = pts.filter(p => p.m > threshold);
+      console.log('[Artwork] total pts:', pts.length, 'edge pts:', edgePts.length, 'maxMag:', maxMag.toFixed(0));
 
-      // Трассировка контуров
-      const visited = new Uint8Array(cols * rows);
+      if (edgePts.length < 10) { resolve([]); return; }
+
+      // Сортируем по убыванию силы — рисуем сначала самые яркие контуры
+      edgePts.sort((a, b) => b.m - a.m);
+
+      // Строим связные штрихи через сетку соседей
+      const gridSize = step;
+      const grid = new Map<string, number>();
+      edgePts.forEach((p, i) => grid.set(`${Math.round(p.x / gridSize)},${Math.round(p.y / gridSize)}`, i));
+
+      const used = new Set<number>();
       const result: { x: number, y: number }[] = [];
-      const dirs8 = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 1], [1, -1], [1, 0], [1, 1]];
-      const edgeList: [number, number, number][] = [];
-      for (let r = 1; r < rows - 1; r++)
-        for (let c = 1; c < cols - 1; c++)
-          if (edge[r * cols + c]) edgeList.push([r, c, mag[r * cols + c]]);
-      edgeList.sort((a, b) => b[2] - a[2]);
 
-      for (const [sr, sc] of edgeList) {
-        if (visited[sr * cols + sc]) continue;
+      for (let si = 0; si < edgePts.length; si++) {
+        if (used.has(si)) continue;
         const stroke: { x: number, y: number }[] = [];
-        let r = sr, c = sc;
-        while (edge[r * cols + c] && !visited[r * cols + c]) {
-          visited[r * cols + c] = 1;
-          stroke.push({ x: c * S, y: r * S });
-          let next: [number, number] | null = null, bestM = -1;
-          for (const [dr, dc] of dirs8) {
-            const nr = r + dr, nc = c + dc;
-            if (nr >= 0 && nr < rows && nc >= 0 && nc < cols && edge[nr * cols + nc] && !visited[nr * cols + nc]) {
-              const m = mag[nr * cols + nc];
-              if (m > bestM) { bestM = m; next = [nr, nc]; }
+        let cur = si;
+
+        while (cur !== -1 && !used.has(cur)) {
+          used.add(cur);
+          stroke.push({ x: edgePts[cur].x, y: edgePts[cur].y });
+
+          let next = -1, bestD = Infinity;
+          const gx0 = Math.round(edgePts[cur].x / gridSize);
+          const gy0 = Math.round(edgePts[cur].y / gridSize);
+          for (let dr = -2; dr <= 2; dr++) {
+            for (let dc = -2; dc <= 2; dc++) {
+              if (!dr && !dc) continue;
+              const ni = grid.get(`${gx0 + dc},${gy0 + dr}`);
+              if (ni !== undefined && !used.has(ni)) {
+                const d = (edgePts[ni].x - edgePts[cur].x) ** 2 + (edgePts[ni].y - edgePts[cur].y) ** 2;
+                if (d < bestD) { bestD = d; next = ni; }
+              }
             }
           }
-          if (!next) break;
-          [r, c] = next;
+          cur = bestD < (gridSize * 3) ** 2 ? next : -1;
         }
-        if (stroke.length >= 4) {
-          // Сглаживание
-          let pts = stroke;
-          for (let p = 0; p < 2; p++) {
-            const s2 = [pts[0]];
-            for (let i = 1; i < pts.length - 1; i++)
-              s2.push({ x: (pts[i - 1].x + pts[i].x * 2 + pts[i + 1].x) / 4, y: (pts[i - 1].y + pts[i].y * 2 + pts[i + 1].y) / 4 });
-            s2.push(pts[pts.length - 1]);
-            pts = s2;
-          }
-          result.push(...pts);
+
+        if (stroke.length >= 3) {
+          // Лёгкое сглаживание
+          const s: { x: number, y: number }[] = [stroke[0]];
+          for (let i = 1; i < stroke.length - 1; i++)
+            s.push({ x: (stroke[i - 1].x + stroke[i].x * 2 + stroke[i + 1].x) / 4, y: (stroke[i - 1].y + stroke[i].y * 2 + stroke[i + 1].y) / 4 });
+          s.push(stroke[stroke.length - 1]);
+          result.push(...s);
           result.push({ x: NaN, y: NaN });
         }
-        if (result.length > 12000) break;
+        if (result.length > 10000) break;
       }
+
+      console.log('[Artwork] result pts:', result.length);
       resolve(result);
     };
-    img.onerror = () => resolve([]);
+    img.onerror = (e) => { console.error('[Artwork] load error:', e); resolve([]); };
     img.src = url;
   });
 }
@@ -1281,7 +1279,7 @@ export default function Home() {
       const startDraw = (pts: { x: number; y: number }[]) => {
         console.log('[Phase3] startDraw, pts:', pts.length, 'activeRef:', activeRef.current);
         if (!activeRef.current) return;
-        if (pts.length < 10) {
+        if (pts.length < 5) {
           console.warn('[Phase3] Not enough points, skipping to phase0');
           runPhase0();
           return;
