@@ -208,6 +208,567 @@ function buildColoredMosaic(
   return canvas.toDataURL("image/png");
 }
 
+// Реальные созвездия — нормализованные координаты [0..1] и линии между звёздами
+const CONSTELLATIONS: {
+  name: string;
+  stars: [number, number][];
+  lines: [number, number][];
+}[] = [
+    { name: "Orion", stars: [[0.42, 0.08], [0.60, 0.10], [0.28, 0.28], [0.52, 0.24], [0.74, 0.26], [0.38, 0.50], [0.66, 0.48], [0.30, 0.72], [0.44, 0.80], [0.58, 0.80], [0.72, 0.72]], lines: [[0, 1], [0, 2], [1, 4], [2, 3], [3, 4], [2, 5], [4, 6], [5, 6], [5, 7], [6, 10], [7, 8], [8, 9], [9, 10]] },
+    { name: "Ursa Major", stars: [[0.08, 0.72], [0.20, 0.58], [0.34, 0.50], [0.48, 0.54], [0.62, 0.40], [0.74, 0.24], [0.88, 0.18], [0.30, 0.30], [0.18, 0.22], [0.10, 0.38]], lines: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [2, 7], [7, 8], [8, 9], [9, 2]] },
+    { name: "Cassiopeia", stars: [[0.08, 0.42], [0.26, 0.22], [0.50, 0.36], [0.72, 0.14], [0.92, 0.30]], lines: [[0, 1], [1, 2], [2, 3], [3, 4]] },
+    { name: "Leo", stars: [[0.14, 0.62], [0.22, 0.38], [0.36, 0.20], [0.52, 0.28], [0.62, 0.42], [0.50, 0.56], [0.76, 0.58], [0.88, 0.46], [0.32, 0.70]], lines: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 1], [3, 6], [6, 7], [5, 8]] },
+    { name: "Scorpius", stars: [[0.32, 0.08], [0.44, 0.16], [0.52, 0.26], [0.56, 0.38], [0.52, 0.50], [0.44, 0.60], [0.38, 0.70], [0.34, 0.80], [0.42, 0.88], [0.54, 0.86], [0.62, 0.76], [0.20, 0.30], [0.14, 0.42]], lines: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7], [7, 8], [8, 9], [9, 10], [0, 11], [11, 12]] },
+    { name: "Cygnus", stars: [[0.50, 0.06], [0.50, 0.28], [0.50, 0.54], [0.50, 0.80], [0.16, 0.30], [0.84, 0.30], [0.30, 0.20], [0.70, 0.20]], lines: [[0, 1], [1, 2], [2, 3], [4, 1], [1, 5], [4, 6], [5, 7]] },
+    { name: "Lyra", stars: [[0.50, 0.10], [0.34, 0.32], [0.42, 0.54], [0.58, 0.54], [0.66, 0.32], [0.38, 0.72], [0.62, 0.72]], lines: [[0, 1], [0, 4], [1, 2], [2, 3], [3, 4], [1, 4], [2, 5], [3, 6], [5, 6]] },
+    { name: "Boötes", stars: [[0.50, 0.08], [0.36, 0.24], [0.28, 0.46], [0.36, 0.66], [0.50, 0.74], [0.64, 0.66], [0.72, 0.46], [0.64, 0.24], [0.42, 0.42], [0.58, 0.42]], lines: [[0, 1], [0, 7], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7], [1, 8], [7, 9], [8, 9], [8, 3], [9, 5]] },
+    { name: "Perseus", stars: [[0.50, 0.06], [0.40, 0.18], [0.28, 0.34], [0.20, 0.50], [0.30, 0.60], [0.44, 0.52], [0.58, 0.42], [0.68, 0.26], [0.60, 0.66], [0.72, 0.74], [0.56, 0.80]], lines: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7], [7, 1], [5, 8], [8, 9], [8, 10], [0, 6]] },
+    { name: "Gemini", stars: [[0.28, 0.08], [0.46, 0.08], [0.22, 0.22], [0.42, 0.22], [0.20, 0.38], [0.40, 0.38], [0.18, 0.56], [0.38, 0.56], [0.22, 0.72], [0.42, 0.70], [0.30, 0.86], [0.50, 0.84]], lines: [[0, 2], [2, 4], [4, 6], [6, 8], [8, 10], [1, 3], [3, 5], [5, 7], [7, 9], [9, 11], [0, 1], [6, 7]] },
+    { name: "Aquila", stars: [[0.50, 0.12], [0.40, 0.30], [0.50, 0.44], [0.60, 0.30], [0.26, 0.50], [0.74, 0.50], [0.36, 0.66], [0.64, 0.66], [0.50, 0.80]], lines: [[0, 1], [0, 3], [1, 2], [2, 3], [1, 4], [3, 5], [4, 6], [5, 7], [2, 8]] },
+    { name: "Taurus", stars: [[0.50, 0.08], [0.38, 0.20], [0.26, 0.34], [0.18, 0.50], [0.62, 0.20], [0.74, 0.34], [0.82, 0.50], [0.44, 0.50], [0.56, 0.50], [0.50, 0.68], [0.38, 0.80], [0.62, 0.80]], lines: [[0, 1], [1, 2], [2, 3], [0, 4], [4, 5], [5, 6], [1, 7], [4, 8], [7, 8], [7, 9], [8, 9], [9, 10], [9, 11]] },
+    { name: "Virgo", stars: [[0.50, 0.06], [0.38, 0.18], [0.26, 0.28], [0.20, 0.44], [0.28, 0.58], [0.44, 0.64], [0.56, 0.64], [0.72, 0.58], [0.80, 0.44], [0.74, 0.28], [0.62, 0.18], [0.44, 0.80], [0.56, 0.80]], lines: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7], [7, 8], [8, 9], [9, 10], [10, 0], [5, 11], [6, 12], [11, 12]] },
+    { name: "Sagittarius", stars: [[0.50, 0.10], [0.36, 0.22], [0.28, 0.38], [0.36, 0.54], [0.50, 0.60], [0.64, 0.54], [0.72, 0.38], [0.64, 0.22], [0.42, 0.76], [0.58, 0.76], [0.30, 0.70], [0.70, 0.70]], lines: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7], [7, 0], [3, 10], [5, 11], [4, 8], [4, 9], [8, 9], [10, 11]] },
+    { name: "Andromeda", stars: [[0.50, 0.10], [0.38, 0.24], [0.28, 0.40], [0.20, 0.58], [0.62, 0.22], [0.72, 0.36], [0.80, 0.52], [0.44, 0.70], [0.34, 0.82]], lines: [[0, 1], [1, 2], [2, 3], [0, 4], [4, 5], [5, 6], [2, 7], [7, 8]] },
+    { name: "Hercules", stars: [[0.50, 0.08], [0.36, 0.20], [0.26, 0.36], [0.32, 0.52], [0.44, 0.60], [0.56, 0.60], [0.68, 0.52], [0.74, 0.36], [0.64, 0.20], [0.40, 0.76], [0.60, 0.76], [0.30, 0.86], [0.70, 0.86]], lines: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7], [7, 8], [8, 0], [3, 9], [6, 10], [9, 11], [10, 12], [4, 5]] },
+  ];
+
+function generateConstellationPoints(
+  seed: number,
+  W: number, H: number,
+  _mouseX: number, _mouseY: number
+): { x: number; y: number }[] {
+  let s = seed;
+  const rng = () => { s = (s * 1664525 + 1013904223) & 0x7fffffff; return s / 0x7fffffff; };
+
+  // Каждый раз разное созвездие на основе seed
+  const idx = Math.floor(rng() * CONSTELLATIONS.length);
+  const constellation = CONSTELLATIONS[idx];
+
+  const cx = W * 0.5;
+  const cy = H * 0.5;
+  const size = Math.min(W, H) * 0.72;
+
+  const screenStars = constellation.stars.map(([nx, ny]) => ({
+    x: cx + (nx - 0.5) * size,
+    y: cy + (ny - 0.5) * size,
+  }));
+
+  const pts: { x: number; y: number }[] = [];
+  const usedEdges = new Set<string>();
+  const edges = constellation.lines;
+  const edgeKey = (a: number, b: number) => `${Math.min(a, b)}-${Math.max(a, b)}`;
+  const getNeighbors = (node: number) =>
+    edges.filter(([a, b]) => (a === node || b === node) && !usedEdges.has(edgeKey(a, b)))
+      .map(([a, b]) => a === node ? b : a);
+
+  const STEPS = 30; // много точек между звёздами = плавная линия
+  const interpolate = (from: { x: number, y: number }, to: { x: number, y: number }) => {
+    for (let i = 1; i <= STEPS; i++) {
+      const t = i / STEPS;
+      pts.push({ x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t });
+    }
+  };
+
+  let cur = 0;
+  pts.push(screenStars[cur]);
+
+  let safety = 0;
+  while (usedEdges.size < edges.length && safety++ < 500) {
+    const neighbors = getNeighbors(cur);
+    if (neighbors.length === 0) {
+      // Ищем вершину с доступными рёбрами
+      let found = false;
+      for (const [a, b] of edges) {
+        if (!usedEdges.has(edgeKey(a, b))) {
+          interpolate(screenStars[cur], screenStars[a]);
+          cur = a;
+          found = true;
+          break;
+        }
+      }
+      if (!found) break;
+      continue;
+    }
+    const next = neighbors[0];
+    usedEdges.add(edgeKey(cur, next));
+    interpolate(screenStars[cur], screenStars[next]);
+    cur = next;
+  }
+
+  return pts;
+}
+
+// Реальные 3D фигуры — вершины и рёбра в 3D, проецируются на 2D
+// 4D политопы — вершины в 4D пространстве и рёбра между ними
+// Проекция: 4D → 3D (стереографическая) → 2D (перспективная)
+
+// 8-cell (Tesseract) — 16 вершин, 32 ребра
+function makeTesseract() {
+  const verts: number[][] = [];
+  for (let x of [-1, 1]) for (let y of [-1, 1]) for (let z of [-1, 1]) for (let w of [-1, 1])
+    verts.push([x, y, z, w]);
+  const edges: [number, number][] = [];
+  for (let i = 0; i < 16; i++)
+    for (let j = i + 1; j < 16; j++) {
+      let diff = 0;
+      for (let k = 0; k < 4; k++) if (verts[i][k] !== verts[j][k]) diff++;
+      if (diff === 1) edges.push([i, j]);
+    }
+  return { name: "Tesseract (8-cell)", verts, edges };
+}
+
+// 16-cell — 8 вершин, 24 ребра (все пары кроме противоположных)
+function make16Cell() {
+  const verts: number[][] = [
+    [1, 0, 0, 0], [-1, 0, 0, 0], [0, 1, 0, 0], [0, -1, 0, 0],
+    [0, 0, 1, 0], [0, 0, -1, 0], [0, 0, 0, 1], [0, 0, 0, -1],
+  ];
+  const edges: [number, number][] = [];
+  for (let i = 0; i < 8; i++)
+    for (let j = i + 1; j < 8; j++) {
+      const dot = verts[i].reduce((s, v, k) => s + v * verts[j][k], 0);
+      if (dot === 0) edges.push([i, j]); // перпендикулярные = соединены
+    }
+  return { name: "16-cell", verts, edges };
+}
+
+// 24-cell — 24 вершины (все перестановки ±1,±1,0,0), 96 рёбер
+function make24Cell() {
+  const verts: number[][] = [];
+  const perms = [[0, 1, 2, 3], [0, 1, 3, 2], [0, 2, 1, 3], [0, 2, 3, 1], [0, 3, 1, 2], [0, 3, 2, 1],
+  [1, 0, 2, 3], [1, 0, 3, 2], [1, 2, 0, 3], [1, 2, 3, 0], [1, 3, 0, 2], [1, 3, 2, 0]];
+  for (const p of perms)
+    for (const s1 of [-1, 1]) for (const s2 of [-1, 1]) {
+      const v = [0, 0, 0, 0];
+      v[p[0]] = s1; v[p[1]] = s2;
+      // Проверяем дубликаты
+      if (!verts.some(u => u.every((x, i) => x === v[i]))) verts.push(v);
+    }
+  const edges: [number, number][] = [];
+  for (let i = 0; i < verts.length; i++)
+    for (let j = i + 1; j < verts.length; j++) {
+      const d2 = verts[i].reduce((s, v, k) => s + (v - verts[j][k]) ** 2, 0);
+      if (Math.abs(d2 - 2) < 0.001) edges.push([i, j]); // ребро длины √2
+    }
+  return { name: "24-cell", verts, edges };
+}
+
+// 600-cell approximation — икосаэдрическая симметрия в 4D, 120 вершин
+function make600Cell() {
+  const phi = (1 + Math.sqrt(5)) / 2;
+  const verts: number[][] = [];
+  // Перестановки (±1, ±1, ±1, ±1) / 2
+  for (let a of [-1, 1]) for (let b of [-1, 1]) for (let c of [-1, 1]) for (let d of [-1, 1])
+    verts.push([a / 2, b / 2, c / 2, d / 2]);
+  // Чётные перестановки (0, ±1, ±φ, ±1/φ) / 2
+  const vals = [[0, 1, phi, 1 / phi], [0, 1, -phi, 1 / phi], [0, 1, phi, -1 / phi],
+  [0, -1, phi, 1 / phi], [0, 1, -phi, -1 / phi], [0, -1, phi, -1 / phi],
+  [0, -1, -phi, 1 / phi], [0, -1, -phi, -1 / phi]];
+  for (const [a, b, c, d] of vals) {
+    // Все чётные перестановки 4 элементов
+    for (const perm of [[a, b, c, d], [b, c, d, a], [c, d, a, b], [d, a, b, c],
+    [a, c, b, d], [b, d, a, c], [c, a, d, b], [d, b, c, a],
+    [a, d, c, b], [b, a, d, c], [c, b, a, d], [d, c, b, a]])
+      if (!verts.some(u => u.every((x, i) => Math.abs(x - perm[i] / 2) < 0.001)))
+        verts.push(perm.map(x => x / 2));
+  }
+  // Берём только первые 120 вершин и строим рёбра длины 1/φ
+  const v120 = verts.slice(0, 120);
+  const edgeLen = 1 / phi;
+  const edges: [number, number][] = [];
+  for (let i = 0; i < v120.length; i++)
+    for (let j = i + 1; j < v120.length; j++) {
+      const d2 = v120[i].reduce((s, v, k) => s + (v - v120[j][k]) ** 2, 0);
+      if (Math.abs(d2 - edgeLen * edgeLen) < 0.02) edges.push([i, j]);
+    }
+  return { name: "600-cell (partial)", verts: v120, edges: edges.slice(0, 300) };
+}
+
+// 120-cell — двойственный к 600-cell, 600 вершин (упрощённая версия)
+function make120Cell() {
+  const phi = (1 + Math.sqrt(5)) / 2;
+  const verts: number[][] = [];
+  // Подмножество вершин через φ-based координаты
+  const coords = [1, phi, 1 / phi, 0];
+  for (const a of coords) for (const b of coords) for (const c of coords) for (const d of coords) {
+    if (Math.abs(a * a + b * b + c * c + d * d - (1 + phi * phi + 1 / (phi * phi))) < 0.1)
+      for (const sa of [-1, 1]) for (const sb of [-1, 1]) for (const sc of [-1, 1]) for (const sd of [-1, 1]) {
+        const v = [sa * a, sb * b, sc * c, sd * d];
+        const norm = Math.sqrt(v.reduce((s, x) => s + x * x, 0));
+        if (Math.abs(norm - Math.sqrt(8)) < 0.01)
+          if (!verts.some(u => u.every((x, i) => Math.abs(x - v[i]) < 0.001)))
+            verts.push(v);
+      }
+  }
+  const v = verts.slice(0, 80);
+  const edges: [number, number][] = [];
+  for (let i = 0; i < v.length; i++)
+    for (let j = i + 1; j < v.length; j++) {
+      const d2 = v[i].reduce((s, x, k) => s + (x - v[j][k]) ** 2, 0);
+      if (d2 < 2.5 && d2 > 0.1) edges.push([i, j]);
+    }
+  return { name: "120-cell (partial)", verts: v, edges: edges.slice(0, 200) };
+}
+
+// Проекция 4D → 2D: сначала стереографическая 4D→3D, потом перспективная 3D→2D
+function project4D(
+  v4: number[], rotXY: number, rotXZ: number, rotXW: number,
+  scale: number, cx: number, cy: number
+): { x: number; y: number } {
+  // Поворот в 4D (плоскость XY)
+  const c1 = Math.cos(rotXY), s1 = Math.sin(rotXY);
+  let [x, y, z, w] = v4;
+  const x1 = x * c1 - y * s1, y1 = x * s1 + y * c1;
+  // Поворот в плоскости XZ
+  const c2 = Math.cos(rotXZ), s2 = Math.sin(rotXZ);
+  const x2 = x1 * c2 - z * s2, z2 = x1 * s2 + z * c2;
+  // Поворот в плоскости XW
+  const c3 = Math.cos(rotXW), s3 = Math.sin(rotXW);
+  const x3 = x2 * c3 - w * s3, w3 = x2 * s3 + w * c3;
+  // Стереографическая проекция 4D→3D
+  const fov4 = 2.5;
+  const p4 = fov4 / (fov4 - w3);
+  const px = x3 * p4, py = y1 * p4, pz = z2 * p4;
+  // Перспективная проекция 3D→2D
+  const fov3 = 3.5;
+  const p3 = fov3 / (fov3 + pz);
+  return { x: cx + px * scale * p3, y: cy + py * scale * p3 };
+}
+
+// Аттрактор Лоренца — хаотическая траектория в 3D
+function makeLorenzAttractor(): { x: number; y: number; z: number }[] {
+  const pts: { x: number; y: number; z: number }[] = [];
+  let x = 0.1, y = 0, z = 0;
+  const sigma = 10, rho = 28, beta = 8 / 3, dt = 0.005;
+  for (let i = 0; i < 8000; i++) {
+    const dx = sigma * (y - x);
+    const dy = x * (rho - z) - y;
+    const dz = x * y - beta * z;
+    x += dx * dt; y += dy * dt; z += dz * dt;
+    if (i > 500) pts.push({ x, y, z }); // пропускаем начальный переходный процесс
+  }
+  return pts;
+}
+
+// Двойная спираль ДНК
+function makeDNAHelix(): { x: number; y: number; z: number }[] {
+  const pts: { x: number; y: number; z: number }[] = [];
+  const turns = 5, steps = 600;
+  for (let i = 0; i <= steps; i++) {
+    const t = (i / steps) * turns * Math.PI * 2;
+    const z = (i / steps) * 4 - 2;
+    pts.push({ x: Math.cos(t), y: Math.sin(t), z });
+  }
+  // Вторая нить со смещением π
+  for (let i = steps; i >= 0; i--) {
+    const t = (i / steps) * turns * Math.PI * 2 + Math.PI;
+    const z = (i / steps) * 4 - 2;
+    pts.push({ x: Math.cos(t), y: Math.sin(t), z });
+  }
+  // Перекладины
+  for (let i = 0; i <= turns * 4; i++) {
+    const t = (i / (turns * 4)) * turns * Math.PI * 2;
+    const z = (i / (turns * 4)) * 4 - 2;
+    pts.push({ x: Math.cos(t), y: Math.sin(t), z });
+    pts.push({ x: Math.cos(t + Math.PI), y: Math.sin(t + Math.PI), z });
+    pts.push({ x: Math.cos(t), y: Math.sin(t), z });
+  }
+  return pts;
+}
+
+// Тор (бублик)
+function makeTorusKnot(p: number, q: number): { x: number; y: number; z: number }[] {
+  const pts: { x: number; y: number; z: number }[] = [];
+  const steps = 800;
+  for (let i = 0; i <= steps; i++) {
+    const t = (i / steps) * Math.PI * 2;
+    const r = Math.cos(q * t) + 2;
+    pts.push({
+      x: r * Math.cos(p * t),
+      y: r * Math.sin(p * t),
+      z: -Math.sin(q * t),
+    });
+  }
+  return pts;
+}
+
+// Кривые Лиссажу в 3D
+function makeLissajous3D(a: number, b: number, c: number, delta: number): { x: number; y: number; z: number }[] {
+  const pts: { x: number; y: number; z: number }[] = [];
+  const steps = 1000;
+  for (let i = 0; i <= steps; i++) {
+    const t = (i / steps) * Math.PI * 2;
+    pts.push({
+      x: Math.sin(a * t + delta),
+      y: Math.sin(b * t),
+      z: Math.sin(c * t + delta * 0.5),
+    });
+  }
+  return pts;
+}
+
+// Спираль Фибоначчи в 3D (Золотой угол)
+function makeFibonacciSpiral(): { x: number; y: number; z: number }[] {
+  const pts: { x: number; y: number; z: number }[] = [];
+  const n = 500, golden = Math.PI * (3 - Math.sqrt(5));
+  for (let i = 0; i < n; i++) {
+    const t = i * golden;
+    const r = Math.sqrt(i / n);
+    pts.push({ x: r * Math.cos(t), y: i / n * 2 - 1, z: r * Math.sin(t) });
+  }
+  // Соединяем точки по порядку — спираль
+  return pts;
+}
+
+// Проецируем массив 3D точек в 2D
+function project3DPoints(
+  pts3d: { x: number; y: number; z: number }[],
+  rotX: number, rotY: number,
+  scale: number, cx: number, cy: number
+): { x: number; y: number }[] {
+  return pts3d.map(({ x, y, z }) => {
+    const cosY = Math.cos(rotY), sinY = Math.sin(rotY);
+    const x1 = x * cosY - z * sinY, z1 = x * sinY + z * cosY;
+    const cosX = Math.cos(rotX), sinX = Math.sin(rotX);
+    const y1 = y * cosX - z1 * sinX, z2 = y * sinX + z1 * cosX;
+    const fov = 5 / (5 + z2);
+    return { x: cx + x1 * scale * fov, y: cy + y1 * scale * fov };
+  });
+}
+
+// Генерирует контурные точки текста через canvas
+function generateTextPoints(text: string, W: number, H: number): { x: number; y: number }[] {
+  const size = Math.min(W, H) * 0.18;
+  const offscreen = document.createElement("canvas");
+  offscreen.width = W; offscreen.height = H;
+  const ctx = offscreen.getContext("2d", { willReadFrequently: true })!;
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = "#fff";
+  ctx.font = `900 ${size}px "Arial Black", Arial, sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, W / 2, H / 2);
+
+  const imgData = ctx.getImageData(0, 0, W, H);
+  const data = imgData.data;
+
+  // Sobel edge detection — находим границы букв
+  const pts: { x: number; y: number }[] = [];
+  const step = 3; // шаг сэмплирования
+  for (let y = step; y < H - step; y += step) {
+    for (let x = step; x < W - step; x += step) {
+      const idx = (y * W + x) * 4;
+      const gx =
+        -data[((y - 1) * W + (x - 1)) * 4] - 2 * data[((y) * W + (x - 1)) * 4] - data[((y + 1) * W + (x - 1)) * 4]
+        + data[((y - 1) * W + (x + 1)) * 4] + 2 * data[((y) * W + (x + 1)) * 4] + data[((y + 1) * W + (x + 1)) * 4];
+      const gy =
+        -data[((y - 1) * W + (x - 1)) * 4] - 2 * data[((y - 1) * W + (x)) * 4] - data[((y - 1) * W + (x + 1)) * 4]
+        + data[((y + 1) * W + (x - 1)) * 4] + 2 * data[((y + 1) * W + (x)) * 4] + data[((y + 1) * W + (x + 1)) * 4];
+      const mag = Math.sqrt(gx * gx + gy * gy);
+      if (mag > 100) pts.push({ x, y });
+    }
+  }
+
+  // Сортируем точки по близости — непрерывный трейл
+  if (pts.length === 0) return [];
+  const sorted: { x: number; y: number }[] = [pts[0]];
+  const used = new Set([0]);
+  for (let i = 1; i < pts.length; i++) {
+    const last = sorted[sorted.length - 1];
+    let bestIdx = -1, bestDist = Infinity;
+    for (let j = 0; j < pts.length; j++) {
+      if (used.has(j)) continue;
+      const dx = pts[j].x - last.x, dy = pts[j].y - last.y;
+      const d = dx * dx + dy * dy;
+      if (d < bestDist) { bestDist = d; bestIdx = j; }
+      if (bestDist < step * step * 2) break; // достаточно близко — берём
+    }
+    if (bestIdx === -1) break;
+    used.add(bestIdx);
+    sorted.push(pts[bestIdx]);
+  }
+  return sorted;
+}
+
+// Загружает картину и возвращает контурные точки через Sobel
+async function generateArtworkPoints(url: string, W: number, H: number): Promise<{ x: number; y: number }[]> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      const offscreen = document.createElement("canvas");
+      offscreen.width = W; offscreen.height = H;
+      const ctx = offscreen.getContext("2d", { willReadFrequently: true })!;
+      // Центрируем картину
+      const scale = Math.min(W / img.width, H / img.height) * 0.85;
+      const sw = img.width * scale, sh = img.height * scale;
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, W, H);
+      ctx.drawImage(img, (W - sw) / 2, (H - sh) / 2, sw, sh);
+
+      const imgData = ctx.getImageData(0, 0, W, H);
+      const data = imgData.data;
+
+      // Sobel с шагом 3px — детальные контуры
+      const pts: { x: number; y: number }[] = [];
+      const step = 3;
+      for (let y = step; y < H - step; y += step) {
+        for (let x = step; x < W - step; x += step) {
+          const getGray = (px: number, py: number) => {
+            const o = (py * W + px) * 4;
+            return (data[o] * 0.299 + data[o + 1] * 0.587 + data[o + 2] * 0.114);
+          };
+          const gx =
+            -getGray(x - step, y - step) - 2 * getGray(x - step, y) - getGray(x - step, y + step)
+            + getGray(x + step, y - step) + 2 * getGray(x + step, y) + getGray(x + step, y + step);
+          const gy =
+            -getGray(x - step, y - step) - 2 * getGray(x, y - step) - getGray(x + step, y - step)
+            + getGray(x - step, y + step) + 2 * getGray(x, y + step) + getGray(x + step, y + step);
+          if (Math.sqrt(gx * gx + gy * gy) > 25) pts.push({ x, y });
+        }
+      }
+
+      // Строим трейл — идём по строкам змейкой для непрерывности
+      if (pts.length === 0) { resolve([]); return; }
+      // Сортируем по Y потом по X (чередуя направление)
+      pts.sort((a, b) => {
+        const rowA = Math.floor(a.y / step);
+        const rowB = Math.floor(b.y / step);
+        if (rowA !== rowB) return rowA - rowB;
+        return rowA % 2 === 0 ? a.x - b.x : b.x - a.x;
+      });
+      resolve(pts.slice(0, 3000));
+    };
+    img.onerror = () => resolve([]);
+    img.src = url;
+  });
+}
+
+// Картины лежат в public/ проекта
+const ARTWORKS = [
+  { name: "Mona Lisa", url: "/art1.png" },
+  { name: "Starry Night", url: "/art2.png" },
+  { name: "American Gothic", url: "/art3.png" },
+  { name: "Son of Man", url: "/art4.png" },
+];
+
+function generate3DShapePoints(
+  seed: number,
+  W: number, H: number,
+  _mouseX: number, _mouseY: number
+): { x: number; y: number }[] {
+  let s = seed;
+  const rng = () => { s = (s * 1664525 + 1013904223) & 0x7fffffff; return s / 0x7fffffff; };
+
+  const cx = W * 0.5, cy = H * 0.5;
+  const rotX = rng() * Math.PI * 2;
+  const rotY = rng() * Math.PI * 2;
+
+  // Случайно выбираем тип фигуры
+  const shapeType = Math.floor(rng() * 9);
+
+  // Непрерывные кривые — проецируем напрямую
+  if (shapeType === 0) {
+    // Аттрактор Лоренца
+    const pts3d = makeLorenzAttractor();
+    const scale = Math.min(W, H) * 0.008;
+    return project3DPoints(pts3d, rotX, rotY, scale, cx, cy);
+  }
+  if (shapeType === 1) {
+    // ДНК двойная спираль
+    const pts3d = makeDNAHelix();
+    const scale = Math.min(W, H) * 0.28;
+    return project3DPoints(pts3d, rotX, rotY, scale, cx, cy);
+  }
+  if (shapeType === 2) {
+    // Торический узел (3,2) — трилистник
+    const pts3d = makeTorusKnot(3, 2);
+    const scale = Math.min(W, H) * 0.22;
+    return project3DPoints(pts3d, rotX, rotY, scale, cx, cy);
+  }
+  if (shapeType === 3) {
+    // Торический узел (5,3)
+    const pts3d = makeTorusKnot(5, 3);
+    const scale = Math.min(W, H) * 0.22;
+    return project3DPoints(pts3d, rotX, rotY, scale, cx, cy);
+  }
+  if (shapeType === 4) {
+    // Кривые Лиссажу 3:4:5
+    const pts3d = makeLissajous3D(3, 4, 5, rng() * Math.PI);
+    const scale = Math.min(W, H) * 0.32;
+    return project3DPoints(pts3d, rotX, rotY, scale, cx, cy);
+  }
+  if (shapeType === 5) {
+    // Кривые Лиссажу 2:3:4
+    const pts3d = makeLissajous3D(2, 3, 4, rng() * Math.PI);
+    const scale = Math.min(W, H) * 0.32;
+    return project3DPoints(pts3d, rotX, rotY, scale, cx, cy);
+  }
+  if (shapeType === 6) {
+    // Спираль Фибоначчи
+    const pts3d = makeFibonacciSpiral();
+    const scale = Math.min(W, H) * 0.38;
+    return project3DPoints(pts3d, rotX, rotY, scale, cx, cy);
+  }
+
+  // 4D политопы с рёбрами
+  const scale4D = Math.min(W, H) * 0.14;
+  const rotXY = rng() * Math.PI * 2;
+  const rotXZ = rng() * Math.PI * 2;
+  const rotXW = rng() * Math.PI * 2;
+
+  const polytopes = [makeTesseract, make16Cell, make24Cell];
+  const shape = polytopes[Math.floor(rng() * polytopes.length)]();
+  const projected = shape.verts.map(v => project4D(v, rotXY, rotXZ, rotXW, scale4D, cx, cy));
+
+  // Строим непрерывный трейл по рёбрам
+  const pts: { x: number; y: number }[] = [];
+  const used = new Set<string>();
+  const key = (a: number, b: number) => `${Math.min(a, b)}-${Math.max(a, b)}`;
+
+  let cur = 0;
+  pts.push(projected[cur]);
+
+  let safety = 0;
+  while (used.size < shape.edges.length && safety++ < 2000) {
+    const available = shape.edges.filter(([a, b]) =>
+      (a === cur || b === cur) && !used.has(key(a, b))
+    );
+
+    if (available.length === 0) {
+      const nextEdge = shape.edges.find(([a, b]) => !used.has(key(a, b)));
+      if (!nextEdge) break;
+      const next = nextEdge[0];
+      const from = projected[cur], to = projected[next];
+      for (let i = 1; i <= 4; i++) {
+        const t = i / 4;
+        pts.push({ x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t });
+      }
+      cur = next;
+      continue;
+    }
+
+    const [a, b] = available[0];
+    const next = a === cur ? b : a;
+    used.add(key(cur, next));
+
+    const from = projected[cur], to = projected[next];
+    const steps = 10;
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      pts.push({
+        x: from.x + (to.x - from.x) * t,
+        y: from.y + (to.y - from.y) * t,
+      });
+    }
+    cur = next;
+  }
+
+  return pts;
+}
+
+
 export default function Home() {
   const [videoSrc, setVideoSrc] = useState("/me.mp4");
 
@@ -237,6 +798,10 @@ export default function Home() {
   // Накопленные миниатюры узоров
   const [thumbnails, setThumbnails] = useState<Thumbnail[]>([]);
   const thumbIdRef = useRef(0);
+  const captureCountRef = useRef(0);
+  const mousePosRef = useRef({ x: 0, y: 0 });
+  const autoTrailRef = useRef<{ x: number; y: number }[]>([]);
+  const autoDrawActiveRef = useRef(false); // когда true — трейлы кубиков выключены
 
   // Слайдшоу фото mi1–mi5: случайные позиции, появляются каждые 5 сек
   const MI_PHOTOS = ["/mi1.jpg", "/mi2.jpg", "/mi3.jpg", "/mi4.jpg", "/mi5.jpg"];
@@ -381,118 +946,168 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    const capture = () => {
-      const canvas = trailCanvasRef.current;
-      if (!canvas) return;
+    const canvas = trailCanvasRef.current;
 
-      // Сохраняем копию трейлов ДО очистки
-      const trails = physState.current
-        .filter(s => s.trail.length > 1)
-        .map(s => s.trail.slice());
+    const clearCanvas = () => {
+      const c = trailCanvasRef.current;
+      if (!c) return;
+      const ctx = c.getContext("2d");
+      if (ctx) ctx.clearRect(0, 0, c.width, c.height);
+    };
 
-      if (trails.length === 0) {
-        physState.current.forEach(s => { s.trail = []; });
-        const c2 = canvas.getContext("2d");
-        if (c2) c2.clearRect(0, 0, canvas.width, canvas.height);
-        return;
-      }
-
-      // Bounding box
+    const makeMosaic = (trails: { x: number, y: number }[][]) => {
+      const c = trailCanvasRef.current;
+      if (!c || trails.length === 0) return;
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-      trails.forEach(trail => {
-        trail.forEach(p => {
-          if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
-          if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
-        });
-      });
-
+      trails.forEach(t => t.forEach(p => {
+        if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+        if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
+      }));
+      if (!isFinite(minX)) return;
       const pad = 10;
-      const rawMinX = minX, rawMinY = minY;
       minX = Math.max(0, minX - pad); minY = Math.max(0, minY - pad);
-      maxX = maxX + pad; maxY = maxY + pad;
+      maxX += pad; maxY += pad;
       const cropW = Math.max(1, maxX - minX);
       const cropH = Math.max(1, maxY - minY);
-
-      // Вырезаем PNG
       const dpr = window.devicePixelRatio || 1;
       const crop = document.createElement("canvas");
       crop.width = Math.round(cropW * dpr);
       crop.height = Math.round(cropH * dpr);
-      const ctx = crop.getContext("2d");
-      if (ctx) {
-        ctx.drawImage(canvas,
-          minX * dpr, minY * dpr, cropW * dpr, cropH * dpr,
-          0, 0, crop.width, crop.height
-        );
-      }
+      const ctx2 = crop.getContext("2d");
+      if (ctx2) ctx2.drawImage(c, minX * dpr, minY * dpr, cropW * dpr, cropH * dpr, 0, 0, crop.width, crop.height);
       const src = crop.toDataURL("image/png");
-
+      const W = window.innerWidth, H = window.innerHeight;
       const tyPx = getCurrentTyPx();
-      const H = window.innerHeight;
-      const W = window.innerWidth;
-
-      // Единый размер для всех узоров (в 2 раза меньше прежнего)
-      const isMobile = window.innerWidth <= 768;
+      const isMobile = W <= 768;
       const DST_SIZE = isMobile ? 57 : 170;
-      const PAD = 16; // отступ между узорами
-
-      // Находим свободное место — не пересекается с уже размещёнными узорами
-      const findFreeSpot = (existing: Thumbnail[]): { dstX: number; dstY: number } => {
+      const PAD = 16;
+      const findFreeSpot = (existing: Thumbnail[]) => {
         for (let attempt = 0; attempt < 60; attempt++) {
           const margin = 0.04;
           const x = (margin + Math.random() * (1 - 2 * margin - DST_SIZE / W)) * W;
           const y = (margin + Math.random() * (1 - 2 * margin - DST_SIZE / H)) * H - tyPx;
-          // Проверяем пересечение с каждым существующим узором
           const ok = existing.every(t =>
-            x + DST_SIZE + PAD < t.dstX ||
-            x > t.dstX + DST_SIZE + PAD ||
-            y + DST_SIZE + PAD < t.dstY ||
-            y > t.dstY + DST_SIZE + PAD
+            x + DST_SIZE + PAD < t.dstX || x > t.dstX + DST_SIZE + PAD ||
+            y + DST_SIZE + PAD < t.dstY || y > t.dstY + DST_SIZE + PAD
           );
           if (ok) return { dstX: x, dstY: y };
         }
-        // Fallback: просто случайное место если не нашли свободное
-        return {
-          dstX: (0.04 + Math.random() * 0.88) * W,
-          dstY: (0.04 + Math.random() * 0.88) * H - tyPx,
-        };
+        return { dstX: (0.04 + Math.random() * 0.88) * W, dstY: (0.04 + Math.random() * 0.88) * H - tyPx };
       };
-
       thumbIdRef.current++;
-      const newThumbId = thumbIdRef.current;
-
-      // Сначала показываем оригинальный трейл (он сразу летит на место)
+      const newId = thumbIdRef.current;
       setThumbnails(prev => {
         const { dstX, dstY } = findFreeSpot(prev);
-        return [...prev, {
-          id: newThumbId,
-          src,
-          srcX: minX, srcY: minY - tyPx, srcW: cropW, srcH: cropH,
-          dstX, dstY, dstSize: DST_SIZE,
-          offsetY: 0,
-        }];
+        return [...prev, { id: newId, src, srcX: minX, srcY: minY - tyPx, srcW: cropW, srcH: cropH, dstX, dstY, dstSize: DST_SIZE, offsetY: 0 }];
       });
-
-      // Рисуем трейлы толстыми линиями на маленький canvas для mosaic
-      // (на маленьком размере линии образуют замкнутые области)
-      // Рисуем цветную мозаику — каждый трейл своим цветом
-      console.log("Mosaic: trails=", trails.length, "totalPts=", trails.reduce((a, t) => a + t.length, 0), "cropW=", cropW, "cropH=", cropH);
       const mosaicSrc = buildColoredMosaic(trails, minX, minY, cropW, cropH);
-      console.log("Mosaic src length:", mosaicSrc?.length);
-      if (mosaicSrc) {
-        setThumbnails(prev =>
-          prev.map(t => t.id === newThumbId ? { ...t, src: mosaicSrc } : t)
-        );
-      }
-
-      // Очищаем трейлы
-      const c2 = canvas.getContext("2d");
-      if (c2) c2.clearRect(0, 0, canvas.width, canvas.height);
-      physState.current.forEach(s => { s.trail = []; });
+      if (mosaicSrc) setThumbnails(prev => prev.map(t => t.id === newId ? { ...t, src: mosaicSrc } : t));
     };
 
-    const id = setInterval(capture, 10000);
-    return () => clearInterval(id);
+    // Фаза 0: собираем трейлы кубиков → мозаика, затем через 10 сек фаза 1
+    // Фаза 1: рисуем 3D фигуру 10 сек → мозаика, затем через 10 сек фаза 0
+    let schedTimer: ReturnType<typeof setTimeout> | null = null;
+    const activeRef = { current: true };
+    let artworkIdx = 0;
+
+    // Общая функция отрисовки любого набора точек → мозаика → следующая фаза
+    const runDrawPhase = (pts: { x: number; y: number }[], onDone: () => void) => {
+      if (!activeRef.current || pts.length === 0) { onDone(); return; }
+      autoDrawActiveRef.current = true;
+      physState.current.forEach(s => { s.trail = []; });
+      clearCanvas();
+      const totalDuration = 10000;
+      const startTime = performance.now();
+      let idx = 0;
+      const drawNext = () => {
+        if (!activeRef.current || !autoDrawActiveRef.current) return;
+        const c = trailCanvasRef.current;
+        if (!c) return;
+        const elapsed = performance.now() - startTime;
+        const targetIdx = Math.min(Math.floor((elapsed / totalDuration) * pts.length), pts.length);
+        if (targetIdx > idx) {
+          const ctx = c.getContext("2d");
+          if (ctx) {
+            ctx.strokeStyle = "rgba(255,255,255,0.9)";
+            ctx.lineWidth = 1.5;
+            ctx.lineCap = "round";
+            ctx.lineJoin = "round";
+            ctx.beginPath();
+            ctx.moveTo(pts[idx].x, pts[idx].y);
+            for (let i = idx + 1; i <= targetIdx && i < pts.length; i++) {
+              ctx.lineTo(pts[i].x, pts[i].y);
+            }
+            ctx.stroke();
+          }
+          idx = targetIdx;
+        }
+        if (idx < pts.length) {
+          requestAnimationFrame(drawNext);
+        } else {
+          if (!activeRef.current) return;
+          autoDrawActiveRef.current = false;
+          makeMosaic([pts]);
+          clearCanvas();
+          physState.current.forEach(s => { s.trail = []; });
+          schedTimer = setTimeout(onDone, 100);
+        }
+      };
+      requestAnimationFrame(drawNext);
+    };
+
+    // Фаза 0: трейлы кубиков 10 сек → мозаика
+    const runPhase0 = () => {
+      if (!activeRef.current) return;
+      autoDrawActiveRef.current = false;
+      schedTimer = setTimeout(() => {
+        if (!activeRef.current) return;
+        const trails = physState.current.filter(s => s.trail.length > 1).map(s => s.trail.slice());
+        physState.current.forEach(s => { s.trail = []; });
+        clearCanvas();
+        makeMosaic(trails);
+        schedTimer = setTimeout(runPhase1, 100);
+      }, 10000);
+    };
+
+    // Фаза 1: 3D/4D фигура
+    const runPhase1 = () => {
+      if (!activeRef.current) return;
+      const W = window.innerWidth, H = window.innerHeight;
+      const pts = generate3DShapePoints(Math.floor(Math.random() * 999999), W, H, 0, 0);
+      runDrawPhase(pts, runPhase2);
+    };
+
+    // Фаза 2: текст "I DO DESIGN"
+    const runPhase2 = () => {
+      if (!activeRef.current) return;
+      const W = window.innerWidth, H = window.innerHeight;
+      const pts = generateTextPoints("I DO DESIGN", W, H);
+      runDrawPhase(pts, runPhase3);
+    };
+
+    // Фаза 3: произведение искусства
+    const runPhase3 = async () => {
+      if (!activeRef.current) return;
+      const W = window.innerWidth, H = window.innerHeight;
+      const artwork = ARTWORKS[artworkIdx % ARTWORKS.length];
+      artworkIdx++;
+      const pts = await generateArtworkPoints(artwork.url, W, H);
+      if (!activeRef.current) return;
+      runDrawPhase(pts.length > 10 ? pts : generateTextPoints("ART", W, H), runPhase0);
+    };
+
+    // Старт
+    runPhase0();
+
+    const onMouseMove = (e: MouseEvent) => { mousePosRef.current = { x: e.clientX, y: e.clientY }; };
+    window.addEventListener("mousemove", onMouseMove);
+
+    return () => {
+      activeRef.current = false;
+      autoDrawActiveRef.current = false;
+      if (schedTimer) clearTimeout(schedTimer);
+      window.removeEventListener("mousemove", onMouseMove);
+    };
   }, []);
 
   useEffect(() => {
@@ -583,7 +1198,7 @@ export default function Home() {
 
       // Трейлы
       const trailCanvas = trailCanvasRef.current;
-      if (trailCanvas) {
+      if (trailCanvas && !autoDrawActiveRef.current) {
         const ctx = trailCanvas.getContext("2d");
         if (ctx) {
           ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 1; ctx.lineCap = "round";
@@ -594,6 +1209,9 @@ export default function Home() {
             s.trail.push({ x: s.x, y: s.y });
           });
         }
+      } else if (autoDrawActiveRef.current) {
+        // Очищаем трейлы кубиков чтобы они не накапливались
+        states.forEach(s => { s.trail = []; });
       }
 
       rafRef.current = requestAnimationFrame(animate);
