@@ -603,7 +603,7 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
       const { data } = ctx.getImageData(0, 0, W, H);
 
       // Шаг 1: Sobel на каждом пикселе (без прореживания)
-      const S = 2; // очень мелкий шаг → плавные линии
+      const S = 1; // пиксель в пиксель — максимальная точность
       const cols = Math.floor(W / S);
       const rows = Math.floor(H / S);
       const mag = new Float32Array(cols * rows);
@@ -628,7 +628,7 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
       // Шаг 2: Non-maximum suppression — оставляем только локальные максимумы
       // Это делает линии тонкими и чёткими (1 пиксель в ширину)
       const edge = new Uint8Array(cols * rows);
-      const threshold = maxMag * 0.25;
+      const threshold = maxMag * 0.20;
       for (let r = 1; r < rows - 1; r++) {
         for (let c = 1; c < cols - 1; c++) {
           const m = mag[r * cols + c];
@@ -683,26 +683,26 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
           [r, c] = next;
         }
 
-        // Сглаживаем штрих — интерполируем через catmull-rom
-        if (stroke.length >= 3) {
-          const smoothed: { x: number; y: number }[] = [];
-          smoothed.push(stroke[0]);
-          for (let i = 1; i < stroke.length - 1; i++) {
-            // Среднее между соседями — убирает ступеньки
-            smoothed.push({
-              x: (stroke[i - 1].x + stroke[i].x * 2 + stroke[i + 1].x) / 4,
-              y: (stroke[i - 1].y + stroke[i].y * 2 + stroke[i + 1].y) / 4,
-            });
+
+        // Тройное сглаживание — убирает все ступеньки
+        if (stroke.length >= 5) {  // только достаточно длинные штрихи
+          let pts2 = stroke;
+          for (let pass = 0; pass < 3; pass++) {
+            const s2: { x: number; y: number }[] = [pts2[0]];
+            for (let i = 1; i < pts2.length - 1; i++) {
+              s2.push({
+                x: (pts2[i - 1].x + pts2[i].x * 2 + pts2[i + 1].x) / 4,
+                y: (pts2[i - 1].y + pts2[i].y * 2 + pts2[i + 1].y) / 4,
+              });
+            }
+            s2.push(pts2[pts2.length - 1]);
+            pts2 = s2;
           }
-          smoothed.push(stroke[stroke.length - 1]);
-          result.push(...smoothed);
-          result.push({ x: NaN, y: NaN });
-        } else if (stroke.length > 0) {
-          result.push(...stroke);
+          result.push(...pts2);
           result.push({ x: NaN, y: NaN });
         }
 
-        if (result.length > 8000) break;
+        if (result.length > 15000) break;
       }
 
       resolve(result);
@@ -955,6 +955,20 @@ export default function Home() {
   const TOTAL_SCROLL = 3 * SCROLL_PER_UNIT;
 
   const iDoDesignTextRef = useRef<HTMLDivElement>(null);
+  const bioTextRef = useRef<HTMLDivElement>(null);
+
+  // Синхронизируем ширину биографии с шириной заголовка
+  useEffect(() => {
+    const sync = () => {
+      if (iDoDesignTextRef.current && bioTextRef.current) {
+        const w = iDoDesignTextRef.current.getBoundingClientRect().width;
+        bioTextRef.current.style.width = `${w}px`;
+      }
+    };
+    sync();
+    window.addEventListener("resize", sync);
+    return () => window.removeEventListener("resize", sync);
+  }, []);
 
   // Canvas resize
   useEffect(() => {
@@ -1165,18 +1179,20 @@ export default function Home() {
     // Фаза 3: произведение искусства (синхронно из предзагруженного)
     const runPhase3 = () => {
       if (!activeRef.current) return;
+      const W = window.innerWidth, H = window.innerHeight;
       const idx = artworkIdx % ARTWORKS.length;
       artworkIdx++;
-      const pts = preloadedArtworks[idx];
-      console.log("Phase3: artwork", idx, "pts:", pts?.length ?? "not ready");
-      if (pts && pts.length > 10) {
-        runDrawPhase(pts, runPhase0);
+      const url = ARTWORKS[idx];
+      // Берём из кэша или грузим заново
+      const cached = preloadedArtworks[idx];
+      if (cached && cached.length > 10) {
+        runDrawPhase(cached, runPhase0);
       } else {
-        // Ещё не загружено — грузим на месте
-        const W = window.innerWidth, H = window.innerHeight;
-        generateArtworkPoints(ARTWORKS[idx], W, H).then(loaded => {
+        autoDrawActiveRef.current = true;
+        generateArtworkPoints(url, W, H).then(pts => {
           if (!activeRef.current) return;
-          if (loaded.length > 10) runDrawPhase(loaded, runPhase0);
+          preloadedArtworks[idx] = pts;
+          if (pts.length > 10) runDrawPhase(pts, runPhase0);
           else runPhase0();
         });
       }
@@ -1649,10 +1665,37 @@ export default function Home() {
           ))}
         </div>
 
-        {/* I DO DESIGN */}
-        <div ref={iDoDesignRef} style={{ position: "absolute", inset: 0, zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none", transform: "translateY(110vh)", opacity: 0, willChange: "transform,opacity" }}>
-          <div ref={iDoDesignTextRef} style={{ fontFamily: "'Arial Black',Arial,sans-serif", fontWeight: 900, fontSize: "clamp(28px,7vw,96px)", letterSpacing: "-0.04em", color: "white", textAlign: "center", lineHeight: 1, whiteSpace: "nowrap" }}>
+        {/* I DO DESIGN + биография */}
+        <div ref={iDoDesignRef} style={{ position: "absolute", inset: 0, zIndex: 5, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", pointerEvents: "none", transform: "translateY(110vh)", opacity: 0, willChange: "transform,opacity" }}>
+          {/* Заголовок по центру */}
+          <div ref={iDoDesignTextRef} style={{
+            fontFamily: "'Arial Black',Arial,sans-serif",
+            fontWeight: 900,
+            fontSize: "clamp(28px,7vw,96px)",
+            letterSpacing: "-0.04em",
+            color: "white",
+            lineHeight: 0.95,
+            whiteSpace: "nowrap",
+            textAlign: "center",
+          }}>
             I DO DESIGN
+          </div>
+          {/* Текст — ширина = ширина заголовка через matchWidth */}
+          <div ref={bioTextRef} style={{
+            fontFamily: "'Arial Black',Arial,sans-serif",
+            fontWeight: 900,
+            fontSize: "clamp(10px,1.85vw,26px)",
+            color: "white",
+            lineHeight: 1.2,
+            marginTop: "0.5em",
+            textAlign: "justify",
+            textAlignLast: "left",
+            textTransform: "uppercase",
+            letterSpacing: "0em",
+            wordSpacing: "0em",
+            hyphens: "auto" as const,
+          }}>
+            Hi! My name is Artem. I&apos;m here to create unique illustrations and visual design for any of your creative needs. I work across illustration, 3D design, video editing, visual effects, concept art, motion design, cartoons, music, theatre, film, and stop-motion animation. I&apos;ve had a camera in my hands for as long as I can remember — since I was around 5 years old. Creating visuals and telling stories has always been a natural part of my life. I&apos;m a truly dedicated artist who lives through creativity, visual expression, and filmmaking. Every project is an opportunity to build something original, memorable, and crafted with attention to detail. Don&apos;t hesitate to contact me — I&apos;ll bring your ideas to life and deliver unique, high-quality work with the dedication and professionalism of someone who genuinely loves what&nbsp;they&nbsp;create.
           </div>
         </div>
 
