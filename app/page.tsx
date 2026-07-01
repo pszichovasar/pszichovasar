@@ -885,6 +885,7 @@ export default function Home() {
   const gyroRef = useRef({ gx: 0, gy: 0 });
   const shakeRef = useRef({ lastAcc: 0, lastShakeTime: 0 });
   const prevTextRectRef = useRef<DOMRect | null>(null);
+  const prevBioRectRef = useRef<DOMRect | null>(null);
 
   const explodeFromPoint = (px: number, py: number, radius = 260, maxForce = 9000) => {
     physState.current.forEach(s => {
@@ -1301,6 +1302,34 @@ export default function Home() {
           }
         }
         prevTextRectRef.current = vis ? r : null;
+      }
+
+      // Коллизия с текстом биографии под "I DO DESIGN"
+      const bioEl = bioTextRef.current;
+      if (bioEl) {
+        const r = bioEl.getBoundingClientRect();
+        const prev = prevBioRectRef.current;
+        const vis = r.width > 10 && r.height > 10 && r.top < H && r.bottom > 0 && r.left < W && r.right > 0;
+        if (vis) {
+          const h = S / 2;
+          const uL = Math.min(r.left, prev ? prev.left : r.left) - h;
+          const uR = Math.max(r.right, prev ? prev.right : r.right) + h;
+          const uT = Math.min(r.top, prev ? prev.top : r.top) - h;
+          const uB = Math.max(r.bottom, prev ? prev.bottom : r.bottom) + h;
+          for (let i = 0; i < IMG_COUNT; i++) {
+            const s = states[i]; if (!s.initialized) continue;
+            if (s.x <= uL || s.x >= uR || s.y <= uT || s.y >= uB) continue;
+            const dL = s.x - uL, dR = uR - s.x, dT = s.y - uT, dB = uB - s.y;
+            const minD = Math.min(dL, dR, dT, dB);
+            let nx = 0, ny = 0;
+            if (minD === dL) nx = -1; else if (minD === dR) nx = 1;
+            else if (minD === dT) ny = -1; else ny = 1;
+            s.x += nx * (minD + 0.5); s.y += ny * (minD + 0.5);
+            const vn = s.vx * nx + s.vy * ny;
+            if (vn < 0) { s.vx -= vn * nx * (1 + BOUNCE); s.vy -= vn * ny * (1 + BOUNCE); }
+          }
+        }
+        prevBioRectRef.current = vis ? r : null;
       }
 
       // Трейлы
