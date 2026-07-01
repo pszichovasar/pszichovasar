@@ -602,9 +602,9 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
       const imgData = ctx.getImageData(0, 0, W, H);
       const data = imgData.data;
 
-      // Sobel edge detection — только главные контуры
+      // Sobel edge detection — только сильные главные контуры
       const pts: { x: number; y: number }[] = [];
-      const step = 3;
+      const step = 5;
       for (let y = step; y < H - step; y += step) {
         for (let x = step; x < W - step; x += step) {
           const g = (px: number, py: number) => {
@@ -615,17 +615,17 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
             + g(x + step, y - step) + 2 * g(x + step, y) + g(x + step, y + step);
           const gy = -g(x - step, y - step) - 2 * g(x, y - step) - g(x + step, y - step)
             + g(x - step, y + step) + 2 * g(x, y + step) + g(x + step, y + step);
-          if (Math.sqrt(gx * gx + gy * gy) > 60) pts.push({ x, y });
+          if (Math.sqrt(gx * gx + gy * gy) > 80) pts.push({ x, y });
         }
       }
 
-      // Змейка — непрерывный трейл без прыжков
+      // Змейка — порядок обхода
       pts.sort((a, b) => {
         const ra = Math.floor(a.y / step), rb = Math.floor(b.y / step);
         if (ra !== rb) return ra - rb;
         return ra % 2 === 0 ? a.x - b.x : b.x - a.x;
       });
-      resolve(pts.slice(0, 6000));
+      resolve(pts.slice(0, 3000));
     };
     img.onerror = () => resolve([]);
     img.src = url;
@@ -1008,6 +1008,8 @@ export default function Home() {
       const totalDuration = 10000;
       const startTime = performance.now();
       let idx = 0;
+      // Максимальный прыжок между точками — если больше, поднимаем перо
+      const maxJump = 20;
       const drawNext = () => {
         if (!activeRef.current || !autoDrawActiveRef.current) return;
         const c = trailCanvasRef.current;
@@ -1024,7 +1026,16 @@ export default function Home() {
             ctx.beginPath();
             ctx.moveTo(pts[idx].x, pts[idx].y);
             for (let i = idx + 1; i <= targetIdx && i < pts.length; i++) {
-              ctx.lineTo(pts[i].x, pts[i].y);
+              const dx = pts[i].x - pts[i - 1].x;
+              const dy = pts[i].y - pts[i - 1].y;
+              // Поднимаем перо при большом прыжке
+              if (Math.sqrt(dx * dx + dy * dy) > maxJump) {
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(pts[i].x, pts[i].y);
+              } else {
+                ctx.lineTo(pts[i].x, pts[i].y);
+              }
             }
             ctx.stroke();
           }
