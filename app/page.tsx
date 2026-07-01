@@ -1189,17 +1189,22 @@ export default function Home() {
       const idx = artworkIdx % ARTWORKS.length;
       artworkIdx++;
       const url = ARTWORKS[idx];
-      // Берём из кэша или грузим заново
+
+      const startDraw = (pts: { x: number; y: number }[]) => {
+        if (!activeRef.current) return;
+        if (pts.length < 10) { runPhase0(); return; }
+        // runDrawPhase сам устанавливает autoDrawActiveRef и очищает canvas
+        runDrawPhase(pts, runPhase0);
+      };
+
       const cached = preloadedArtworks[idx];
       if (cached && cached.length > 10) {
-        runDrawPhase(cached, runPhase0);
+        startDraw(cached);
       } else {
-        autoDrawActiveRef.current = true;
         generateArtworkPoints(url, W, H).then(pts => {
           if (!activeRef.current) return;
           preloadedArtworks[idx] = pts;
-          if (pts.length > 10) runDrawPhase(pts, runPhase0);
-          else runPhase0();
+          startDraw(pts);
         });
       }
     };
@@ -1705,7 +1710,7 @@ export default function Home() {
           <div ref={iDoDesignTextRef} style={{
             fontFamily: "'Arial Black',Arial,sans-serif",
             fontWeight: 900,
-            fontSize: "clamp(28px,7vw,96px)",
+            fontSize: "clamp(14px,3.5vw,48px)",
             letterSpacing: "-0.04em",
             color: "white",
             lineHeight: 0.95,
@@ -1718,7 +1723,7 @@ export default function Home() {
           <div ref={bioTextRef} style={{
             fontFamily: "'Arial Black',Arial,sans-serif",
             fontWeight: 900,
-            fontSize: "clamp(10px,1.85vw,26px)",
+            fontSize: "clamp(5px,0.925vw,13px)",
             color: "white",
             lineHeight: 1.2,
             marginTop: "0.5em",
