@@ -1545,6 +1545,71 @@ export default function Home() {
         }
       }
 
+      // Слова биографии с физикой кубиков
+      wordPhysRef.current = wordPhysRef.current.filter(wp => {
+        wp.vx *= DAMPING; wp.vy *= DAMPING;
+        const sp = Math.sqrt(wp.vx * wp.vx + wp.vy * wp.vy);
+        if (sp > MAX_SPEED) { wp.vx = wp.vx / sp * MAX_SPEED; wp.vy = wp.vy / sp * MAX_SPEED; }
+        wp.rotSpeed *= ROT_DAMPING;
+        wp.x += wp.vx * dt; wp.y += wp.vy * dt;
+        wp.ang += wp.rotSpeed * dt;
+        const pw = wp.el.offsetWidth / 2 || 30, ph = wp.el.offsetHeight / 2 || 10;
+        if (wp.x < pw) { wp.x = pw; wp.vx = Math.abs(wp.vx) * BOUNCE; }
+        if (wp.x > W - pw) { wp.x = W - pw; wp.vx = -Math.abs(wp.vx) * BOUNCE; }
+        if (wp.y < ph) { wp.y = ph; wp.vy = Math.abs(wp.vy) * BOUNCE; }
+        if (wp.y > H - ph) { wp.y = H - ph; wp.vy = -Math.abs(wp.vy) * BOUNCE; }
+        wp.el.style.left = `${wp.x - pw}px`;
+        wp.el.style.top = `${wp.y - ph}px`;
+        wp.el.style.transform = `rotate(${wp.ang}rad)`;
+
+        // Коллизии слова с кубиками
+        for (let i = 0; i < IMG_COUNT; i++) {
+          const s = states[i]; if (!s.initialized) continue;
+          const dx = s.x - wp.x, dy = s.y - wp.y;
+          const minDist = S / 2 + Math.max(pw, ph);
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < minDist && dist > 0) {
+            const nx = dx / dist, ny = dy / dist;
+            const relVn = (s.vx - wp.vx) * nx + (s.vy - wp.vy) * ny;
+            if (relVn < 0) {
+              const imp = -(1 + BOUNCE) * relVn / 2;
+              s.vx += imp * nx; s.vy += imp * ny;
+              wp.vx -= imp * nx; wp.vy -= imp * ny;
+              wp.rotSpeed += (nx * imp - ny * imp) * 0.05;
+            }
+            const overlap = minDist - dist;
+            s.x += nx * overlap / 2; s.y += ny * overlap / 2;
+            wp.x -= nx * overlap / 2; wp.y -= ny * overlap / 2;
+          }
+        }
+        return true;
+      });
+
+      // Коллизии слов между собой
+      const wps = wordPhysRef.current;
+      for (let i = 0; i < wps.length; i++) {
+        for (let j = i + 1; j < wps.length; j++) {
+          const a = wps[i], b = wps[j];
+          const dx = b.x - a.x, dy = b.y - a.y;
+          const aw = a.el.offsetWidth / 2 || 30, ah = a.el.offsetHeight / 2 || 10;
+          const bw = b.el.offsetWidth / 2 || 30, bh = b.el.offsetHeight / 2 || 10;
+          const minDist = Math.max(aw, ah) + Math.max(bw, bh);
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < minDist && dist > 0) {
+            const nx = dx / dist, ny = dy / dist;
+            const relVn = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
+            if (relVn < 0) {
+              const imp = -(1 + BOUNCE) * relVn / 2;
+              a.vx -= imp * nx; a.vy -= imp * ny;
+              b.vx += imp * nx; b.vy += imp * ny;
+            }
+            const overlap = (minDist - dist) / 2;
+            a.x -= nx * overlap; a.y -= ny * overlap;
+            b.x += nx * overlap; b.y += ny * overlap;
+          }
+        }
+      }
+
       // Коллизия с "I DO DESIGN" swept AABB
       const textEl = iDoDesignTextRef.current;
       if (textEl) {
@@ -1690,10 +1755,19 @@ export default function Home() {
   const textPhysRef = useRef({ active: false, x: 0, y: 0, vx: 0, vy: 0, angle: 0, rotSpeed: 0 });
   const textFallTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const textRafRef = useRef<number>(0);
+  type WordPhys = { el: HTMLElement; x: number; y: number; vx: number; vy: number; ang: number; rotSpeed: number };
+  const wordPhysRef = useRef<WordPhys[]>([]);
 
   // Через 20 секунд текстовый блок становится большим кубиком с той же физикой
   useEffect(() => {
     textFallTimerRef.current = setTimeout(() => {
+      // Защита от двойного вызова (React StrictMode)
+      if (wordPhysRef.current.length > 0 || textPhysRef.current.active) {
+        // Очищаем старые элементы перед повторным запуском
+        wordPhysRef.current.forEach(wp => wp.el.remove());
+        wordPhysRef.current = [];
+        document.querySelectorAll('[data-explosion]').forEach(el => el.remove());
+      }
       // Берём позицию и размер текста "I DO DESIGN"
       const titleEl = iDoDesignTextRef.current;
       if (!titleEl) return;
@@ -1731,11 +1805,11 @@ export default function Home() {
         const lx = r.left + r.width / 2, ly = r.top + r.height / 2;
         const dx = lx - cx, dy = ly - cy;
         const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-        const force = 400 + Math.random() * 1200;
+        const force = 2500 + Math.random() * 3000;
         letters.push({
           el: span, x: lx, y: ly,
-          vx: (dx / dist) * force + (Math.random() - 0.5) * 500,
-          vy: (dy / dist) * force + (Math.random() - 0.5) * 500,
+          vx: (dx / dist) * force + (Math.random() - 0.5) * 1500,
+          vy: (dy / dist) * force + (Math.random() - 0.5) * 1500,
           a: 0, rs: (Math.random() - 0.5) * 18
         });
       });
@@ -1743,6 +1817,65 @@ export default function Home() {
 
       // Скрываем оригинальный текст
       if (iDoDesignTextRef.current) iDoDesignTextRef.current.style.opacity = "0";
+
+      // Взрыв биографии — каждое слово отдельно
+      const bioEl = bioTextRef.current;
+      if (bioEl) {
+        const bioRect = bioEl.getBoundingClientRect();
+        const bioFs = parseFloat(getComputedStyle(bioEl).fontSize) || 12;
+        const bioText = bioEl.textContent || "";
+        const words = bioText.split(/\s+/).filter(w => w.length > 0);
+
+        // Рендерим слова невидимо чтобы узнать позиции
+        const bioMeasure = document.createElement("div");
+        bioMeasure.style.cssText = `position:fixed;top:${bioRect.top}px;left:${bioRect.left}px;width:${bioRect.width}px;font-family:'Arial Black',Arial,sans-serif;font-weight:900;font-size:${bioFs}px;text-transform:uppercase;text-align:justify;line-height:1.2;word-spacing:0;letter-spacing:0;visibility:hidden;pointer-events:none;z-index:-1;`;
+        words.forEach(w => {
+          const s = document.createElement("span");
+          s.textContent = w + " ";
+          s.style.display = "inline";
+          bioMeasure.appendChild(s);
+        });
+        document.body.appendChild(bioMeasure);
+
+        const wordSpans = Array.from(bioMeasure.querySelectorAll("span")) as HTMLSpanElement[];
+        wordSpans.forEach((ws, wi) => {
+          const r = ws.getBoundingClientRect();
+          if (r.width === 0) return;
+          const span = document.createElement("span");
+          span.textContent = words[wi];
+          const lx = r.left + r.width / 2, ly = r.top + r.height / 2;
+          const dx = lx - cx, dy = ly - cy;
+          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+
+          // 30% слов остаются с физикой кубиков
+          if (Math.random() < 0.30) {
+            span.dataset.explosion = "1";
+            span.style.cssText = `position:fixed;left:${r.left}px;top:${r.top}px;font-family:'Arial Black',Arial,sans-serif;font-weight:900;font-size:${bioFs}px;text-transform:uppercase;color:white;white-space:nowrap;pointer-events:none;z-index:10;transform-origin:center center;`;
+            span.dataset.sticky = "1"; // маркер для управления opacity
+            document.body.appendChild(span);
+            wordPhysRef.current.push({
+              el: span, x: lx, y: ly,
+              vx: (dx / dist) * 800 + (Math.random() - 0.5) * 600,
+              vy: (dy / dist) * 800 + (Math.random() - 0.5) * 600,
+              ang: 0, rotSpeed: (Math.random() - 0.5) * 3,
+            });
+          } else {
+            // 70% улетают через overlay
+            span.dataset.explosion = "1";
+            span.style.cssText = `position:fixed;left:${r.left}px;top:${r.top}px;font-family:'Arial Black',Arial,sans-serif;font-weight:900;font-size:${bioFs}px;text-transform:uppercase;color:white;white-space:nowrap;pointer-events:none;z-index:10;transform-origin:center center;`;
+            overlay.appendChild(span);
+            const force = 2000 + Math.random() * 2500;
+            letters.push({
+              el: span, x: lx, y: ly,
+              vx: (dx / dist) * force + (Math.random() - 0.5) * 1200,
+              vy: (dy / dist) * force + (Math.random() - 0.5) * 1200,
+              a: 0, rs: (Math.random() - 0.5) * 12
+            });
+          }
+        });
+        document.body.removeChild(bioMeasure);
+        bioEl.style.opacity = "0";
+      }
 
       // Анимация — чистый rAF, без зависимостей
       let last = performance.now();
@@ -1789,6 +1922,16 @@ export default function Home() {
   const applyAnimations = (scrollY: number, deltaY = 0) => {
     const unit = scrollY / SCROLL_PER_UNIT;
     setPinkOpacity(Math.max(0, 1 - Math.max(0, (unit - 0.8) / 0.4)));
+    // Слова исчезают вместе с кубиками
+    // Удаляем все слова-взрыва из DOM при любом скролле
+    if (unit > 0.5 && wordPhysRef.current.length > 0) {
+      wordPhysRef.current.forEach(wp => { try { wp.el.remove(); } catch (e) { } });
+      wordPhysRef.current = [];
+      document.querySelectorAll('[data-explosion]').forEach(el => { try { el.remove(); } catch (e) { } });
+    } else {
+      const wordOp = Math.max(0, 1 - Math.max(0, (unit - 0.3) / 0.3));
+      wordPhysRef.current.forEach(wp => { wp.el.style.opacity = String(wordOp); });
+    }
     if (iDoDesignRef.current && !textPhysRef.current.active) {
       // Едет вместе со страницей при скролле, виден сразу при загрузке
       let ty: number;
@@ -1813,9 +1956,11 @@ export default function Home() {
     if (deltaY > 0 && unit < 0.9) {
       physState.current.forEach(s => { if (!s.initialized) return; s.vy -= Math.min(deltaY * 18, 900); s.rotSpeed += (Math.random() - 0.5) * 4; });
       if (textPhysRef.current.active) { textPhysRef.current.vy -= Math.min(deltaY * 18, 900); }
+      wordPhysRef.current.forEach(wp => { wp.vy -= Math.min(deltaY * 18, 900); wp.rotSpeed += (Math.random() - 0.5) * 4; });
     } else if (deltaY < 0 && unit < 0.9) {
       physState.current.forEach(s => { if (!s.initialized) return; s.vy += Math.min(Math.abs(deltaY) * 18, 900); s.rotSpeed += (Math.random() - 0.5) * 4; });
       if (textPhysRef.current.active) { textPhysRef.current.vy += Math.min(Math.abs(deltaY) * 18, 900); }
+      wordPhysRef.current.forEach(wp => { wp.vy += Math.min(Math.abs(deltaY) * 18, 900); wp.rotSpeed += (Math.random() - 0.5) * 4; });
     }
     const vw = window.innerWidth, rw = getRowWidth();
     trackRefs.current.forEach((track, i) => {
