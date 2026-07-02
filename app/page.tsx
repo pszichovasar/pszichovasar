@@ -1530,7 +1530,7 @@ export default function Home() {
         } else if (el) {
           el.style.left = `${p.x - hw}px`;
           el.style.top = `${p.y - hh}px`;
-          el.style.transform = `rotate(${p.angle}rad)`;
+          el.style.transform = "none";
           // Коллизии с кубиками (AABB)
           for (let i = 0; i < IMG_COUNT; i++) {
             const s = states[i]; if (!s.initialized) continue;
@@ -1694,34 +1694,83 @@ export default function Home() {
   // Через 20 секунд текстовый блок становится большим кубиком с той же физикой
   useEffect(() => {
     textFallTimerRef.current = setTimeout(() => {
-      const el = iDoDesignRef.current;
-      if (!el) return;
-      const rect = el.getBoundingClientRect();
-      const p = textPhysRef.current;
-      p.x = rect.left + rect.width / 2;
-      p.y = rect.top + rect.height / 2;
-      p.vx = 0; p.vy = 0; p.angle = 0; p.rotSpeed = 0;
-      // Сохраняем размеры блока
-      (p as any).w = rect.width;
-      (p as any).h = rect.height;
-      p.active = true;
-      // Переключаем на fixed — отрываемся от документа
-      el.style.position = "fixed";
-      el.style.left = `${rect.left}px`;
-      el.style.top = `${rect.top}px`;
-      el.style.width = `${rect.width}px`;
-      el.style.height = `${rect.height}px`;
-      el.style.transform = "rotate(0rad)";
-      el.style.inset = "auto";
-      el.style.display = "flex";
-      el.style.alignItems = "center";
-      el.style.justifyContent = "center";
-      el.style.zIndex = "6";
-    }, 20000);
+      // Берём позицию и размер текста "I DO DESIGN"
+      const titleEl = iDoDesignTextRef.current;
+      if (!titleEl) return;
+      const titleRect = titleEl.getBoundingClientRect();
+
+      // Текст для взрыва — "I DO DESIGN"
+      const text = "I DO DESIGN";
+      const fs = parseFloat(getComputedStyle(titleEl).fontSize) || 48;
+      const overlay = document.getElementById("explosion-overlay");
+      if (!overlay) return;
+
+      // Создаём span для каждой буквы прямо в overlay
+      type LP = { el: HTMLSpanElement; x: number; y: number; vx: number; vy: number; a: number; rs: number };
+      const letters: LP[] = [];
+      const cx = titleRect.left + titleRect.width / 2;
+      const cy = titleRect.top + titleRect.height / 2;
+
+      // Временно рендерим буквы чтобы узнать их позиции
+      const measure = document.createElement("div");
+      measure.style.cssText = `position:fixed;top:${titleRect.top}px;left:${titleRect.left}px;font-family:'Arial Black',Arial,sans-serif;font-weight:900;font-size:${fs}px;letter-spacing:-0.04em;white-space:nowrap;visibility:hidden;pointer-events:none;z-index:-1;`;
+      document.body.appendChild(measure);
+
+      let curX = titleRect.left;
+      text.split("").forEach((ch, i) => {
+        const tmp = document.createElement("span");
+        tmp.textContent = ch === " " ? " " : ch;
+        measure.appendChild(tmp);
+        const r = tmp.getBoundingClientRect();
+
+        const span = document.createElement("span");
+        span.textContent = ch === " " ? " " : ch;
+        span.style.cssText = `position:fixed;left:${r.left}px;top:${r.top}px;font-family:'Arial Black',Arial,sans-serif;font-weight:900;font-size:${fs}px;letter-spacing:-0.04em;color:white;white-space:nowrap;pointer-events:none;z-index:10;transform-origin:center center;`;
+        overlay.appendChild(span);
+
+        const lx = r.left + r.width / 2, ly = r.top + r.height / 2;
+        const dx = lx - cx, dy = ly - cy;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        const force = 400 + Math.random() * 1200;
+        letters.push({
+          el: span, x: lx, y: ly,
+          vx: (dx / dist) * force + (Math.random() - 0.5) * 500,
+          vy: (dy / dist) * force + (Math.random() - 0.5) * 500,
+          a: 0, rs: (Math.random() - 0.5) * 18
+        });
+      });
+      document.body.removeChild(measure);
+
+      // Скрываем оригинальный текст
+      if (iDoDesignTextRef.current) iDoDesignTextRef.current.style.opacity = "0";
+
+      // Анимация — чистый rAF, без зависимостей
+      let last = performance.now();
+      const step = (now: number) => {
+        const dt = Math.min((now - last) / 1000, 0.05); last = now;
+        let alive = false;
+        letters.forEach(L => {
+          L.vx *= 0.97; L.vy *= 0.97;
+          L.x += L.vx * dt; L.y += L.vy * dt;
+          L.a += L.rs * dt; L.rs *= 0.98;
+          const W = window.innerWidth, H = window.innerHeight;
+          if (L.x < -50 || L.x > W + 50 || L.y < -50 || L.y > H + 50) {
+            L.el.style.display = "none"; return;
+          }
+          alive = true;
+          L.el.style.left = `${L.x}px`;
+          L.el.style.top = `${L.y}px`;
+          L.el.style.transform = `translate(-50%,-50%) rotate(${L.a}rad)`;
+        });
+        if (alive) requestAnimationFrame(step);
+        else overlay.innerHTML = "";
+      };
+      requestAnimationFrame(step);
+      textPhysRef.current.active = true;
+    }, 5000);
 
     return () => {
       if (textFallTimerRef.current) clearTimeout(textFallTimerRef.current);
-      cancelAnimationFrame(textRafRef.current);
     };
   }, []);
   const thumbContainerRef = useRef<HTMLDivElement>(null);
@@ -2011,43 +2060,19 @@ export default function Home() {
         </div>
 
         {/* I DO DESIGN + биография */}
-        <div ref={iDoDesignRef} style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 5, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", pointerEvents: "none", willChange: "transform,opacity" }}>
-          {/* Весь блок с размытым фоном */}
+        <div ref={iDoDesignRef} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", zIndex: 5, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", pointerEvents: "none", willChange: "transform,opacity" }}>
           <div style={{ position: "relative", display: "inline-flex", flexDirection: "column", alignItems: "center" }}>
-            {/* Заголовок по центру */}
-            <div ref={iDoDesignTextRef} style={{
-              position: "relative",
-              fontFamily: "'Arial Black',Arial,sans-serif",
-              fontWeight: 900,
-              fontSize: "clamp(14px,3.5vw,48px)",
-              letterSpacing: "-0.04em",
-              color: "white",
-              lineHeight: 0.95,
-              whiteSpace: "nowrap",
-              textAlign: "center",
-            }}>
+            <div ref={iDoDesignTextRef} style={{ position: "relative", fontFamily: "'Arial Black',Arial,sans-serif", fontWeight: 900, fontSize: "clamp(14px,3.5vw,48px)", letterSpacing: "-0.04em", color: "white", lineHeight: 0.95, whiteSpace: "nowrap", textAlign: "center" }}>
               I DO DESIGN
             </div>
-            {/* Текст биографии */}
-            <div ref={bioTextRef} style={{
-              position: "relative",
-              fontFamily: "'Arial Black',Arial,sans-serif",
-              fontWeight: 900,
-              fontSize: "clamp(5px,0.925vw,13px)",
-              color: "white",
-              lineHeight: 1.2,
-              marginTop: "0.4em",
-              textAlign: "justify",
-              textAlignLast: "left",
-              textTransform: "uppercase",
-              letterSpacing: "0em",
-              wordSpacing: "0em",
-              hyphens: "auto" as const,
-            }}>
+            <div ref={bioTextRef} style={{ position: "relative", fontFamily: "'Arial Black',Arial,sans-serif", fontWeight: 900, fontSize: "clamp(5px,0.925vw,13px)", color: "white", lineHeight: 1.2, marginTop: "0.4em", textAlign: "justify", textAlignLast: "left", textTransform: "uppercase", letterSpacing: "0em", wordSpacing: "0em", hyphens: "auto" as const }}>
               Hi! My name is Artem. I&apos;m here to create unique illustrations and visual design for any of your creative needs. I work across illustration, 3D design, video editing, visual effects, concept art, motion design, cartoons, music, theatre, film, and stop-motion animation. I&apos;ve had a camera in my hands for as long as I can remember — since I was around 5 years old. Creating visuals and telling stories has always been a natural part of my life. I&apos;m a truly dedicated artist who lives through creativity, visual expression, and filmmaking. Every project is an opportunity to build something original, memorable, and crafted with attention to detail. Don&apos;t hesitate to contact me — I&apos;ll bring your ideas to life and deliver unique, high-quality work with the dedication and professionalism of someone who genuinely loves what&nbsp;they&nbsp;create.
             </div>
           </div>
         </div>
+
+        {/* Explosion overlay — полностью изолированный */}
+        <div id="explosion-overlay" style={{ position: "fixed", inset: 0, zIndex: 10, pointerEvents: "none" }} />
 
         <video ref={videoRef} src={videoSrc} muted loop autoPlay playsInline
           style={{ position: "absolute", top: 0, left: 0, width: "100vw", height: "100vh", objectFit: "cover", zIndex: 0, opacity: 0 }} />
