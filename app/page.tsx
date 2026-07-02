@@ -100,72 +100,85 @@ function buildColoredMosaic(
   minX: number, minY: number,
   cropW: number, cropH: number
 ): string | null {
-  const SIZE = 280;
-  const scale = Math.min(SIZE / Math.max(cropW, cropH, 1), 3);
+  const SIZE = 400;
+  const scale = Math.min(SIZE / Math.max(cropW, cropH, 1), 4);
   const w = Math.max(4, Math.round(cropW * scale));
   const h = Math.max(4, Math.round(cropH * scale));
 
-  // 16 ярких цветов по всему спектру — явные RGB без HSL багов
   const ALL: [number, number, number][] = [
     [255, 0, 60], [255, 80, 0], [255, 200, 0], [180, 255, 0],
     [0, 255, 80], [0, 255, 220], [0, 140, 255], [80, 0, 255],
     [200, 0, 255], [255, 0, 180], [255, 120, 120], [120, 255, 120],
     [120, 120, 255], [255, 220, 100], [100, 255, 220], [220, 100, 255],
   ];
-  // Случайное перемешивание → каждый узор уникален
   const COLORS = [...ALL].sort(() => Math.random() - 0.5);
 
   const canvas = document.createElement("canvas");
   canvas.width = w; canvas.height = h;
   const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
 
-  // Fallback — нет трейлов
   if (!trails.length || trails.every(t => t.length < 2)) {
-    const [r, g, b] = COLORS[0];
-    ctx.fillStyle = `rgb(${r},${g},${b})`;
+    ctx.fillStyle = `rgb(${COLORS[0].join(',')})`;
     ctx.fillRect(0, 0, w, h);
     return canvas.toDataURL("image/png");
   }
 
-  // Тёмный фон (не чёрный, не белый — почти чёрный чтобы isLine работал)
-  ctx.fillStyle = "#000";
+  ctx.fillStyle = "#111";
   ctx.fillRect(0, 0, w, h);
 
-  // Разделители — тёмно-серые (не белые!) чтобы flood-fill их видел как границы
-  ctx.strokeStyle = "#404040";
-  ctx.lineWidth = Math.max(2, Math.round(2 * scale));
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  trails.forEach(trail => {
-    if (trail.length < 2) return;
-    ctx.beginPath();
-    ctx.moveTo((trail[0].x - minX) * scale, (trail[0].y - minY) * scale);
-    for (let j = 1; j < trail.length; j++) {
-      ctx.lineTo((trail[j].x - minX) * scale, (trail[j].y - minY) * scale);
-    }
-    ctx.stroke();
-  });
+  // Рисуем разделители с учётом NaN разрывов и quadratic curves
+  const drawTrails = (strokeColor: string, lineW: number) => {
+    ctx.strokeStyle = strokeColor;
+    ctx.lineWidth = lineW;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    trails.forEach(trail => {
+      if (trail.length < 2) return;
+      ctx.beginPath();
+      let penDown = false;
+      let prevX = 0, prevY = 0;
+      for (let j = 0; j < trail.length; j++) {
+        const p = trail[j];
+        if (isNaN(p.x)) {
+          if (penDown) { ctx.stroke(); ctx.beginPath(); penDown = false; }
+          continue;
+        }
+        const sx = (p.x - minX) * scale;
+        const sy = (p.y - minY) * scale;
+        if (!penDown) {
+          ctx.moveTo(sx, sy);
+          prevX = sx; prevY = sy;
+          penDown = true;
+        } else {
+          const mx = (prevX + sx) / 2;
+          const my = (prevY + sy) / 2;
+          ctx.quadraticCurveTo(prevX, prevY, mx, my);
+          prevX = sx; prevY = sy;
+        }
+      }
+      if (penDown) ctx.stroke();
+    });
+  };
+
+  // Толстые серые разделители для flood-fill
+  drawTrails("#505050", Math.max(2.5, 2.5 * scale));
 
   const imgData = ctx.getImageData(0, 0, w, h);
   const data = imgData.data;
   const n = w * h;
-
-  // Граница = пиксель достаточно серый (R > 40)
-  const isBorder = (i: number) => data[i * 4] > 25;
+  const isBorder = (i: number) => data[i * 4] > 30;
   const visited = new Uint8Array(n);
   const queue = new Int32Array(n);
   const recentColors: number[] = [];
 
   for (let start = 0; start < n; start++) {
     if (visited[start] || isBorder(start)) continue;
-    // Выбираем случайный цвет, исключая последние 4 использованных
     let ci = Math.floor(Math.random() * COLORS.length);
     for (let attempt = 0; attempt < 8; attempt++) {
       if (!recentColors.includes(ci)) break;
       ci = Math.floor(Math.random() * COLORS.length);
     }
-    recentColors.push(ci);
-    if (recentColors.length > 4) recentColors.shift();
+    recentColors.push(ci); if (recentColors.length > 4) recentColors.shift();
     const [cr, cg, cb] = COLORS[ci];
     let qH = 0, qT = 0;
     queue[qT++] = start; visited[start] = 1;
@@ -183,27 +196,8 @@ function buildColoredMosaic(
 
   ctx.putImageData(imgData, 0, 0);
 
-  // Закрашиваем края canvas чёрным чтобы убрать артефакты заливки
-  ctx.fillStyle = "#000";
-  ctx.fillRect(0, 0, w, 3);
-  ctx.fillRect(0, h - 3, w, 3);
-  ctx.fillRect(0, 0, 3, h);
-  ctx.fillRect(w - 3, 0, 3, h);
-
-  // Тонкие чёрные линии поверх — аккуратный контур витража
-  ctx.strokeStyle = "#000";
-  ctx.lineWidth = Math.max(0.5, 0.4 * scale);
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  trails.forEach(trail => {
-    if (trail.length < 2) return;
-    ctx.beginPath();
-    ctx.moveTo((trail[0].x - minX) * scale, (trail[0].y - minY) * scale);
-    for (let j = 1; j < trail.length; j++) {
-      ctx.lineTo((trail[j].x - minX) * scale, (trail[j].y - minY) * scale);
-    }
-    ctx.stroke();
-  });
+  // Тонкие чёрные линии поверх — точный контур
+  drawTrails("#000", Math.max(0.8, 0.8 * scale));
 
   return canvas.toDataURL("image/png");
 }
@@ -628,10 +622,10 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
         }
       }
 
-      const threshold = maxMag * 0.15;
+      const threshold = maxMag * 0.12;
       const strong = edgePts.filter(p => p.m > threshold);
       strong.sort((a, b) => b.m - a.m);
-      const top = strong.slice(0, 24000);
+      const top = strong.slice(0, 40000);
 
       console.log('[Artwork] cW:', cW, 'cH:', cH, 'strong:', strong.length, 'top:', top.length, 'maxMag:', maxMag.toFixed(0));
 
@@ -680,7 +674,7 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
           s.push(stroke[stroke.length - 1]);
           result.push(...s, { x: NaN, y: NaN });
         }
-        if (result.length > 40000) break;
+        if (result.length > 60000) break;
       }
 
       console.log('[Artwork] result pts:', result.length);
@@ -1507,6 +1501,43 @@ export default function Home() {
         }
       });
 
+      // Текстовый блок — тот же физический объект только большой, включается через 20 сек
+      if (textPhysRef.current.active) {
+        const p = textPhysRef.current;
+        const el = iDoDesignRef.current;
+        const TW = el ? el.offsetWidth : 300;
+        const TH = el ? el.offsetHeight : 150;
+        // Та же физика что и кубики
+        p.vx += gyroRef.current.gx * dt; p.vy += gyroRef.current.gy * dt;
+        p.vx *= 0.94; p.vy *= 0.94; // меньше инертность чем у кубиков (0.988)
+        const tsp = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
+        if (tsp > MAX_SPEED) { p.vx = p.vx / tsp * MAX_SPEED; p.vy = p.vy / tsp * MAX_SPEED; }
+        p.rotSpeed *= 0.96; // вращение затухает чуть медленнее
+        p.x += p.vx * dt; p.y += p.vy * dt;
+        p.angle += p.rotSpeed * dt;
+        // Границы экрана — исчезает (не отбивается как кубики)
+        const hw = TW / 2, hh = TH / 2;
+        if (p.x + hw < 0 || p.x - hw > W || p.y + hh < 0 || p.y - hh > H) {
+          p.active = false;
+          if (el) { el.style.display = "none"; }
+        } else if (el) {
+          el.style.left = `${p.x - hw}px`;
+          el.style.top = `${p.y - hh}px`;
+          el.style.transform = `rotate(${p.angle}rad)`;
+          // Коллизии с кубиками (AABB)
+          for (let i = 0; i < IMG_COUNT; i++) {
+            const s = states[i]; if (!s.initialized) continue;
+            if (s.x < p.x - hw || s.x > p.x + hw || s.y < p.y - hh || s.y > p.y + hh) continue;
+            const dL = s.x - (p.x - hw), dR = (p.x + hw) - s.x, dT = s.y - (p.y - hh), dB = (p.y + hh) - s.y;
+            const md = Math.min(dL, dR, dT, dB); let nx = 0, ny = 0;
+            if (md === dL) nx = -1; else if (md === dR) nx = 1; else if (md === dT) ny = -1; else ny = 1;
+            s.x += nx * (md + 0.5); s.y += ny * (md + 0.5);
+            const vn = (s.vx - p.vx) * nx + (s.vy - p.vy) * ny;
+            if (vn < 0) { const imp = -(1 + BOUNCE) * vn / 2; s.vx += imp * nx; s.vy += imp * ny; p.vx -= imp * nx * 0.08; p.vy -= imp * ny * 0.08; p.rotSpeed += (nx * imp - ny * imp) * 0.002; }
+          }
+        }
+      }
+
       // Коллизия с "I DO DESIGN" swept AABB
       const textEl = iDoDesignTextRef.current;
       if (textEl) {
@@ -1563,61 +1594,7 @@ export default function Home() {
         prevBioRectRef.current = vis ? r : null;
       }
 
-      // Текстовый блок как большой кубик — та же физика
-      if (textPhysRef.current.active) {
-        const el = iDoDesignRef.current;
-        if (el) {
-          const p = textPhysRef.current;
-          const hw = el.offsetWidth / 2 || 150;
-          const hh = el.offsetHeight / 2 || 80;
 
-          // Та же физика что у кубиков
-          p.vx *= DAMPING; p.vy *= DAMPING;
-          if (Math.abs(p.vx) > MAX_SPEED) p.vx = Math.sign(p.vx) * MAX_SPEED;
-          if (Math.abs(p.vy) > MAX_SPEED) p.vy = Math.sign(p.vy) * MAX_SPEED;
-          p.x += p.vx * dt;
-          p.y += p.vy * dt;
-          p.rotSpeed *= ROT_DAMPING;
-          p.angle += p.rotSpeed * dt;
-
-          // Исчезает если вышел за экран
-          if (p.x + hw < 0 || p.x - hw > W || p.y + hh < 0 || p.y - hh > H) {
-            el.style.opacity = "0";
-            el.style.display = "none";
-            p.active = false;
-          } else {
-            el.style.left = `${p.x}px`;
-            el.style.top = `${p.y}px`;
-            el.style.transform = `rotate(${p.angle}rad) translate(-50%, -50%)`;
-
-            // Коллизии с кубиками — взаимное отталкивание
-            for (let i = 0; i < IMG_COUNT; i++) {
-              const s = states[i]; if (!s.initialized) continue;
-              // AABB коллизия (упрощённая — текст прямоугольный)
-              if (s.x < p.x - hw || s.x > p.x + hw || s.y < p.y - hh || s.y > p.y + hh) continue;
-              const dL = s.x - (p.x - hw), dR = (p.x + hw) - s.x;
-              const dT = s.y - (p.y - hh), dB = (p.y + hh) - s.y;
-              const minD = Math.min(dL, dR, dT, dB);
-              let nx = 0, ny = 0;
-              if (minD === dL) nx = -1; else if (minD === dR) nx = 1;
-              else if (minD === dT) ny = -1; else ny = 1;
-              s.x += nx * (minD + 0.5); s.y += ny * (minD + 0.5);
-              const vn = (s.vx - p.vx) * nx + (s.vy - p.vy) * ny;
-              if (vn < 0) {
-                const imp = vn * (1 + BOUNCE);
-                // Кубик отскакивает
-                s.vx -= imp * nx;
-                s.vy -= imp * ny;
-                // Текст получает обратный импульс (пропорционально размеру)
-                const mass = 0.05;
-                p.vx += imp * nx * mass;
-                p.vy += imp * ny * mass;
-                p.rotSpeed += (nx * imp * 0.001);
-              }
-            }
-          }
-        }
-      }
       const trailCanvas = trailCanvasRef.current;
       if (trailCanvas && !autoDrawActiveRef.current) {
         const ctx = trailCanvas.getContext("2d");
@@ -1711,37 +1688,25 @@ export default function Home() {
   useEffect(() => {
     textFallTimerRef.current = setTimeout(() => {
       const el = iDoDesignRef.current;
-      console.log('[TextPhysics] Timer fired, el:', el, 'iDoDesignRef:', iDoDesignRef.current);
       if (!el) return;
-
-      // Сначала делаем элемент видимым чтобы получить правильные размеры
+      const rect = el.getBoundingClientRect();
+      const p = textPhysRef.current;
+      p.x = rect.left + rect.width / 2;
+      p.y = rect.top + rect.height / 2;
+      p.vx = 0; p.vy = 0; p.angle = 0; p.rotSpeed = 0;
+      p.active = true;
+      // Переключаем на fixed — отрываемся от документа
       el.style.position = "fixed";
+      el.style.left = `${rect.left}px`;
+      el.style.top = `${rect.top}px`;
+      el.style.width = `${rect.width}px`;
+      el.style.height = `${rect.height}px`;
+      el.style.transform = "rotate(0rad)";
       el.style.inset = "auto";
-      el.style.transform = "translate(-50%, -50%)";
-      el.style.left = "50%";
-      el.style.top = "50%";
-      el.style.opacity = "1";
+      el.style.display = "flex";
+      el.style.alignItems = "center";
+      el.style.justifyContent = "center";
       el.style.zIndex = "6";
-      el.style.pointerEvents = "none";
-
-      // Читаем размеры после применения стилей
-      requestAnimationFrame(() => {
-        const rect = el.getBoundingClientRect();
-        console.log('[TextPhysics] rect:', rect.left, rect.top, rect.width, rect.height);
-        const phys = textPhysRef.current;
-        phys.x = rect.left + rect.width / 2;
-        phys.y = rect.top + rect.height / 2;
-        phys.vx = 0;
-        phys.vy = 0;
-        phys.angle = 0;
-        phys.rotSpeed = 0;
-        phys.active = true;
-        // Ставим точную позицию
-        el.style.left = `${phys.x}px`;
-        el.style.top = `${phys.y}px`;
-        el.style.transform = `rotate(0deg) translate(-50%, -50%)`;
-        console.log('[TextPhysics] activated at', phys.x, phys.y);
-      });
     }, 20000);
 
     return () => {
@@ -2031,7 +1996,7 @@ export default function Home() {
         </div>
 
         {/* I DO DESIGN + биография */}
-        <div ref={iDoDesignRef} style={{ position: "absolute", inset: 0, zIndex: 5, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", pointerEvents: "none", willChange: "transform,opacity" }}>
+        <div ref={iDoDesignRef} style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 5, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", pointerEvents: "none", willChange: "transform,opacity" }}>
           {/* Весь блок с размытым фоном */}
           <div style={{ position: "relative", display: "inline-flex", flexDirection: "column", alignItems: "center" }}>
             {/* Заголовок по центру */}
