@@ -1299,12 +1299,13 @@ export default function Home() {
     const activeRef = { current: true };
     let artworkIdx = 0;
     // Предзагружаем все картины сразу — чтобы в runPhase3 не было async задержки
-    const preloadedArtworks: ({ x: number; y: number }[])[] = [];
-    Promise.all(ARTWORKS.map(url =>
-      generateArtworkPoints(url, window.innerWidth, window.innerHeight)
-    )).then(results => {
-      preloadedArtworks.push(...results);
-      console.log("Artworks preloaded:", results.map(r => r.length));
+    const preloadedArtworks: ({ x: number; y: number }[])[] = new Array(ARTWORKS.length).fill(null);
+    // Грузим по одной — не блокируем друг друга
+    ARTWORKS.forEach((url, i) => {
+      generateArtworkPoints(url, window.innerWidth, window.innerHeight).then(pts => {
+        preloadedArtworks[i] = pts;
+        console.log(`Artwork ${i} (${url}) loaded:`, pts.length, 'pts');
+      }).catch(e => console.error(`Artwork ${i} failed:`, e));
     });
 
     // Общая функция отрисовки любого набора точек → мозаика → следующая фаза
