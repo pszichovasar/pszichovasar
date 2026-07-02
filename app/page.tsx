@@ -1514,6 +1514,7 @@ export default function Home() {
       if (textPhysRef.current.active) {
         const p = textPhysRef.current;
         const el = iDoDesignRef.current;
+        if (!el) return;
         const TW = (p as any).w || el.offsetWidth || 300;
         const TH = (p as any).h || el.offsetHeight || 150;
         // Та же физика что и кубики
