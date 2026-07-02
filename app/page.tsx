@@ -622,10 +622,10 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
         }
       }
 
-      const threshold = maxMag * 0.12;
+      const threshold = maxMag * 0.10;
       const strong = edgePts.filter(p => p.m > threshold);
       strong.sort((a, b) => b.m - a.m);
-      const top = strong.slice(0, 40000);
+      const top = strong.slice(0, 80000);
 
       console.log('[Artwork] cW:', cW, 'cH:', cH, 'strong:', strong.length, 'top:', top.length, 'maxMag:', maxMag.toFixed(0));
 
@@ -674,7 +674,7 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
           s.push(stroke[stroke.length - 1]);
           result.push(...s, { x: NaN, y: NaN });
         }
-        if (result.length > 60000) break;
+        if (result.length > 120000) break;
       }
 
       console.log('[Artwork] result pts:', result.length);
@@ -686,7 +686,7 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
 }
 
 
-const ARTWORKS = ["/art1.png", "/art2.png", "/art3.png", "/art4.png"];
+const ARTWORKS = ["/art1.png", "/art2.png", "/art3.png", "/art4.png", "/art5.png", "/art6.png", "/art7.png", "/art8.png", "/art9.png", "/art10.png"];
 
 // Спираль на торе — линия обвивает бублик p раз по большому кругу и q по малому
 function makeTorusSpiral(R: number, r: number, p: number, q: number): { x: number, y: number, z: number }[] {
@@ -890,13 +890,21 @@ function generate3DShapePoints(
   const shapeType = Math.floor(rng() * 18); // 16 типов
 
   // Непрерывные кривые — проецируем напрямую
-  const pad = Math.min(W, H) * 0.08;
-  const clamp = (pts: { x: number, y: number }[]) => pts.map(p => ({
-    x: isNaN(p.x) ? p.x : Math.max(pad, Math.min(W - pad, p.x)),
-    y: isNaN(p.y) ? p.y : Math.max(pad, Math.min(H - pad, p.y)),
-  }));
+  // Автоматически масштабирует и центрирует точки по экрану
+  const fitToScreen = (pts: { x: number, y: number }[]) => {
+    const valid = pts.filter(p => !isNaN(p.x));
+    if (valid.length === 0) return pts;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    valid.forEach(p => { if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x; if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y; });
+    const fw = maxX - minX || 1, fh = maxY - minY || 1;
+    const scale = Math.min(W / fw, H / fh);
+    const ox = cx - (minX + fw / 2) * scale;
+    const oy = cy - (minY + fh / 2) * scale;
+    return pts.map(p => isNaN(p.x) ? p : { x: p.x * scale + ox, y: p.y * scale + oy });
+  };
+
   const scaleAndProject = (pts3d: { x: number, y: number, z: number }[], sc: number) =>
-    clamp(project3DPoints(pts3d.filter(p => !isNaN(p.x)), rotX, rotY, sc, cx, cy));
+    fitToScreen(project3DPoints(pts3d.filter(p => !isNaN(p.x)), rotX, rotY, sc, cx, cy));
 
   const withNaN = (pts3d: { x: number, y: number, z: number }[], sc: number) => {
     const result: { x: number, y: number }[] = [];
@@ -911,17 +919,17 @@ function generate3DShapePoints(
         result.push({ x: cx + x1 * sc * fov, y: cy + y1 * sc * fov });
       }
     }
-    return result;
+    return fitToScreen(result);
   };
 
   if (shapeType === 0) return scaleAndProject(makeLorenzAttractor(), Math.min(W, H) * 0.005);
   if (shapeType === 1) return scaleAndProject(makeDNAHelix(), Math.min(W, H) * 0.18);
-  if (shapeType === 2) return scaleAndProject(makeTorusKnot(3, 2), Math.min(W, H) * 0.09);
+  if (shapeType === 2) return scaleAndProject(makeTorusKnot(4, 3), Math.min(W, H) * 0.09);
   if (shapeType === 3) return scaleAndProject(makeTorusKnot(5, 3), Math.min(W, H) * 0.09);
   if (shapeType === 4) return scaleAndProject(makeTorusKnot(7, 4), Math.min(W, H) * 0.13);
   if (shapeType === 5) return scaleAndProject(makeLissajous3D(3, 4, 5, rng() * Math.PI), Math.min(W, H) * 0.20);
   if (shapeType === 6) return scaleAndProject(makeLissajous3D(5, 7, 8, rng() * Math.PI), Math.min(W, H) * 0.19);
-  if (shapeType === 7) return scaleAndProject(makeFibonacciSpiral(), Math.min(W, H) * 0.15);
+  if (shapeType === 7) return scaleAndProject(makeLissajous3D(2, 3, 7, rng() * Math.PI), Math.min(W, H) * 0.19);
   if (shapeType === 8) return withNaN(makeKleinBottle(), Math.min(W, H) * 0.04);
   if (shapeType === 9) return withNaN(makeBoysSurface(), Math.min(W, H) * 0.09);
   if (shapeType === 10) return scaleAndProject(makeThomasAttractor(), Math.min(W, H) * 0.18);
@@ -930,9 +938,9 @@ function generate3DShapePoints(
   if (shapeType === 13) return withNaN(makeTorusSpiral(1.5, 0.5, 7, 13).map(p => ({ ...p, z: isNaN(p.x) ? NaN : p.z })), Math.min(W, H) * 0.15);
 
   // 4D политопы
-  if (shapeType === 14) return makeBrandPoints(Math.floor(rng() * 10), W, H);
-  if (shapeType === 15) return makeBrandPoints(Math.floor(rng() * 10), W, H);
-  if (shapeType === 16) return makeBrandPoints(Math.floor(rng() * 10), W, H);
+  if (shapeType === 14) return fitToScreen(makeBrandPoints(Math.floor(rng() * 10), W, H));
+  if (shapeType === 15) return fitToScreen(makeBrandPoints(Math.floor(rng() * 10), W, H));
+  if (shapeType === 16) return fitToScreen(makeBrandPoints(Math.floor(rng() * 10), W, H));
   const scale4D = Math.min(W, H) * 0.09;
   const rotXY = rng() * Math.PI * 2, rotXZ = rng() * Math.PI * 2, rotXW = rng() * Math.PI * 2;
   const polytopes = [makeTesseract, make16Cell, make24Cell];
@@ -1505,16 +1513,15 @@ export default function Home() {
       if (textPhysRef.current.active) {
         const p = textPhysRef.current;
         const el = iDoDesignRef.current;
-        const TW = el ? el.offsetWidth : 300;
-        const TH = el ? el.offsetHeight : 150;
+        const TW = (p as any).w || el.offsetWidth || 300;
+        const TH = (p as any).h || el.offsetHeight || 150;
         // Та же физика что и кубики
-        p.vx += gyroRef.current.gx * dt; p.vy += gyroRef.current.gy * dt;
-        p.vx *= 0.94; p.vy *= 0.94; // меньше инертность чем у кубиков (0.988)
+        // Чистая инерция — никаких внешних сил, только затухание
+        p.vx *= DAMPING; p.vy *= DAMPING;
         const tsp = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
         if (tsp > MAX_SPEED) { p.vx = p.vx / tsp * MAX_SPEED; p.vy = p.vy / tsp * MAX_SPEED; }
-        p.rotSpeed *= 0.96; // вращение затухает чуть медленнее
+        p.rotSpeed = 0; p.angle = 0;
         p.x += p.vx * dt; p.y += p.vy * dt;
-        p.angle += p.rotSpeed * dt;
         // Границы экрана — исчезает (не отбивается как кубики)
         const hw = TW / 2, hh = TH / 2;
         if (p.x + hw < 0 || p.x - hw > W || p.y + hh < 0 || p.y - hh > H) {
@@ -1533,7 +1540,7 @@ export default function Home() {
             if (md === dL) nx = -1; else if (md === dR) nx = 1; else if (md === dT) ny = -1; else ny = 1;
             s.x += nx * (md + 0.5); s.y += ny * (md + 0.5);
             const vn = (s.vx - p.vx) * nx + (s.vy - p.vy) * ny;
-            if (vn < 0) { const imp = -(1 + BOUNCE) * vn / 2; s.vx += imp * nx; s.vy += imp * ny; p.vx -= imp * nx * 0.08; p.vy -= imp * ny * 0.08; p.rotSpeed += (nx * imp - ny * imp) * 0.002; }
+            if (vn < 0) { const imp = -(1 + BOUNCE) * vn / 2; s.vx += imp * nx; s.vy += imp * ny; p.vx -= imp * nx * 0.08; p.vy -= imp * ny * 0.08; }
           }
         }
       }
@@ -1694,6 +1701,9 @@ export default function Home() {
       p.x = rect.left + rect.width / 2;
       p.y = rect.top + rect.height / 2;
       p.vx = 0; p.vy = 0; p.angle = 0; p.rotSpeed = 0;
+      // Сохраняем размеры блока
+      (p as any).w = rect.width;
+      (p as any).h = rect.height;
       p.active = true;
       // Переключаем на fixed — отрываемся от документа
       el.style.position = "fixed";
@@ -1751,8 +1761,13 @@ export default function Home() {
         thumbPatternRef.current.style.transform = `translateY(${ty2}vh)`;
       }
     }
-    if (deltaY > 0 && unit < 0.9) physState.current.forEach(s => { if (!s.initialized) return; s.vy -= Math.min(deltaY * 18, 900); s.rotSpeed += (Math.random() - 0.5) * 4; });
-    else if (deltaY < 0 && unit < 0.9) physState.current.forEach(s => { if (!s.initialized) return; s.vy += Math.min(Math.abs(deltaY) * 18, 900); s.rotSpeed += (Math.random() - 0.5) * 4; });
+    if (deltaY > 0 && unit < 0.9) {
+      physState.current.forEach(s => { if (!s.initialized) return; s.vy -= Math.min(deltaY * 18, 900); s.rotSpeed += (Math.random() - 0.5) * 4; });
+      if (textPhysRef.current.active) { textPhysRef.current.vy -= Math.min(deltaY * 18, 900); }
+    } else if (deltaY < 0 && unit < 0.9) {
+      physState.current.forEach(s => { if (!s.initialized) return; s.vy += Math.min(Math.abs(deltaY) * 18, 900); s.rotSpeed += (Math.random() - 0.5) * 4; });
+      if (textPhysRef.current.active) { textPhysRef.current.vy += Math.min(Math.abs(deltaY) * 18, 900); }
+    }
     const vw = window.innerWidth, rw = getRowWidth();
     trackRefs.current.forEach((track, i) => {
       if (!track) return;
