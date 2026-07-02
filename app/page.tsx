@@ -631,7 +631,7 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
       const threshold = maxMag * 0.15;
       const strong = edgePts.filter(p => p.m > threshold);
       strong.sort((a, b) => b.m - a.m);
-      const top = strong.slice(0, 8000);
+      const top = strong.slice(0, 24000);
 
       console.log('[Artwork] cW:', cW, 'cH:', cH, 'strong:', strong.length, 'top:', top.length, 'maxMag:', maxMag.toFixed(0));
 
@@ -680,7 +680,7 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
           s.push(stroke[stroke.length - 1]);
           result.push(...s, { x: NaN, y: NaN });
         }
-        if (result.length > 20000) break;
+        if (result.length > 40000) break;
       }
 
       console.log('[Artwork] result pts:', result.length);
@@ -1119,8 +1119,6 @@ export default function Home() {
 
   const iDoDesignTextRef = useRef<HTMLDivElement>(null);
   const bioTextRef = useRef<HTMLDivElement>(null);
-
-  // Синхронизируем ширину биографии с шириной заголовка
   useEffect(() => {
     const sync = () => {
       if (iDoDesignTextRef.current && bioTextRef.current) {
@@ -1193,11 +1191,62 @@ export default function Home() {
       if (ctx) ctx.clearRect(0, 0, c.width, c.height);
     };
 
-    const makeMosaic = (trails: { x: number, y: number }[][]) => {
+    const makeMosaicFromSnap = (pts: { x: number, y: number }[], snap: HTMLCanvasElement) => {
+      if (pts.length === 0) return;
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      pts.forEach(p => {
+        if (isNaN(p.x)) return;
+        if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+        if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
+      });
+      if (!isFinite(minX)) return;
+      const pad = 10;
+      minX = Math.max(0, minX - pad); minY = Math.max(0, minY - pad);
+      maxX += pad; maxY += pad;
+      const cropW = Math.max(1, maxX - minX);
+      const cropH = Math.max(1, maxY - minY);
+      const dpr = window.devicePixelRatio || 1;
+      // Thumbnail — снимок того что было нарисовано
+      const crop = document.createElement("canvas");
+      crop.width = Math.round(cropW * dpr);
+      crop.height = Math.round(cropH * dpr);
+      const ctx2 = crop.getContext("2d");
+      if (ctx2) ctx2.drawImage(snap, minX * dpr, minY * dpr, cropW * dpr, cropH * dpr, 0, 0, crop.width, crop.height);
+      const src = crop.toDataURL("image/png");
+      const W = window.innerWidth, H = window.innerHeight;
+      const tyPx = getCurrentTyPx();
+      const isMobile = W <= 768;
+      const DST_SIZE = isMobile ? 57 : 170;
+      const PAD = 16;
+      const findFreeSpot = (existing: Thumbnail[]) => {
+        for (let attempt = 0; attempt < 60; attempt++) {
+          const margin = 0.04;
+          const x = (margin + Math.random() * (1 - 2 * margin - DST_SIZE / W)) * W;
+          const y = (margin + Math.random() * (1 - 2 * margin - DST_SIZE / H)) * H - tyPx;
+          const ok = existing.every(t =>
+            x + DST_SIZE + PAD < t.dstX || x > t.dstX + DST_SIZE + PAD ||
+            y + DST_SIZE + PAD < t.dstY || y > t.dstY + DST_SIZE + PAD
+          );
+          if (ok) return { dstX: x, dstY: y };
+        }
+        return { dstX: (0.04 + Math.random() * 0.88) * W, dstY: (0.04 + Math.random() * 0.88) * H - tyPx };
+      };
+      thumbIdRef.current++;
+      const newId = thumbIdRef.current;
+      setThumbnails(prev => {
+        const { dstX, dstY } = findFreeSpot(prev);
+        return [...prev, { id: newId, src, srcX: minX, srcY: minY - tyPx, srcW: cropW, srcH: cropH, dstX, dstY, dstSize: DST_SIZE, offsetY: 0 }];
+      });
+      const mosaicSrc = buildColoredMosaic([pts], minX, minY, cropW, cropH);
+      if (mosaicSrc) setThumbnails(prev => prev.map(t => t.id === newId ? { ...t, src: mosaicSrc } : t));
+    };
+
+    const makeMosaic = (trails: { x: number, y: number }[][], _snap?: HTMLCanvasElement) => {
       const c = trailCanvasRef.current;
       if (!c || trails.length === 0) return;
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
       trails.forEach(t => t.forEach(p => {
+        if (isNaN(p.x)) return;
         if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
         if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
       }));
@@ -1265,9 +1314,6 @@ export default function Home() {
       const totalDuration = 10000;
       const startTime = performance.now();
       let idx = 0;
-      let lastX = pts[0]?.x ?? 0;
-      let lastY = pts[0]?.y ?? 0;
-      let pathOpen = false;
 
       const drawNext = () => {
         if (!activeRef.current || !autoDrawActiveRef.current) return;
@@ -1275,47 +1321,57 @@ export default function Home() {
         if (!c) return;
         const elapsed = performance.now() - startTime;
         const targetIdx = Math.min(Math.floor((elapsed / totalDuration) * pts.length), pts.length);
-        if (targetIdx > idx) {
-          const ctx = c.getContext("2d");
-          if (ctx) {
-            ctx.lineWidth = 1.5;
-            ctx.lineCap = "round";
-            ctx.lineJoin = "round";
-            ctx.strokeStyle = "rgba(255,255,255,0.92)";
 
-            for (let i = idx; i < targetIdx && i < pts.length; i++) {
-              const p = pts[i];
-              if (isNaN(p.x)) {
-                // Конец штриха — закрываем и сбрасываем
-                if (pathOpen) { ctx.stroke(); pathOpen = false; }
-              } else {
-                if (!pathOpen) {
-                  ctx.beginPath();
-                  ctx.moveTo(p.x, p.y);
-                  lastX = p.x; lastY = p.y;
-                  pathOpen = true;
-                } else {
-                  // Плавная кривая через среднюю точку
-                  const mx = (lastX + p.x) / 2;
-                  const my = (lastY + p.y) / 2;
-                  ctx.quadraticCurveTo(lastX, lastY, mx, my);
-                  lastX = p.x; lastY = p.y;
-                }
-              }
+        if (targetIdx > idx) {
+          const ctx = c.getContext("2d")!;
+          ctx.lineWidth = 1.5;
+          ctx.lineCap = "round";
+          ctx.lineJoin = "round";
+          ctx.strokeStyle = "rgba(255,255,255,0.92)";
+
+          // Рисуем новые точки плавно — каждый сегмент отдельный путь
+          for (let i = idx; i < targetIdx && i < pts.length; i++) {
+            const p = pts[i];
+            if (isNaN(p.x)) continue; // пропускаем разрывы
+            const prev = i > 0 ? pts[i - 1] : null;
+            if (!prev || isNaN(prev.x)) {
+              // Начало нового штриха
+              continue;
             }
-            // Не закрываем path — продолжим в следующем кадре
-            if (pathOpen) ctx.stroke();
+            // Рисуем отрезок от prev до p
+            ctx.beginPath();
+            ctx.moveTo(prev.x, prev.y);
+            const next = i + 1 < pts.length ? pts[i + 1] : null;
+            if (next && !isNaN(next.x)) {
+              // quadratic через текущую точку к середине следующего отрезка
+              const mx = (p.x + next.x) / 2;
+              const my = (p.y + next.y) / 2;
+              ctx.quadraticCurveTo(p.x, p.y, mx, my);
+            } else {
+              ctx.lineTo(p.x, p.y);
+            }
+            ctx.stroke();
           }
           idx = targetIdx;
         }
+
         if (idx < pts.length) {
           requestAnimationFrame(drawNext);
         } else {
           if (!activeRef.current) return;
           autoDrawActiveRef.current = false;
-          makeMosaic([pts]);
+          // Снимок canvas перед очисткой — для анимации thumbnail
+          const snap = document.createElement("canvas");
+          const sc = trailCanvasRef.current;
+          if (sc) {
+            snap.width = sc.width; snap.height = sc.height;
+            snap.getContext("2d")?.drawImage(sc, 0, 0);
+          }
+          // Очищаем canvas
           clearCanvas();
           physState.current.forEach(s => { s.trail = []; });
+          // Передаём снимок в makeMosaic чтобы thumbnail показал нарисованное
+          makeMosaicFromSnap(pts, snap);
           schedTimer = setTimeout(onDone, 100);
         }
       };
@@ -1507,7 +1563,61 @@ export default function Home() {
         prevBioRectRef.current = vis ? r : null;
       }
 
-      // Трейлы
+      // Текстовый блок как большой кубик — та же физика
+      if (textPhysRef.current.active) {
+        const el = iDoDesignRef.current;
+        if (el) {
+          const p = textPhysRef.current;
+          const hw = el.offsetWidth / 2 || 150;
+          const hh = el.offsetHeight / 2 || 80;
+
+          // Та же физика что у кубиков
+          p.vx *= DAMPING; p.vy *= DAMPING;
+          if (Math.abs(p.vx) > MAX_SPEED) p.vx = Math.sign(p.vx) * MAX_SPEED;
+          if (Math.abs(p.vy) > MAX_SPEED) p.vy = Math.sign(p.vy) * MAX_SPEED;
+          p.x += p.vx * dt;
+          p.y += p.vy * dt;
+          p.rotSpeed *= ROT_DAMPING;
+          p.angle += p.rotSpeed * dt;
+
+          // Исчезает если вышел за экран
+          if (p.x + hw < 0 || p.x - hw > W || p.y + hh < 0 || p.y - hh > H) {
+            el.style.opacity = "0";
+            el.style.display = "none";
+            p.active = false;
+          } else {
+            el.style.left = `${p.x}px`;
+            el.style.top = `${p.y}px`;
+            el.style.transform = `rotate(${p.angle}rad) translate(-50%, -50%)`;
+
+            // Коллизии с кубиками — взаимное отталкивание
+            for (let i = 0; i < IMG_COUNT; i++) {
+              const s = states[i]; if (!s.initialized) continue;
+              // AABB коллизия (упрощённая — текст прямоугольный)
+              if (s.x < p.x - hw || s.x > p.x + hw || s.y < p.y - hh || s.y > p.y + hh) continue;
+              const dL = s.x - (p.x - hw), dR = (p.x + hw) - s.x;
+              const dT = s.y - (p.y - hh), dB = (p.y + hh) - s.y;
+              const minD = Math.min(dL, dR, dT, dB);
+              let nx = 0, ny = 0;
+              if (minD === dL) nx = -1; else if (minD === dR) nx = 1;
+              else if (minD === dT) ny = -1; else ny = 1;
+              s.x += nx * (minD + 0.5); s.y += ny * (minD + 0.5);
+              const vn = (s.vx - p.vx) * nx + (s.vy - p.vy) * ny;
+              if (vn < 0) {
+                const imp = vn * (1 + BOUNCE);
+                // Кубик отскакивает
+                s.vx -= imp * nx;
+                s.vy -= imp * ny;
+                // Текст получает обратный импульс (пропорционально размеру)
+                const mass = 0.05;
+                p.vx += imp * nx * mass;
+                p.vy += imp * ny * mass;
+                p.rotSpeed += (nx * imp * 0.001);
+              }
+            }
+          }
+        }
+      }
       const trailCanvas = trailCanvasRef.current;
       if (trailCanvas && !autoDrawActiveRef.current) {
         const ctx = trailCanvas.getContext("2d");
@@ -1592,6 +1702,53 @@ export default function Home() {
   const getRowWidth = () => (calcTileSize() + GAP) * ALL_IMAGES.length + GAP;
 
   const iDoDesignRef = useRef<HTMLDivElement>(null);
+  // Физика текстового блока — объявляем ДО useEffect который их использует
+  const textPhysRef = useRef({ active: false, x: 0, y: 0, vx: 0, vy: 0, angle: 0, rotSpeed: 0 });
+  const textFallTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const textRafRef = useRef<number>(0);
+
+  // Через 20 секунд текстовый блок становится большим кубиком с той же физикой
+  useEffect(() => {
+    textFallTimerRef.current = setTimeout(() => {
+      const el = iDoDesignRef.current;
+      console.log('[TextPhysics] Timer fired, el:', el, 'iDoDesignRef:', iDoDesignRef.current);
+      if (!el) return;
+
+      // Сначала делаем элемент видимым чтобы получить правильные размеры
+      el.style.position = "fixed";
+      el.style.inset = "auto";
+      el.style.transform = "translate(-50%, -50%)";
+      el.style.left = "50%";
+      el.style.top = "50%";
+      el.style.opacity = "1";
+      el.style.zIndex = "6";
+      el.style.pointerEvents = "none";
+
+      // Читаем размеры после применения стилей
+      requestAnimationFrame(() => {
+        const rect = el.getBoundingClientRect();
+        console.log('[TextPhysics] rect:', rect.left, rect.top, rect.width, rect.height);
+        const phys = textPhysRef.current;
+        phys.x = rect.left + rect.width / 2;
+        phys.y = rect.top + rect.height / 2;
+        phys.vx = 0;
+        phys.vy = 0;
+        phys.angle = 0;
+        phys.rotSpeed = 0;
+        phys.active = true;
+        // Ставим точную позицию
+        el.style.left = `${phys.x}px`;
+        el.style.top = `${phys.y}px`;
+        el.style.transform = `rotate(0deg) translate(-50%, -50%)`;
+        console.log('[TextPhysics] activated at', phys.x, phys.y);
+      });
+    }, 20000);
+
+    return () => {
+      if (textFallTimerRef.current) clearTimeout(textFallTimerRef.current);
+      cancelAnimationFrame(textRafRef.current);
+    };
+  }, []);
   const thumbContainerRef = useRef<HTMLDivElement>(null);
   const thumbPatternRef = useRef<HTMLDivElement>(null);
 
@@ -1608,15 +1765,14 @@ export default function Home() {
   const applyAnimations = (scrollY: number, deltaY = 0) => {
     const unit = scrollY / SCROLL_PER_UNIT;
     setPinkOpacity(Math.max(0, 1 - Math.max(0, (unit - 0.8) / 0.4)));
-    if (iDoDesignRef.current) {
+    if (iDoDesignRef.current && !textPhysRef.current.active) {
+      // Едет вместе со страницей при скролле, виден сразу при загрузке
       let ty: number;
-      if (unit <= 0.35) ty = (1 - unit / 0.35) * 110;
-      else if (unit <= 0.75) ty = -((unit - 0.35) / 0.4) * 110;
+      if (unit <= 0) ty = 0;
+      else if (unit <= 0.35) ty = -(unit / 0.35) * 110;
       else ty = -110;
       iDoDesignRef.current.style.transform = `translateY(${ty}vh)`;
-      iDoDesignRef.current.style.opacity =
-        unit < 0.02 ? "0" : unit < 0.08 ? String((unit - 0.02) / 0.06)
-          : unit > 0.65 ? String(Math.max(0, 1 - (unit - 0.65) / 0.1)) : "1";
+      iDoDesignRef.current.style.opacity = unit > 0.5 ? "0" : "1";
     }
     // thumbContainer двигается вместе с iDoDesignRef (тот же translateY)
     if (thumbContainerRef.current) {
@@ -1875,11 +2031,9 @@ export default function Home() {
         </div>
 
         {/* I DO DESIGN + биография */}
-        <div ref={iDoDesignRef} style={{ position: "absolute", inset: 0, zIndex: 5, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", pointerEvents: "none", transform: "translateY(110vh)", opacity: 0, willChange: "transform,opacity" }}>
+        <div ref={iDoDesignRef} style={{ position: "absolute", inset: 0, zIndex: 5, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", pointerEvents: "none", willChange: "transform,opacity" }}>
           {/* Весь блок с размытым фоном */}
           <div style={{ position: "relative", display: "inline-flex", flexDirection: "column", alignItems: "center" }}>
-            {/* Блюр прослойка — абсолютная, чуть больше контента */}
-            <div style={{ position: "absolute", inset: "-2em -1.5em", background: "rgba(0,0,0,0.6)", backdropFilter: "blur(28px)", WebkitBackdropFilter: "blur(28px)", borderRadius: "24px", maskImage: "radial-gradient(ellipse 90% 90% at 50% 50%, black 50%, transparent 100%)", WebkitMaskImage: "radial-gradient(ellipse 90% 90% at 50% 50%, black 50%, transparent 100%)" }} />
             {/* Заголовок по центру */}
             <div ref={iDoDesignTextRef} style={{
               position: "relative",
@@ -2007,7 +2161,6 @@ function ThumbItem({ thumb }: { thumb: Thumbnail }) {
   const ref = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
 
-  // Обновляем src картинки когда приходит URL от Pollinations (без ремонтирования)
   useEffect(() => {
     if (imgRef.current && thumb.src) {
       imgRef.current.src = thumb.src;
@@ -2046,14 +2199,12 @@ function ThumbItem({ thumb }: { thumb: Thumbnail }) {
         position: "absolute",
         left: `${thumb.srcX}px`,
         top: `${thumb.srcY}px`,
-        width: `${Math.min(thumb.srcW, thumb.dstSize)}px`,
-        height: `${Math.min(thumb.srcH, thumb.dstSize)}px`,
+        width: `${thumb.srcW}px`,
+        height: `${thumb.srcH}px`,
         borderRadius: "0px",
         overflow: "hidden",
         opacity: 1,
         pointerEvents: "none",
-        boxShadow: "0 0 0 4px rgba(0,0,0,0.7), 0 8px 32px rgba(0,0,0,0.6)",
-        outline: "4px solid rgba(0,0,0,0.7)",
       }}
     >
       <img ref={imgRef} src={thumb.src} alt="" style={{ width: "100%", height: "100%", display: "block", objectFit: "cover" }} />
