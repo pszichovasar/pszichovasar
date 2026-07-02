@@ -587,102 +587,106 @@ function generateTextPoints(text: string, W: number, H: number): { x: number; y:
 
 // Знаменитые картины как векторные контуры — нормализованные координаты [0..1]
 // Каждый массив — один непрерывный путь пера
-async function generateArtworkPoints(url: string, W: number, H: number): Promise<{ x: number; y: number }[]> {
+async function generateArtworkPoints(url: string, W: number, H: number): Promise<{ x: number, y: number }[]> {
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
-      const scale = Math.min(W / img.width, H / img.height) * 0.88;
-      const sw = Math.round(img.width * scale);
-      const sh = Math.round(img.height * scale);
-      const ox = Math.round((W - sw) / 2);
-      const oy = Math.round((H - sh) / 2);
+      // Рисуем уменьшенную копию для Sobel — быстрее и меньше точек
+      const SCALE = 0.4; // работаем на 40% размера экрана
+      const cW = Math.round(W * SCALE), cH = Math.round(H * SCALE);
+      const imgScale = Math.min(cW / img.width, cH / img.height) * 0.90;
+      const sw = Math.round(img.width * imgScale);
+      const sh = Math.round(img.height * imgScale);
+      const ox = Math.round((cW - sw) / 2);
+      const oy = Math.round((cH - sh) / 2);
 
       const canvas = document.createElement("canvas");
-      canvas.width = W; canvas.height = H;
+      canvas.width = cW; canvas.height = cH;
       const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
       ctx.fillStyle = "#000";
-      ctx.fillRect(0, 0, W, H);
+      ctx.fillRect(0, 0, cW, cH);
       ctx.drawImage(img, ox, oy, sw, sh);
-      const { data } = ctx.getImageData(0, 0, W, H);
+      const { data } = ctx.getImageData(0, 0, cW, cH);
 
-      // Простой Sobel без NMS — берём все пиксели с силой края выше порога
-      const step = 4;
-      const pts: { x: number, y: number, m: number }[] = [];
+      // Sobel на маленьком canvas
+      const S = 1;
+      type Pt = { x: number, y: number, m: number };
+      const edgePts: Pt[] = [];
       let maxMag = 0;
 
-      for (let y = step; y < H - step; y += step) {
-        for (let x = step; x < W - step; x += step) {
+      for (let y = S; y < cH - S; y += S) {
+        for (let x = S; x < cW - S; x += S) {
           const g = (px: number, py: number) => {
-            const o = (Math.min(py, H - 1) * W + Math.min(px, W - 1)) * 4;
+            const o = (Math.min(py, cH - 1) * cW + Math.min(px, cW - 1)) * 4;
             return data[o] * 0.299 + data[o + 1] * 0.587 + data[o + 2] * 0.114;
           };
-          const gx = -g(x - step, y - step) - 2 * g(x - step, y) - g(x - step, y + step) + g(x + step, y - step) + 2 * g(x + step, y) + g(x + step, y + step);
-          const gy = -g(x - step, y - step) - 2 * g(x, y - step) - g(x + step, y - step) + g(x - step, y + step) + 2 * g(x, y + step) + g(x + step, y + step);
+          const gx = -g(x - S, y - S) - 2 * g(x - S, y) - g(x - S, y + S) + g(x + S, y - S) + 2 * g(x + S, y) + g(x + S, y + S);
+          const gy = -g(x - S, y - S) - 2 * g(x, y - S) - g(x + S, y - S) + g(x - S, y + S) + 2 * g(x, y + S) + g(x + S, y + S);
           const m = Math.sqrt(gx * gx + gy * gy);
           if (m > maxMag) maxMag = m;
-          pts.push({ x, y, m });
+          edgePts.push({ x, y, m });
         }
       }
 
-      // Берём топ 20% самых ярких краёв
-      const threshold = maxMag * 0.30;
-      const edgePts = pts.filter(p => p.m > threshold);
-      console.log('[Artwork] total pts:', pts.length, 'edge pts:', edgePts.length, 'maxMag:', maxMag.toFixed(0));
+      const threshold = maxMag * 0.15;
+      const strong = edgePts.filter(p => p.m > threshold);
+      strong.sort((a, b) => b.m - a.m);
+      const top = strong.slice(0, 8000);
 
-      if (edgePts.length < 10) { resolve([]); return; }
+      console.log('[Artwork] cW:', cW, 'cH:', cH, 'strong:', strong.length, 'top:', top.length, 'maxMag:', maxMag.toFixed(0));
 
-      // Сортируем по убыванию силы — рисуем сначала самые яркие контуры
-      edgePts.sort((a, b) => b.m - a.m);
+      if (top.length < 10) { resolve([]); return; }
 
-      // Строим связные штрихи через сетку соседей
-      const gridSize = step;
+      // Строим штрихи — жадный обход соседей
+      const STEP = S;
       const grid = new Map<string, number>();
-      edgePts.forEach((p, i) => grid.set(`${Math.round(p.x / gridSize)},${Math.round(p.y / gridSize)}`, i));
-
+      top.forEach((p, i) => grid.set(Math.round(p.x / STEP) + ',' + Math.round(p.y / STEP), i));
       const used = new Set<number>();
       const result: { x: number, y: number }[] = [];
+      // Масштаб обратно на реальный экран
+      const invScale = 1 / SCALE;
+      // Центрируем на реальном экране
+      const offX = (W - cW * invScale) / 2;
+      const offY = (H - cH * invScale) / 2;
 
-      for (let si = 0; si < edgePts.length; si++) {
+      for (let si = 0; si < top.length; si++) {
         if (used.has(si)) continue;
         const stroke: { x: number, y: number }[] = [];
         let cur = si;
-
         while (cur !== -1 && !used.has(cur)) {
           used.add(cur);
-          stroke.push({ x: edgePts[cur].x, y: edgePts[cur].y });
-
+          // Переводим в экранные координаты
+          stroke.push({ x: top[cur].x * invScale + offX, y: top[cur].y * invScale + offY });
           let next = -1, bestD = Infinity;
-          const gx0 = Math.round(edgePts[cur].x / gridSize);
-          const gy0 = Math.round(edgePts[cur].y / gridSize);
+          const gx0 = Math.round(top[cur].x / STEP);
+          const gy0 = Math.round(top[cur].y / STEP);
           for (let dr = -2; dr <= 2; dr++) {
             for (let dc = -2; dc <= 2; dc++) {
               if (!dr && !dc) continue;
-              const ni = grid.get(`${gx0 + dc},${gy0 + dr}`);
+              const ni = grid.get((gx0 + dc) + ',' + (gy0 + dr));
               if (ni !== undefined && !used.has(ni)) {
-                const d = (edgePts[ni].x - edgePts[cur].x) ** 2 + (edgePts[ni].y - edgePts[cur].y) ** 2;
+                const d = (top[ni].x - top[cur].x) ** 2 + (top[ni].y - top[cur].y) ** 2;
                 if (d < bestD) { bestD = d; next = ni; }
               }
             }
           }
-          cur = bestD < (gridSize * 3) ** 2 ? next : -1;
+          cur = bestD < (STEP * 3) ** 2 ? next : -1;
         }
-
         if (stroke.length >= 3) {
-          // Лёгкое сглаживание
+          // Сглаживание
           const s: { x: number, y: number }[] = [stroke[0]];
           for (let i = 1; i < stroke.length - 1; i++)
             s.push({ x: (stroke[i - 1].x + stroke[i].x * 2 + stroke[i + 1].x) / 4, y: (stroke[i - 1].y + stroke[i].y * 2 + stroke[i + 1].y) / 4 });
           s.push(stroke[stroke.length - 1]);
-          result.push(...s);
-          result.push({ x: NaN, y: NaN });
+          result.push(...s, { x: NaN, y: NaN });
         }
-        if (result.length > 10000) break;
+        if (result.length > 20000) break;
       }
 
       console.log('[Artwork] result pts:', result.length);
       resolve(result);
     };
-    img.onerror = (e) => { console.error('[Artwork] load error:', e); resolve([]); };
+    img.onerror = (e) => { console.error('[Artwork] ERROR loading:', url, e); resolve([]); };
     img.src = url;
   });
 }
@@ -813,6 +817,71 @@ function make600CellWire(): { x: number, y: number, z: number, w: number }[] {
   return verts.map(v => ({ x: v[0], y: v[1], z: v[2], w: v[3] || 0 }));
 }
 
+
+// Логотипы брендов — нормализованные координаты, будут масштабированы на экран
+function makeBrandPoints(seed: number, W: number, H: number): { x: number, y: number }[] {
+  const cx = W * 0.5, cy = H * 0.5;
+  const sz = Math.min(W, H) * 0.35;
+  // map [0..1] -> screen with padding
+  const m = (nx: number, ny: number) => ({ x: cx + (nx - 0.5) * sz, y: cy + (ny - 0.5) * sz });
+  const nan = { x: NaN, y: NaN };
+
+  const logos: { x: number, y: number }[][] = [
+    // Nike swoosh
+    [m(0.1, 0.55), m(0.18, 0.45), m(0.30, 0.40), m(0.45, 0.42), m(0.60, 0.48), m(0.75, 0.58), m(0.90, 0.72), m(0.85, 0.70), m(0.65, 0.55), m(0.48, 0.50), m(0.32, 0.52), m(0.20, 0.58), m(0.12, 0.62), m(0.10, 0.55)],
+    // Apple — окружность с вырезом
+    ...[Array.from({ length: 60 }, (_, i) => { const a = (i / 60) * Math.PI * 2; return m(0.5 + 0.4 * Math.cos(a), 0.5 + 0.4 * Math.sin(a)); }),
+    [nan],
+    Array.from({ length: 20 }, (_, i) => { const a = -0.5 + i / 19 * 1.0; return m(0.5 + 0.15 * Math.cos(a), 0.22 + 0.12 * Math.sin(a)); }),
+    ],
+    // Twitter/X — буква X
+    [m(0.2, 0.2), m(0.8, 0.8), nan, m(0.8, 0.2), m(0.2, 0.8)],
+    // Mercedes — три луча в круге
+    ...[
+      Array.from({ length: 60 }, (_, i) => { const a = (i / 60) * Math.PI * 2; return m(0.5 + 0.45 * Math.cos(a), 0.5 + 0.45 * Math.sin(a)); }),
+      [nan],
+      [m(0.5, 0.05), m(0.5, 0.5), nan, m(0.5, 0.5), m(0.88, 0.75), nan, m(0.5, 0.5), m(0.12, 0.75)],
+    ],
+    // BMW — четыре квадранта
+    ...[
+      Array.from({ length: 60 }, (_, i) => { const a = (i / 60) * Math.PI * 2; return m(0.5 + 0.45 * Math.cos(a), 0.5 + 0.45 * Math.sin(a)); }),
+      [nan],
+      Array.from({ length: 60 }, (_, i) => { const a = (i / 60) * Math.PI * 2; return m(0.5 + 0.30 * Math.cos(a), 0.5 + 0.30 * Math.sin(a)); }),
+      [nan],
+      [m(0.5, 0.05), m(0.5, 0.95), nan, m(0.05, 0.5), m(0.95, 0.5)],
+    ],
+    // Audi — четыре кольца
+    ...[0, 1, 2, 3].map(i => [
+      ...Array.from({ length: 60 }, (_, j) => { const a = (j / 60) * Math.PI * 2; return m(0.15 + i * 0.23 + 0.11 * Math.cos(a), 0.5 + 0.11 * Math.sin(a)); }),
+      nan,
+    ]),
+    // Olympic rings  
+    ...[0, 1, 2, 3, 4].map(i => [
+      ...Array.from({ length: 60 }, (_, j) => { const a = (j / 60) * Math.PI * 2; const row = i % 2 === 0 ? 0 : 0.1; return m(0.1 + i * 0.2 + 0.09 * Math.cos(a), 0.45 + row + 0.09 * Math.sin(a)); }),
+      nan,
+    ]),
+    // Star of David (гексаграмма)
+    [...Array.from({ length: 7 }, (_, i) => { const a = (i / 6) * Math.PI * 2 - Math.PI / 2; return m(0.5 + 0.4 * Math.cos(a), 0.5 + 0.4 * Math.sin(a)); }),
+      nan,
+    ...Array.from({ length: 7 }, (_, i) => { const a = (i / 6) * Math.PI * 2 + Math.PI / 2; return m(0.5 + 0.4 * Math.cos(a), 0.5 + 0.4 * Math.sin(a)); })],
+    // Буква A (Adidas-стиль)
+    [m(0.5, 0.1), m(0.1, 0.9), m(0.28, 0.9), m(0.5, 0.4), m(0.72, 0.9), m(0.9, 0.9), m(0.5, 0.1), nan, m(0.28, 0.65), m(0.72, 0.65)],
+    // Спираль галактики
+    ...Array.from({ length: 3 }, (_, arm) => [
+      ...Array.from({ length: 80 }, (_, i) => {
+        const t = i / 79 * Math.PI * 4;
+        const r = 0.05 + t * 0.07;
+        const offset = arm * Math.PI * 2 / 3;
+        return m(0.5 + r * Math.cos(t + offset), 0.5 + r * Math.sin(t + offset));
+      }),
+      nan,
+    ]),
+  ];
+
+  const idx = seed % logos.length;
+  return logos[idx].flat ? logos[idx].flat() : logos[idx] as { x: number, y: number }[];
+}
+
 function generate3DShapePoints(
   seed: number,
   W: number, H: number,
@@ -824,11 +893,16 @@ function generate3DShapePoints(
   const cx = W * 0.5, cy = H * 0.5;
   const rotX = rng() * Math.PI * 2;
   const rotY = rng() * Math.PI * 2;
-  const shapeType = Math.floor(rng() * 16); // 16 типов
+  const shapeType = Math.floor(rng() * 18); // 16 типов
 
   // Непрерывные кривые — проецируем напрямую
+  const pad = Math.min(W, H) * 0.08;
+  const clamp = (pts: { x: number, y: number }[]) => pts.map(p => ({
+    x: isNaN(p.x) ? p.x : Math.max(pad, Math.min(W - pad, p.x)),
+    y: isNaN(p.y) ? p.y : Math.max(pad, Math.min(H - pad, p.y)),
+  }));
   const scaleAndProject = (pts3d: { x: number, y: number, z: number }[], sc: number) =>
-    project3DPoints(pts3d.filter(p => !isNaN(p.x)), rotX, rotY, sc, cx, cy);
+    clamp(project3DPoints(pts3d.filter(p => !isNaN(p.x)), rotX, rotY, sc, cx, cy));
 
   const withNaN = (pts3d: { x: number, y: number, z: number }[], sc: number) => {
     const result: { x: number, y: number }[] = [];
@@ -846,23 +920,26 @@ function generate3DShapePoints(
     return result;
   };
 
-  if (shapeType === 0) return scaleAndProject(makeLorenzAttractor(), Math.min(W, H) * 0.008);
-  if (shapeType === 1) return scaleAndProject(makeDNAHelix(), Math.min(W, H) * 0.28);
-  if (shapeType === 2) return scaleAndProject(makeTorusKnot(3, 2), Math.min(W, H) * 0.22);
-  if (shapeType === 3) return scaleAndProject(makeTorusKnot(5, 3), Math.min(W, H) * 0.22);
-  if (shapeType === 4) return scaleAndProject(makeTorusKnot(7, 4), Math.min(W, H) * 0.20);
-  if (shapeType === 5) return scaleAndProject(makeLissajous3D(3, 4, 5, rng() * Math.PI), Math.min(W, H) * 0.32);
-  if (shapeType === 6) return scaleAndProject(makeLissajous3D(5, 7, 8, rng() * Math.PI), Math.min(W, H) * 0.30);
-  if (shapeType === 7) return scaleAndProject(makeFibonacciSpiral(), Math.min(W, H) * 0.38);
-  if (shapeType === 8) return withNaN(makeKleinBottle(), Math.min(W, H) * 0.06);
-  if (shapeType === 9) return withNaN(makeBoysSurface(), Math.min(W, H) * 0.22);
-  if (shapeType === 10) return scaleAndProject(makeThomasAttractor(), Math.min(W, H) * 0.28);
-  if (shapeType === 11) return scaleAndProject(makeRosslerAttractor(), Math.min(W, H) * 0.22);
-  if (shapeType === 12) return withNaN(makeEnneperSurface(), Math.min(W, H) * 0.25);
-  if (shapeType === 13) return withNaN(makeTorusSpiral(1.5, 0.5, 7, 13).map(p => ({ ...p, z: isNaN(p.x) ? NaN : p.z })), Math.min(W, H) * 0.24);
+  if (shapeType === 0) return scaleAndProject(makeLorenzAttractor(), Math.min(W, H) * 0.005);
+  if (shapeType === 1) return scaleAndProject(makeDNAHelix(), Math.min(W, H) * 0.18);
+  if (shapeType === 2) return scaleAndProject(makeTorusKnot(3, 2), Math.min(W, H) * 0.09);
+  if (shapeType === 3) return scaleAndProject(makeTorusKnot(5, 3), Math.min(W, H) * 0.09);
+  if (shapeType === 4) return scaleAndProject(makeTorusKnot(7, 4), Math.min(W, H) * 0.13);
+  if (shapeType === 5) return scaleAndProject(makeLissajous3D(3, 4, 5, rng() * Math.PI), Math.min(W, H) * 0.20);
+  if (shapeType === 6) return scaleAndProject(makeLissajous3D(5, 7, 8, rng() * Math.PI), Math.min(W, H) * 0.19);
+  if (shapeType === 7) return scaleAndProject(makeFibonacciSpiral(), Math.min(W, H) * 0.15);
+  if (shapeType === 8) return withNaN(makeKleinBottle(), Math.min(W, H) * 0.04);
+  if (shapeType === 9) return withNaN(makeBoysSurface(), Math.min(W, H) * 0.09);
+  if (shapeType === 10) return scaleAndProject(makeThomasAttractor(), Math.min(W, H) * 0.18);
+  if (shapeType === 11) return scaleAndProject(makeRosslerAttractor(), Math.min(W, H) * 0.09);
+  if (shapeType === 12) return withNaN(makeEnneperSurface(), Math.min(W, H) * 0.16);
+  if (shapeType === 13) return withNaN(makeTorusSpiral(1.5, 0.5, 7, 13).map(p => ({ ...p, z: isNaN(p.x) ? NaN : p.z })), Math.min(W, H) * 0.15);
 
   // 4D политопы
-  const scale4D = Math.min(W, H) * 0.14;
+  if (shapeType === 14) return makeBrandPoints(Math.floor(rng() * 10), W, H);
+  if (shapeType === 15) return makeBrandPoints(Math.floor(rng() * 10), W, H);
+  if (shapeType === 16) return makeBrandPoints(Math.floor(rng() * 10), W, H);
+  const scale4D = Math.min(W, H) * 0.09;
   const rotXY = rng() * Math.PI * 2, rotXZ = rng() * Math.PI * 2, rotXW = rng() * Math.PI * 2;
   const polytopes = [makeTesseract, make16Cell, make24Cell];
   const shape = polytopes[Math.floor(rng() * polytopes.length)]();
@@ -1279,7 +1356,7 @@ export default function Home() {
       const startDraw = (pts: { x: number; y: number }[]) => {
         console.log('[Phase3] startDraw, pts:', pts.length, 'activeRef:', activeRef.current);
         if (!activeRef.current) return;
-        if (pts.length < 5) {
+        if (pts.length < 3) {
           console.warn('[Phase3] Not enough points, skipping to phase0');
           runPhase0();
           return;
@@ -1802,7 +1879,7 @@ export default function Home() {
           {/* Весь блок с размытым фоном */}
           <div style={{ position: "relative", display: "inline-flex", flexDirection: "column", alignItems: "center" }}>
             {/* Блюр прослойка — абсолютная, чуть больше контента */}
-            <div style={{ position: "absolute", inset: "-1.5em -1em", background: "rgba(0,0,0,0.55)", backdropFilter: "blur(18px)", WebkitBackdropFilter: "blur(18px)", borderRadius: "20px", maskImage: "radial-gradient(ellipse 100% 100% at 50% 50%, black 60%, transparent 100%)", WebkitMaskImage: "radial-gradient(ellipse 100% 100% at 50% 50%, black 60%, transparent 100%)" }} />
+            <div style={{ position: "absolute", inset: "-2em -1.5em", background: "rgba(0,0,0,0.6)", backdropFilter: "blur(28px)", WebkitBackdropFilter: "blur(28px)", borderRadius: "24px", maskImage: "radial-gradient(ellipse 90% 90% at 50% 50%, black 50%, transparent 100%)", WebkitMaskImage: "radial-gradient(ellipse 90% 90% at 50% 50%, black 50%, transparent 100%)" }} />
             {/* Заголовок по центру */}
             <div ref={iDoDesignTextRef} style={{
               position: "relative",
