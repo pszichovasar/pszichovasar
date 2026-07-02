@@ -879,7 +879,7 @@ function makeBrandPoints(seed: number, W: number, H: number): { x: number, y: nu
   ];
 
   const idx = seed % logos.length;
-  return (logos[idx] as { x: number, y: number }[][]).flat();
+  return (logos[idx] as any).flat ? (logos[idx] as any).flat() as { x: number, y: number }[] : logos[idx] as { x: number, y: number }[];
 }
 
 function generate3DShapePoints(
