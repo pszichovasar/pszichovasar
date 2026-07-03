@@ -160,8 +160,23 @@ function buildColoredMosaic(
     });
   };
 
-  // Рисуем разделители — сначала жирные точки в вершинах, потом линии
-  const sepW = Math.max(3, Math.round(3 * scale));
+  // Вычисляем среднюю длину штрихов — для коротких рёбер нужны толще линии
+  let totalLen = 0, segCount = 0;
+  trails.forEach(trail => {
+    for (let i = 1; i < trail.length; i++) {
+      const a = trail[i - 1], b = trail[i];
+      if (!isNaN(a.x) && !isNaN(b.x)) {
+        const dx = (b.x - a.x) * scale, dy = (b.y - a.y) * scale;
+        totalLen += Math.sqrt(dx * dx + dy * dy);
+        segCount++;
+      }
+    }
+  });
+  const avgLen = segCount > 0 ? totalLen / segCount : 20;
+  // Чем короче сегменты — тем толще разделители
+  const sepW = avgLen < 8 ? Math.max(4, Math.round(5 * scale)) :
+    avgLen < 20 ? Math.max(3, Math.round(3 * scale)) :
+      Math.max(2, Math.round(2 * scale));
 
   // Точки в каждой вершине — закрывают зазоры между рёбрами
   ctx.fillStyle = "#505050";
@@ -176,9 +191,9 @@ function buildColoredMosaic(
     });
   });
 
-  // Линии поверх точек
+  // Линии
   drawTrails("#505050", sepW);
-  drawTrails("#505050", sepW + 1); // второй проход чуть толще
+  drawTrails("#505050", sepW + 1);
 
   // Закрашиваем края canvas серым
   ctx.fillStyle = "#505050";
@@ -901,32 +916,14 @@ function makeBrandPoints(seed: number, W: number, H: number): { x: number, y: nu
   return (logos[idx] as any).flat ? (logos[idx] as any).flat() as { x: number, y: number }[] : logos[idx] as { x: number, y: number }[];
 }
 
-// Строит трейл из рёбер политопа как замкнутые треугольники для мозаики
+// Строит трейл из рёбер политопа
 function buildEdgeTrail(edges: [number, number][], projected: { x: number, y: number }[]): { x: number, y: number }[] {
-  // Находим треугольники — тройки вершин где каждая пара соединена ребром
-  const edgeSet = new Set(edges.map(([a, b]) => `${Math.min(a, b)}-${Math.max(a, b)}`));
-  const hasEdge = (a: number, b: number) => edgeSet.has(`${Math.min(a, b)}-${Math.max(a, b)}`);
   const result: { x: number, y: number }[] = [];
-
-  // Рёбра как отрезки
+  const NaN_pt = { x: NaN, y: NaN };
   for (const [a, b] of edges) {
-    if (isNaN(projected[a]?.x) || isNaN(projected[b]?.x)) continue;
-    result.push(projected[a], projected[b], { x: NaN, y: NaN });
-  }
-
-  // Замкнутые треугольники из граней
-  const n = projected.length;
-  for (let a = 0; a < n; a++) {
-    for (let b = a + 1; b < n; b++) {
-      if (!hasEdge(a, b)) continue;
-      for (let c = b + 1; c < n; c++) {
-        if (hasEdge(a, c) && hasEdge(b, c)) {
-          const pa = projected[a], pb = projected[b], pc = projected[c];
-          if (!pa || !pb || !pc || isNaN(pa.x) || isNaN(pb.x) || isNaN(pc.x)) continue;
-          result.push(pa, pb, pc, pa, { x: NaN, y: NaN });
-        }
-      }
-    }
+    const pa = projected[a], pb = projected[b];
+    if (!pa || !pb || isNaN(pa.x) || isNaN(pb.x)) continue;
+    result.push(pa, pb, NaN_pt);
   }
   return result;
 }
@@ -1003,91 +1000,54 @@ function generate3DShapePoints(
   if (shapeType === 5) return scaleAndProject(makeLissajous3D(3, 4, 5, rng() * Math.PI), Math.min(W, H) * 0.20);
   if (shapeType === 6) return scaleAndProject(makeLissajous3D(5, 7, 8, rng() * Math.PI), Math.min(W, H) * 0.19);
   if (shapeType === 7) return scaleAndProject(makeLissajous3D(7, 11, 13, rng() * Math.PI), Math.min(W, H) * 0.19);
+  // Типы 8-16: плотные кривые — создают красивую мозаику
   if (shapeType === 8) {
-    // 24-cell + Tesseract
-    const s4D = Math.min(W, H) * 0.11;
-    const rotXY = rng() * Math.PI * 2, rotXZ = rng() * Math.PI * 2, rotXW = rng() * Math.PI * 2;
-    const t = makeTesseract(); const c24 = make24Cell();
-    const pts1 = buildEdgeTrail(t.edges, t.verts.map(v => project4D(v, rotXY, rotXZ, rotXW, s4D, cx, cy)));
-    const pts2 = buildEdgeTrail(c24.edges, c24.verts.map(v => project4D(v, rotXY + 0.7, rotXZ + 0.4, rotXW + 0.9, s4D, cx, cy)));
-    return fitToScreen([...pts1, { x: NaN, y: NaN }, ...pts2]);
+    // Два торических узла + Лиссажу — плотное переплетение
+    const a = makeTorusKnot(5, 3); const b = makeTorusKnot(7, 4);
+    const c = makeLissajous3D(3, 5, 7, rng() * Math.PI);
+    return scaleAndProject([...a, { x: NaN, y: NaN, z: NaN }, ...b, { x: NaN, y: NaN, z: NaN }, ...c], Math.min(W, H) * 0.14);
   }
   if (shapeType === 9) {
-    // 16-cell + 24-cell
-    const s4D = Math.min(W, H) * 0.13;
-    const rotXY = rng() * Math.PI * 2, rotXZ = rng() * Math.PI * 2, rotXW = rng() * Math.PI * 2;
-    const c16 = make16Cell(); const c24 = make24Cell();
-    const pts1 = buildEdgeTrail(c16.edges, c16.verts.map(v => project4D(v, rotXY, rotXZ, rotXW, s4D, cx, cy)));
-    const pts2 = buildEdgeTrail(c24.edges, c24.verts.map(v => project4D(v, rotXY + 1.1, rotXZ + 0.6, rotXW + 1.3, s4D, cx, cy)));
-    return fitToScreen([...pts1, { x: NaN, y: NaN }, ...pts2]);
+    // ДНК + торический узел — биоморфная форма
+    const a = makeDNAHelix(); const b = makeTorusKnot(5, 2);
+    return scaleAndProject([...a, { x: NaN, y: NaN, z: NaN }, ...b], Math.min(W, H) * 0.16);
   }
   if (shapeType === 10) {
-    // 120-cell — самый сложный правильный 4D политоп
-    const s4D = Math.min(W, H) * 0.09;
-    const rotXY = rng() * Math.PI * 2, rotXZ = rng() * Math.PI * 2, rotXW = rng() * Math.PI * 2;
-    const c120 = make120Cell();
-    const pts = buildEdgeTrail(c120.edges, c120.verts.map(v => project4D(v, rotXY, rotXZ, rotXW, s4D, cx, cy)));
-    return fitToScreen(pts);
+    // Три Лиссажу разных фаз — объёмная звезда
+    const a = makeLissajous3D(3, 4, 5, 0); const b = makeLissajous3D(3, 4, 5, Math.PI / 3);
+    const c = makeLissajous3D(3, 4, 5, Math.PI * 2 / 3);
+    return scaleAndProject([...a, { x: NaN, y: NaN, z: NaN }, ...b, { x: NaN, y: NaN, z: NaN }, ...c], Math.min(W, H) * 0.18);
   }
   if (shapeType === 11) {
-    // 600-cell
-    const s4D = Math.min(W, H) * 0.10;
-    const rotXY = rng() * Math.PI * 2, rotXZ = rng() * Math.PI * 2, rotXW = rng() * Math.PI * 2;
-    const c600 = make600Cell();
-    const pts = buildEdgeTrail(c600.edges, c600.verts.map(v => project4D(v, rotXY, rotXZ, rotXW, s4D, cx, cy)));
-    return fitToScreen(pts);
+    // Аттрактор Томаса + торический узел
+    const a = makeThomasAttractor(); const b = makeTorusKnot(7, 3);
+    return scaleAndProject([...a, { x: NaN, y: NaN, z: NaN }, ...b], Math.min(W, H) * 0.14);
   }
   if (shapeType === 12) {
-    // Tesseract + 24-cell разными углами
-    const s4D = Math.min(W, H) * 0.11;
-    const rotXY = rng() * Math.PI * 2, rotXZ = rng() * Math.PI * 2, rotXW = rng() * Math.PI * 2;
-    const t = makeTesseract(); const c24 = make24Cell();
-    const pts1 = buildEdgeTrail(t.edges, t.verts.map(v => project4D(v, rotXY, rotXZ, rotXW, s4D, cx, cy)));
-    const pts2 = buildEdgeTrail(c24.edges, c24.verts.map(v => project4D(v, rotXY + 1.3, rotXZ + 0.7, rotXW + 0.5, s4D, cx, cy)));
-    return fitToScreen([...pts1, { x: NaN, y: NaN }, ...pts2]);
+    // Лиссажу 5:7:8 + 7:11:13
+    const a = makeLissajous3D(5, 7, 8, rng() * Math.PI); const b = makeLissajous3D(7, 11, 13, rng() * Math.PI);
+    return scaleAndProject([...a, { x: NaN, y: NaN, z: NaN }, ...b], Math.min(W, H) * 0.17);
   }
   if (shapeType === 13) {
-    // 16-cell + 120-cell
-    const s4D = Math.min(W, H) * 0.09;
-    const rotXY = rng() * Math.PI * 2, rotXZ = rng() * Math.PI * 2, rotXW = rng() * Math.PI * 2;
-    const c16 = make16Cell(); const c120 = make120Cell();
-    const pts1 = buildEdgeTrail(c16.edges, c16.verts.map(v => project4D(v, rotXY, rotXZ, rotXW, s4D * 1.8, cx, cy)));
-    const pts2 = buildEdgeTrail(c120.edges, c120.verts.map(v => project4D(v, rotXY + 0.4, rotXZ + 1.1, rotXW + 0.6, s4D, cx, cy)));
-    return fitToScreen([...pts1, { x: NaN, y: NaN }, ...pts2]);
+    // Торическая спираль 7:13 + узел 11:5
+    const a = makeTorusSpiral(1.5, 0.5, 7, 13); const b = makeTorusSpiral(2, 0.6, 11, 17);
+    return scaleAndProject([...a, { x: NaN, y: NaN, z: NaN }, ...b], Math.min(W, H) * 0.15);
   }
   if (shapeType === 14) {
-    // 600-cell + 16-cell
-    const s4D = Math.min(W, H) * 0.10;
-    const rotXY = rng() * Math.PI * 2, rotXZ = rng() * Math.PI * 2, rotXW = rng() * Math.PI * 2;
-    const c600 = make600Cell(); const c16 = make16Cell();
-    const pts1 = buildEdgeTrail(c600.edges, c600.verts.map(v => project4D(v, rotXY, rotXZ, rotXW, s4D, cx, cy)));
-    const pts2 = buildEdgeTrail(c16.edges, c16.verts.map(v => project4D(v, rotXY + 0.5, rotXZ + 1.0, rotXW + 0.3, s4D * 1.5, cx, cy)));
-    return fitToScreen([...pts1, { x: NaN, y: NaN }, ...pts2]);
+    // Клейновская бутылка + Лиссажу
+    const a = makeKleinBottle(); const b = makeLissajous3D(4, 5, 7, rng() * Math.PI);
+    return withNaN([...a, { x: NaN, y: NaN, z: NaN }, ...b.map(p => ({ ...p, z: 0 }))], Math.min(W, H) * 0.12);
   }
   if (shapeType === 15) {
-    // Три 4D политопа одновременно
-    const s4D = Math.min(W, H) * 0.09;
-    const rotXY = rng() * Math.PI * 2, rotXZ = rng() * Math.PI * 2, rotXW = rng() * Math.PI * 2;
-    const t = makeTesseract(); const c16 = make16Cell(); const c24 = make24Cell();
-    const pts1 = buildEdgeTrail(t.edges, t.verts.map(v => project4D(v, rotXY, rotXZ, rotXW, s4D, cx, cy)));
-    const pts2 = buildEdgeTrail(c16.edges, c16.verts.map(v => project4D(v, rotXY + 1.0, rotXZ + 0.5, rotXW + 0.8, s4D, cx, cy)));
-    const pts3 = buildEdgeTrail(c24.edges, c24.verts.map(v => project4D(v, rotXY + 0.3, rotXZ + 1.2, rotXW + 0.4, s4D, cx, cy)));
-    return fitToScreen([...pts1, { x: NaN, y: NaN }, ...pts2, { x: NaN, y: NaN }, ...pts3]);
+    // Поверхность Боя + торический узел
+    const a = makeBoysSurface(); const b = makeTorusKnot(9, 4);
+    return withNaN([...a, { x: NaN, y: NaN, z: NaN }, ...b.map(p => ({ ...p, z: p.z || 0 }))], Math.min(W, H) * 0.11);
   }
   if (shapeType === 16) {
-    // 120-cell + Tesseract
-    const s4D = Math.min(W, H) * 0.09;
-    const rotXY = rng() * Math.PI * 2, rotXZ = rng() * Math.PI * 2, rotXW = rng() * Math.PI * 2;
-    const c120 = make120Cell(); const t = makeTesseract();
-    const pts1 = buildEdgeTrail(c120.edges, c120.verts.map(v => project4D(v, rotXY, rotXZ, rotXW, s4D, cx, cy)));
-    const pts2 = buildEdgeTrail(t.edges, t.verts.map(v => project4D(v, rotXY + 0.8, rotXZ + 0.3, rotXW + 1.1, s4D * 1.8, cx, cy)));
-    return fitToScreen([...pts1, { x: NaN, y: NaN }, ...pts2]);
+    // ДНК + три торических узла
+    const a = makeDNAHelix(); const b = makeTorusKnot(3, 2); const c = makeTorusKnot(5, 3);
+    return scaleAndProject([...a, { x: NaN, y: NaN, z: NaN }, ...b, { x: NaN, y: NaN, z: NaN }, ...c], Math.min(W, H) * 0.14);
   }
-
-  // 4D политопы
-  if (shapeType === 14) return fitToScreen(makeBrandPoints(Math.floor(rng() * 10), W, H));
-  if (shapeType === 15) return fitToScreen(makeBrandPoints(Math.floor(rng() * 10), W, H));
-  if (shapeType === 16) return fitToScreen(makeBrandPoints(Math.floor(rng() * 10), W, H));
   const scale4D = Math.min(W, H) * 0.09;
   const rotXY = rng() * Math.PI * 2, rotXZ = rng() * Math.PI * 2, rotXW = rng() * Math.PI * 2;
   const polytopes = [makeTesseract, make16Cell, make24Cell];
