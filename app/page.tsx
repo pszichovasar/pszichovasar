@@ -971,12 +971,86 @@ function generate3DShapePoints(
   if (shapeType === 5) return scaleAndProject(makeLissajous3D(3, 4, 5, rng() * Math.PI), Math.min(W, H) * 0.20);
   if (shapeType === 6) return scaleAndProject(makeLissajous3D(5, 7, 8, rng() * Math.PI), Math.min(W, H) * 0.19);
   if (shapeType === 7) return scaleAndProject(makeLissajous3D(7, 11, 13, rng() * Math.PI), Math.min(W, H) * 0.19);
-  if (shapeType === 8) return withNaN(makeKleinBottle(), Math.min(W, H) * 0.04);
-  if (shapeType === 9) return withNaN(makeBoysSurface(), Math.min(W, H) * 0.09);
-  if (shapeType === 10) return scaleAndProject(makeRosslerAttractor(), Math.min(W, H) * 0.09);
-  if (shapeType === 11) return withNaN(makeTorusSpiral(1.5, 0.5, 7, 13).map(p => ({ ...p, z: isNaN(p.x) ? NaN : p.z })), Math.min(W, H) * 0.15);
-  if (shapeType === 12) return withNaN(makeTorusSpiral(2, 0.6, 11, 17).map(p => ({ ...p, z: isNaN(p.x) ? NaN : p.z })), Math.min(W, H) * 0.15);
-  if (shapeType === 13) return scaleAndProject(makeLissajous3D(4, 5, 7, rng() * Math.PI), Math.min(W, H) * 0.20);
+  if (shapeType === 8) {
+    // 24-cell + Tesseract
+    const s4D = Math.min(W, H) * 0.11;
+    const rotXY = rng() * Math.PI * 2, rotXZ = rng() * Math.PI * 2, rotXW = rng() * Math.PI * 2;
+    const t = makeTesseract(); const c24 = make24Cell();
+    const pts1 = buildEdgeTrail(t.edges, t.verts.map(v => project4D(v, rotXY, rotXZ, rotXW, s4D, cx, cy)));
+    const pts2 = buildEdgeTrail(c24.edges, c24.verts.map(v => project4D(v, rotXY + 0.7, rotXZ + 0.4, rotXW + 0.9, s4D, cx, cy)));
+    return fitToScreen([...pts1, { x: NaN, y: NaN }, ...pts2]);
+  }
+  if (shapeType === 9) {
+    // 16-cell + 24-cell
+    const s4D = Math.min(W, H) * 0.13;
+    const rotXY = rng() * Math.PI * 2, rotXZ = rng() * Math.PI * 2, rotXW = rng() * Math.PI * 2;
+    const c16 = make16Cell(); const c24 = make24Cell();
+    const pts1 = buildEdgeTrail(c16.edges, c16.verts.map(v => project4D(v, rotXY, rotXZ, rotXW, s4D, cx, cy)));
+    const pts2 = buildEdgeTrail(c24.edges, c24.verts.map(v => project4D(v, rotXY + 1.1, rotXZ + 0.6, rotXW + 1.3, s4D, cx, cy)));
+    return fitToScreen([...pts1, { x: NaN, y: NaN }, ...pts2]);
+  }
+  if (shapeType === 10) {
+    // 120-cell — самый сложный правильный 4D политоп
+    const s4D = Math.min(W, H) * 0.09;
+    const rotXY = rng() * Math.PI * 2, rotXZ = rng() * Math.PI * 2, rotXW = rng() * Math.PI * 2;
+    const c120 = make120Cell();
+    const pts = buildEdgeTrail(c120.edges, c120.verts.map(v => project4D(v, rotXY, rotXZ, rotXW, s4D, cx, cy)));
+    return fitToScreen(pts);
+  }
+  if (shapeType === 11) {
+    // 600-cell
+    const s4D = Math.min(W, H) * 0.10;
+    const rotXY = rng() * Math.PI * 2, rotXZ = rng() * Math.PI * 2, rotXW = rng() * Math.PI * 2;
+    const c600 = make600Cell();
+    const pts = buildEdgeTrail(c600.edges, c600.verts.map(v => project4D(v, rotXY, rotXZ, rotXW, s4D, cx, cy)));
+    return fitToScreen(pts);
+  }
+  if (shapeType === 12) {
+    // Tesseract + 24-cell разными углами
+    const s4D = Math.min(W, H) * 0.11;
+    const rotXY = rng() * Math.PI * 2, rotXZ = rng() * Math.PI * 2, rotXW = rng() * Math.PI * 2;
+    const t = makeTesseract(); const c24 = make24Cell();
+    const pts1 = buildEdgeTrail(t.edges, t.verts.map(v => project4D(v, rotXY, rotXZ, rotXW, s4D, cx, cy)));
+    const pts2 = buildEdgeTrail(c24.edges, c24.verts.map(v => project4D(v, rotXY + 1.3, rotXZ + 0.7, rotXW + 0.5, s4D, cx, cy)));
+    return fitToScreen([...pts1, { x: NaN, y: NaN }, ...pts2]);
+  }
+  if (shapeType === 13) {
+    // 16-cell + 120-cell
+    const s4D = Math.min(W, H) * 0.09;
+    const rotXY = rng() * Math.PI * 2, rotXZ = rng() * Math.PI * 2, rotXW = rng() * Math.PI * 2;
+    const c16 = make16Cell(); const c120 = make120Cell();
+    const pts1 = buildEdgeTrail(c16.edges, c16.verts.map(v => project4D(v, rotXY, rotXZ, rotXW, s4D * 1.8, cx, cy)));
+    const pts2 = buildEdgeTrail(c120.edges, c120.verts.map(v => project4D(v, rotXY + 0.4, rotXZ + 1.1, rotXW + 0.6, s4D, cx, cy)));
+    return fitToScreen([...pts1, { x: NaN, y: NaN }, ...pts2]);
+  }
+  if (shapeType === 14) {
+    // 600-cell + 16-cell
+    const s4D = Math.min(W, H) * 0.10;
+    const rotXY = rng() * Math.PI * 2, rotXZ = rng() * Math.PI * 2, rotXW = rng() * Math.PI * 2;
+    const c600 = make600Cell(); const c16 = make16Cell();
+    const pts1 = buildEdgeTrail(c600.edges, c600.verts.map(v => project4D(v, rotXY, rotXZ, rotXW, s4D, cx, cy)));
+    const pts2 = buildEdgeTrail(c16.edges, c16.verts.map(v => project4D(v, rotXY + 0.5, rotXZ + 1.0, rotXW + 0.3, s4D * 1.5, cx, cy)));
+    return fitToScreen([...pts1, { x: NaN, y: NaN }, ...pts2]);
+  }
+  if (shapeType === 15) {
+    // Три 4D политопа одновременно
+    const s4D = Math.min(W, H) * 0.09;
+    const rotXY = rng() * Math.PI * 2, rotXZ = rng() * Math.PI * 2, rotXW = rng() * Math.PI * 2;
+    const t = makeTesseract(); const c16 = make16Cell(); const c24 = make24Cell();
+    const pts1 = buildEdgeTrail(t.edges, t.verts.map(v => project4D(v, rotXY, rotXZ, rotXW, s4D, cx, cy)));
+    const pts2 = buildEdgeTrail(c16.edges, c16.verts.map(v => project4D(v, rotXY + 1.0, rotXZ + 0.5, rotXW + 0.8, s4D, cx, cy)));
+    const pts3 = buildEdgeTrail(c24.edges, c24.verts.map(v => project4D(v, rotXY + 0.3, rotXZ + 1.2, rotXW + 0.4, s4D, cx, cy)));
+    return fitToScreen([...pts1, { x: NaN, y: NaN }, ...pts2, { x: NaN, y: NaN }, ...pts3]);
+  }
+  if (shapeType === 16) {
+    // 120-cell + Tesseract
+    const s4D = Math.min(W, H) * 0.09;
+    const rotXY = rng() * Math.PI * 2, rotXZ = rng() * Math.PI * 2, rotXW = rng() * Math.PI * 2;
+    const c120 = make120Cell(); const t = makeTesseract();
+    const pts1 = buildEdgeTrail(c120.edges, c120.verts.map(v => project4D(v, rotXY, rotXZ, rotXW, s4D, cx, cy)));
+    const pts2 = buildEdgeTrail(t.edges, t.verts.map(v => project4D(v, rotXY + 0.8, rotXZ + 0.3, rotXW + 1.1, s4D * 1.8, cx, cy)));
+    return fitToScreen([...pts1, { x: NaN, y: NaN }, ...pts2]);
+  }
 
   // 4D политопы
   if (shapeType === 14) return fitToScreen(makeBrandPoints(Math.floor(rng() * 10), W, H));
@@ -2343,22 +2417,18 @@ function MapLoader() {
     const ctx = canvas.getContext("2d")!;
     const W = canvas.width, H = canvas.height;
 
-    const DURATION = 7000; // 7 сек на каждое изображение
+    const DURATION = 7000;
     const images = [
-      { src: "/map.jpg", label: null },
+      { src: "/map.jpg", label: null as string | null },
       { src: "/montreal.jpg", label: "Montréal" },
       { src: "/kyiv.jpg", label: "Kyiv" },
     ];
 
-    const drawImage = (imgSrc: string, label: string | null, startTime: number, onDone: () => void) => {
+    const processImage = (imgSrc: string, label: string | null, onDone: () => void) => {
       ctx.clearRect(0, 0, W, H);
-      ctx.strokeStyle = "rgba(255,255,255,0.85)";
-      ctx.lineWidth = 0.8;
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-
       const img = new Image();
       img.onload = () => {
+        // Sobel полностью в Web Worker-style через setTimeout 0
         const SCALE = 0.35;
         const cW = Math.round(W * SCALE), cH = Math.round(H * SCALE);
         const invScale = 1 / SCALE;
@@ -2373,80 +2443,94 @@ function MapLoader() {
         octx.drawImage(img, ox * SCALE, oy * SCALE, sw * SCALE, sh * SCALE);
         const { data } = octx.getImageData(0, 0, cW, cH);
 
-        const S = 2;
-        let y = S;
-        let done = false;
-
-        const drawRow = () => {
-          if (done) return;
-          const elapsed = performance.now() - startTime;
-          if (elapsed >= DURATION - 300) {
-            // Время вышло — добавляем подпись если есть и завершаем
-            if (label) {
-              ctx.font = `bold ${Math.max(14, W * 0.018)}px "Arial Black", Arial, sans-serif`;
-              ctx.fillStyle = "rgba(255,255,255,0.95)";
-              ctx.textAlign = "center";
-              ctx.textBaseline = "bottom";
-              ctx.fillText(label, W / 2, H - 40);
-            }
-            done = true;
-            onDone();
-            return;
-          }
-
-          // Сколько строк должно быть нарисовано к этому моменту
-          const progress = Math.min(elapsed / DURATION, 1);
-          const targetY = Math.floor(progress * cH);
-
-          // Рисуем строки до targetY
-          while (y < targetY && y < cH - S) {
-            const rowPts: { x: number, m: number }[] = [];
+        // Sobel + трассировка в одном setTimeout — не блокирует первый рендер
+        setTimeout(() => {
+          const S = 2;
+          const edgePts: { x: number, y: number, m: number }[] = [];
+          let maxMag = 0;
+          for (let y = S; y < cH - S; y += S) {
             for (let x = S; x < cW - S; x += S) {
               const g = (px: number, py: number) => { const o = (Math.min(py, cH - 1) * cW + Math.min(px, cW - 1)) * 4; return data[o] * 0.299 + data[o + 1] * 0.587 + data[o + 2] * 0.114; };
               const gx = -g(x - S, y - S) - 2 * g(x - S, y) - g(x - S, y + S) + g(x + S, y - S) + 2 * g(x + S, y) + g(x + S, y + S);
               const gy = -g(x - S, y - S) - 2 * g(x, y - S) - g(x + S, y - S) + g(x - S, y + S) + 2 * g(x, y + S) + g(x + S, y + S);
               const m = Math.sqrt(gx * gx + gy * gy);
-              rowPts.push({ x, m });
+              if (m > maxMag) maxMag = m;
+              edgePts.push({ x, y, m });
             }
-            const maxM = rowPts.reduce((a, b) => Math.max(a, b.m), 0);
-            const threshold = maxM * 0.28;
-            const strong = rowPts.filter(p => p.m > threshold);
-            if (strong.length > 1) {
+          }
+          const threshold = maxMag * 0.20;
+          const strong = edgePts.filter(p => p.m > threshold);
+          strong.sort((a, b) => b.m - a.m);
+          const top = strong.slice(0, 40000);
+
+          // Трассировка штрихов
+          const grid = new Map<string, number>();
+          top.forEach((p, i) => grid.set(`${Math.round(p.x / S)},${Math.round(p.y / S)}`, i));
+          const used = new Set<number>();
+          const strokes: { x: number, y: number }[][] = [];
+          const dirs8 = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 1], [1, -1], [1, 0], [1, 1]];
+          for (let si = 0; si < top.length; si++) {
+            if (used.has(si)) continue;
+            const stroke: { x: number, y: number }[] = [];
+            let cur = si;
+            while (cur !== -1 && !used.has(cur)) {
+              used.add(cur);
+              stroke.push({ x: top[cur].x * invScale, y: top[cur].y * invScale });
+              let next = -1, bestM = -1;
+              const gx0 = Math.round(top[cur].x / S), gy0 = Math.round(top[cur].y / S);
+              for (const [dr, dc] of dirs8) {
+                const ni = grid.get(`${gx0 + dc},${gy0 + dr}`);
+                if (ni !== undefined && !used.has(ni) && top[ni].m > bestM) { bestM = top[ni].m; next = ni; }
+              }
+              cur = bestM > 0 ? next : -1;
+            }
+            if (stroke.length >= 3) strokes.push(stroke);
+            if (strokes.length > 2500) break;
+          }
+
+          // Плавная отрисовка штрихов за DURATION мс
+          ctx.strokeStyle = "rgba(255,255,255,0.85)";
+          ctx.lineWidth = 0.9;
+          ctx.lineCap = "round";
+          ctx.lineJoin = "round";
+          const startTime = performance.now();
+          let strokeIdx = 0;
+
+          const drawNext = (now: number) => {
+            const elapsed = now - startTime;
+            const target = Math.min(Math.floor((elapsed / DURATION) * strokes.length), strokes.length);
+            while (strokeIdx < target) {
+              const s = strokes[strokeIdx++];
               ctx.beginPath();
-              strong.forEach((p, i) => {
-                const sx = p.x * invScale, sy = y * invScale;
-                if (i === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
-              });
+              ctx.moveTo(s[0].x, s[0].y);
+              for (let i = 1; i < s.length; i++) {
+                const mx = (s[i - 1].x + s[i].x) / 2, my = (s[i - 1].y + s[i].y) / 2;
+                ctx.quadraticCurveTo(s[i - 1].x, s[i - 1].y, mx, my);
+              }
               ctx.stroke();
             }
-            y += S;
-          }
-
-          // Подпись появляется в последние 2 секунды
-          if (label && elapsed > DURATION - 2000) {
-            const alpha = Math.min(1, (elapsed - (DURATION - 2000)) / 1000);
-            ctx.font = `bold ${Math.max(14, W * 0.018)}px "Arial Black", Arial, sans-serif`;
-            ctx.fillStyle = `rgba(255,255,255,${alpha * 0.95})`;
-            ctx.textAlign = "center";
-            ctx.textBaseline = "bottom";
-            ctx.fillText(label, W / 2, H - 40);
-          }
-
-          requestAnimationFrame(drawRow);
-        };
-        requestAnimationFrame(drawRow);
+            // Подпись в последние 1.5 сек
+            if (label && elapsed > DURATION - 1500) {
+              const alpha = Math.min(1, (elapsed - (DURATION - 1500)) / 800);
+              ctx.font = `bold ${Math.max(16, W * 0.02)}px "Arial Black", Arial, sans-serif`;
+              ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+              ctx.textAlign = "center";
+              ctx.textBaseline = "bottom";
+              ctx.fillText(label, W / 2, H - 50);
+            }
+            if (elapsed < DURATION) requestAnimationFrame(drawNext);
+            else { setTimeout(onDone, 100); }
+          };
+          requestAnimationFrame(drawNext);
+        }, 50);
       };
       img.onerror = () => onDone();
       img.src = imgSrc;
     };
 
-    // Запускаем по очереди
     const runSequence = (idx: number) => {
       if (idx >= images.length) return;
-      const startTime = performance.now();
-      drawImage(images[idx].src, images[idx].label, startTime, () => {
-        setTimeout(() => runSequence(idx + 1), 100);
-      });
+      processImage(images[idx].src, images[idx].label, () => runSequence(idx + 1));
     };
     runSequence(0);
   }, []);
