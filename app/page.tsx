@@ -1059,7 +1059,7 @@ export default function Home() {
 
   // Экран загрузки — 10 секунд, потом плавно скрываем
   useEffect(() => {
-    const t = setTimeout(() => setIsLoading(false), 10000);
+    const t = setTimeout(() => setIsLoading(false), 21000);
     return () => clearTimeout(t);
   }, []);
   const [videoOpacity, setVideoOpacity] = useState(0);
@@ -2320,7 +2320,7 @@ export default function Home() {
           position: "fixed", inset: 0, background: "#000", zIndex: 9999,
           display: "flex", alignItems: "center", justifyContent: "center",
           animation: "loadingFadeOut 0.8s ease forwards",
-          animationDelay: "9.2s",
+          animationDelay: "20.2s",
         }}>
           <style>{`@keyframes loadingFadeOut { from { opacity:1 } to { opacity:0; pointer-events:none } }`}</style>
           <canvas id="map-loading-canvas" style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} />
@@ -2342,76 +2342,113 @@ function MapLoader() {
     canvas.height = window.innerHeight;
     const ctx = canvas.getContext("2d")!;
     const W = canvas.width, H = canvas.height;
-    ctx.strokeStyle = "rgba(255,255,255,0.85)";
-    ctx.lineWidth = 0.8;
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
 
-    const img = new Image();
-    img.onload = () => {
-      const SCALE = 0.35;
-      const cW = Math.round(W * SCALE), cH = Math.round(H * SCALE);
-      const invScale = 1 / SCALE;
-      const scale = Math.min(W / img.width, H / img.height) * 0.92;
-      const sw = Math.round(img.width * scale), sh = Math.round(img.height * scale);
-      const ox = Math.round((W - sw) / 2), oy = Math.round((H - sh) / 2);
+    const DURATION = 7000; // 7 сек на каждое изображение
+    const images = [
+      { src: "/map.jpg", label: null },
+      { src: "/montreal.jpg", label: "Montréal" },
+      { src: "/kyiv.jpg", label: "Kyiv" },
+    ];
 
-      const offscreen = document.createElement("canvas");
-      offscreen.width = cW; offscreen.height = cH;
-      const octx = offscreen.getContext("2d", { willReadFrequently: true })!;
-      octx.fillStyle = "#000"; octx.fillRect(0, 0, cW, cH);
-      octx.drawImage(img, ox * SCALE, oy * SCALE, sw * SCALE, sh * SCALE);
-      const { data } = octx.getImageData(0, 0, cW, cH);
+    const drawImage = (imgSrc: string, label: string | null, startTime: number, onDone: () => void) => {
+      ctx.clearRect(0, 0, W, H);
+      ctx.strokeStyle = "rgba(255,255,255,0.85)";
+      ctx.lineWidth = 0.8;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
 
-      // Рисуем строку за строкой — сразу видим результат
-      const totalDuration = 9000;
-      const startTime = performance.now();
-      const S = 2; // чуть крупнее для скорости
+      const img = new Image();
+      img.onload = () => {
+        const SCALE = 0.35;
+        const cW = Math.round(W * SCALE), cH = Math.round(H * SCALE);
+        const invScale = 1 / SCALE;
+        const imgScale = Math.min(W / img.width, H / img.height) * 0.92;
+        const sw = Math.round(img.width * imgScale), sh = Math.round(img.height * imgScale);
+        const ox = Math.round((W - sw) / 2), oy = Math.round((H - sh) / 2);
 
-      const drawRow = (y: number) => {
-        if (y >= cH - S) return;
-        const elapsed = performance.now() - startTime;
-        // Рисуем только если не опережаем время
-        const expectedY = Math.floor((elapsed / totalDuration) * cH);
-        if (y > expectedY + 20) {
-          // Опережаем — подождём
-          requestAnimationFrame(() => drawRow(y));
-          return;
-        }
+        const offscreen = document.createElement("canvas");
+        offscreen.width = cW; offscreen.height = cH;
+        const octx = offscreen.getContext("2d", { willReadFrequently: true })!;
+        octx.fillStyle = "#000"; octx.fillRect(0, 0, cW, cH);
+        octx.drawImage(img, ox * SCALE, oy * SCALE, sw * SCALE, sh * SCALE);
+        const { data } = octx.getImageData(0, 0, cW, cH);
 
-        // Sobel для одной строки — сразу рисуем штрих
-        const rowPts: { x: number, y: number, m: number }[] = [];
-        for (let x = S; x < cW - S; x += S) {
-          const g = (px: number, py: number) => { const o = (Math.min(py, cH - 1) * cW + Math.min(px, cW - 1)) * 4; return data[o] * 0.299 + data[o + 1] * 0.587 + data[o + 2] * 0.114; };
-          const gx = -g(x - S, y - S) - 2 * g(x - S, y) - g(x - S, y + S) + g(x + S, y - S) + 2 * g(x + S, y) + g(x + S, y + S);
-          const gy = -g(x - S, y - S) - 2 * g(x, y - S) - g(x + S, y - S) + g(x - S, y + S) + 2 * g(x, y + S) + g(x + S, y + S);
-          const m = Math.sqrt(gx * gx + gy * gy);
-          rowPts.push({ x, y, m });
-        }
-        const maxM = Math.max(...rowPts.map(p => p.m));
-        const threshold = maxM * 0.25;
-        const strong = rowPts.filter(p => p.m > threshold);
+        const S = 2;
+        let y = S;
+        let done = false;
 
-        // Рисуем найденные края этой строки
-        if (strong.length > 0) {
-          ctx.beginPath();
-          let pen = false;
-          for (const p of strong) {
-            const sx = p.x * invScale, sy = p.y * invScale;
-            if (!pen) { ctx.moveTo(sx, sy); pen = true; }
-            else ctx.lineTo(sx, sy);
+        const drawRow = () => {
+          if (done) return;
+          const elapsed = performance.now() - startTime;
+          if (elapsed >= DURATION - 300) {
+            // Время вышло — добавляем подпись если есть и завершаем
+            if (label) {
+              ctx.font = `bold ${Math.max(14, W * 0.018)}px "Arial Black", Arial, sans-serif`;
+              ctx.fillStyle = "rgba(255,255,255,0.95)";
+              ctx.textAlign = "center";
+              ctx.textBaseline = "bottom";
+              ctx.fillText(label, W / 2, H - 40);
+            }
+            done = true;
+            onDone();
+            return;
           }
-          ctx.stroke();
-        }
 
-        // Следующая строка через rAF — не блокируем рендер
-        requestAnimationFrame(() => drawRow(y + S));
+          // Сколько строк должно быть нарисовано к этому моменту
+          const progress = Math.min(elapsed / DURATION, 1);
+          const targetY = Math.floor(progress * cH);
+
+          // Рисуем строки до targetY
+          while (y < targetY && y < cH - S) {
+            const rowPts: { x: number, m: number }[] = [];
+            for (let x = S; x < cW - S; x += S) {
+              const g = (px: number, py: number) => { const o = (Math.min(py, cH - 1) * cW + Math.min(px, cW - 1)) * 4; return data[o] * 0.299 + data[o + 1] * 0.587 + data[o + 2] * 0.114; };
+              const gx = -g(x - S, y - S) - 2 * g(x - S, y) - g(x - S, y + S) + g(x + S, y - S) + 2 * g(x + S, y) + g(x + S, y + S);
+              const gy = -g(x - S, y - S) - 2 * g(x, y - S) - g(x + S, y - S) + g(x - S, y + S) + 2 * g(x, y + S) + g(x + S, y + S);
+              const m = Math.sqrt(gx * gx + gy * gy);
+              rowPts.push({ x, m });
+            }
+            const maxM = rowPts.reduce((a, b) => Math.max(a, b.m), 0);
+            const threshold = maxM * 0.28;
+            const strong = rowPts.filter(p => p.m > threshold);
+            if (strong.length > 1) {
+              ctx.beginPath();
+              strong.forEach((p, i) => {
+                const sx = p.x * invScale, sy = y * invScale;
+                if (i === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
+              });
+              ctx.stroke();
+            }
+            y += S;
+          }
+
+          // Подпись появляется в последние 2 секунды
+          if (label && elapsed > DURATION - 2000) {
+            const alpha = Math.min(1, (elapsed - (DURATION - 2000)) / 1000);
+            ctx.font = `bold ${Math.max(14, W * 0.018)}px "Arial Black", Arial, sans-serif`;
+            ctx.fillStyle = `rgba(255,255,255,${alpha * 0.95})`;
+            ctx.textAlign = "center";
+            ctx.textBaseline = "bottom";
+            ctx.fillText(label, W / 2, H - 40);
+          }
+
+          requestAnimationFrame(drawRow);
+        };
+        requestAnimationFrame(drawRow);
       };
-
-      drawRow(S);
+      img.onerror = () => onDone();
+      img.src = imgSrc;
     };
-    img.onerror = () => { };
-    img.src = "/map.jpg";
+
+    // Запускаем по очереди
+    const runSequence = (idx: number) => {
+      if (idx >= images.length) return;
+      const startTime = performance.now();
+      drawImage(images[idx].src, images[idx].label, startTime, () => {
+        setTimeout(() => runSequence(idx + 1), 100);
+      });
+    };
+    runSequence(0);
   }, []);
   return null;
 }
