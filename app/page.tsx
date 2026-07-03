@@ -1569,27 +1569,37 @@ export default function Home() {
         return true;
       });
 
-      // Коллизии слов между собой
+      // Коллизии слов между собой — правильный AABB
       const wps = wordPhysRef.current;
       for (let i = 0; i < wps.length; i++) {
         for (let j = i + 1; j < wps.length; j++) {
           const a = wps[i], b = wps[j];
-          const dx = b.x - a.x, dy = b.y - a.y;
-          const aw = a.el.offsetWidth / 2 || 30, ah = a.el.offsetHeight / 2 || 10;
-          const bw = b.el.offsetWidth / 2 || 30, bh = b.el.offsetHeight / 2 || 10;
-          const minDist = Math.max(aw, ah) + Math.max(bw, bh);
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist < minDist && dist > 0) {
-            const nx = dx / dist, ny = dy / dist;
-            const relVn = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
-            if (relVn < 0) {
-              const imp = -(1 + BOUNCE) * relVn / 2;
-              a.vx -= imp * nx; a.vy -= imp * ny;
-              b.vx += imp * nx; b.vy += imp * ny;
+          const aw = (a.el.offsetWidth / 2 || 30) * a.scale;
+          const ah = (a.el.offsetHeight / 2 || 10) * a.scale;
+          const bw = (b.el.offsetWidth / 2 || 30) * b.scale;
+          const bh = (b.el.offsetHeight / 2 || 10) * b.scale;
+          // AABB overlap
+          const overlapX = (aw + bw) - Math.abs(b.x - a.x);
+          const overlapY = (ah + bh) - Math.abs(b.y - a.y);
+          if (overlapX > 0 && overlapY > 0) {
+            // Разрешаем по наименьшей оси
+            if (overlapX < overlapY) {
+              const sign = b.x > a.x ? 1 : -1;
+              a.x -= sign * overlapX / 2; b.x += sign * overlapX / 2;
+              const relVx = (b.vx - a.vx) * sign;
+              if (relVx < 0) {
+                const imp = -(1 + BOUNCE) * relVx / 2;
+                a.vx -= sign * imp; b.vx += sign * imp;
+              }
+            } else {
+              const sign = b.y > a.y ? 1 : -1;
+              a.y -= sign * overlapY / 2; b.y += sign * overlapY / 2;
+              const relVy = (b.vy - a.vy) * sign;
+              if (relVy < 0) {
+                const imp = -(1 + BOUNCE) * relVy / 2;
+                a.vy -= sign * imp; b.vy += sign * imp;
+              }
             }
-            const overlap = (minDist - dist) / 2;
-            a.x -= nx * overlap; a.y -= ny * overlap;
-            b.x += nx * overlap; b.y += ny * overlap;
           }
         }
       }
@@ -1918,12 +1928,8 @@ export default function Home() {
       wordPhysRef.current.forEach(wp => { wp.el.style.opacity = String(wordOp); });
     }
     if (iDoDesignRef.current && !textPhysRef.current.active) {
-      // Едет вместе со страницей при скролле, виден сразу при загрузке
-      let ty: number;
-      if (unit <= 0) ty = 0;
-      else if (unit <= 0.35) ty = -(unit / 0.35) * 110;
-      else ty = -110;
-      iDoDesignRef.current.style.transform = `translateY(${ty}vh)`;
+      iDoDesignRef.current.style.transform = `translateY(${unit <= 0 ? 0 : unit <= 0.35 ? -(unit / 0.35) * 110 : -110
+        }vh)`;
       iDoDesignRef.current.style.opacity = unit > 0.5 ? "0" : "1";
     }
     // thumbContainer двигается вместе с iDoDesignRef (тот же translateY)
@@ -2190,7 +2196,7 @@ export default function Home() {
         </div>
 
         {/* I DO DESIGN + биография */}
-        <div ref={iDoDesignRef} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", zIndex: 5, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", pointerEvents: "none", willChange: "transform,opacity" }}>
+        <div ref={iDoDesignRef} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", zIndex: 5, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", pointerEvents: "none", willChange: "transform,opacity", opacity: 0 }}>
           <div style={{ position: "relative", display: "inline-flex", flexDirection: "column", alignItems: "center" }}>
             <div ref={iDoDesignTextRef} style={{ position: "relative", fontFamily: "'Arial Black',Arial,sans-serif", fontWeight: 900, fontSize: "clamp(14px,3.5vw,48px)", letterSpacing: "-0.04em", color: "white", lineHeight: 0.95, whiteSpace: "nowrap", textAlign: "center" }}>
               I DO DESIGN
