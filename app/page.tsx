@@ -1031,13 +1031,6 @@ export default function Home() {
   const autoDrawActiveRef = useRef(false); // когда true — трейлы кубиков выключены
 
   // Слайдшоу фото mi1–mi5: случайные позиции, появляются каждые 5 сек
-  const MI_PHOTOS = ["/mi1.jpg", "/mi2.jpg", "/mi3.jpg", "/mi4.jpg", "/mi5.jpg"];
-  const [artemPhoto, setArtemPhoto] = useState<{
-    id: number; src: string; x: number; y: number; size: number;
-    phase: "in" | "show" | "out";
-  } | null>(null);
-  const artemSlideIdRef = useRef(0);
-  const artemTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const videoOpacityRef = useRef(0); // ref-версия для доступа в таймере
 
   const physState = useRef(
@@ -1159,42 +1152,6 @@ export default function Home() {
     resize();
     window.addEventListener("resize", resize);
     return () => window.removeEventListener("resize", resize);
-  }, []);
-
-  // Слайдшоу mi1–mi5 на секции "MY NAME IS ARTEM"
-  useEffect(() => {
-    const SIZE = 280;
-    const SHOW = 3500, IN = 600, OUT = 500, PAUSE = 1200;
-    let lastId = 0;
-
-    const showNext = () => {
-      // Показываем только когда секция видна
-      if (videoOpacityRef.current < 0.3) {
-        artemTimerRef.current = setTimeout(showNext, 1000);
-        return;
-      }
-      const W = window.innerWidth, H = window.innerHeight;
-      const src = MI_PHOTOS[Math.floor(Math.random() * MI_PHOTOS.length)];
-      const x = SIZE / 2 + Math.random() * (W - SIZE);
-      const y = SIZE / 2 + Math.random() * (H - SIZE);
-      artemSlideIdRef.current++;
-      const id = artemSlideIdRef.current;
-      lastId = id;
-      setArtemPhoto({ id, src, x, y, size: SIZE, phase: "in" });
-      artemTimerRef.current = setTimeout(() => {
-        setArtemPhoto(p => p?.id === id ? { ...p, phase: "show" } : p);
-        artemTimerRef.current = setTimeout(() => {
-          setArtemPhoto(p => p?.id === id ? { ...p, phase: "out" } : p);
-          artemTimerRef.current = setTimeout(() => {
-            setArtemPhoto(null);
-            artemTimerRef.current = setTimeout(showNext, PAUSE);
-          }, OUT);
-        }, SHOW);
-      }, IN);
-    };
-
-    artemTimerRef.current = setTimeout(showNext, 1000);
-    return () => { if (artemTimerRef.current) clearTimeout(artemTimerRef.current); };
   }, []);
 
   useEffect(() => {
@@ -2268,7 +2225,6 @@ export default function Home() {
         {/* ТЕКСТ + слайдшоу картинок поверх */}
         <div ref={textRef} style={{ position: "absolute", inset: 0, zIndex: 10, display: "flex", alignItems: "center", padding: "0 clamp(20px,6vw,80px)", opacity: 0, transform: "translate3d(0,40px,0)", willChange: "transform,opacity", pointerEvents: "none" }}>
           {/* Картинки слайдшоу поверх текста */}
-          {artemPhoto && <ArtemSlidePhoto key={artemPhoto.id} photo={artemPhoto} />}
           <div style={{ display: "flex", flexDirection: "column", width: "100%" }}>
             <div className="text-line" style={{ fontSize: "clamp(32px,6.5vw,88px)" }}>MY NAME <span className="mobile-br" />IS ARTEM</div>
             <div className="text-line" style={{ fontSize: "clamp(32px,6.5vw,88px)", marginTop: "0.15em" }}>I'M A <span className="mobile-br" />DESIGNER</div>
@@ -2287,49 +2243,6 @@ export default function Home() {
         <img src="/cursor.png" alt="" style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} />
       </div>
     </>
-  );
-}
-
-// ArtemSlidePhoto — картинка на секции "MY NAME IS ARTEM", анимация "двери лифта"
-function ArtemSlidePhoto({ photo }: {
-  photo: { id: number; src: string; x: number; y: number; size: number; phase: string }
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const el = ref.current; if (!el) return;
-    el.style.transition = "none";
-    el.style.clipPath = "inset(0 50% 0 50%)";
-    const r1 = requestAnimationFrame(() => {
-      const r2 = requestAnimationFrame(() => {
-        el.style.transition = "clip-path 0.6s cubic-bezier(0.16,1,0.3,1)";
-        el.style.clipPath = "inset(0 0% 0 0%)";
-      });
-      return () => cancelAnimationFrame(r2);
-    });
-    return () => cancelAnimationFrame(r1);
-  }, []);
-
-  useEffect(() => {
-    if (photo.phase !== "out") return;
-    const el = ref.current; if (!el) return;
-    el.style.transition = "clip-path 0.5s cubic-bezier(0.65,0,0.35,1)";
-    el.style.clipPath = "inset(0 50% 0 50%)";
-  }, [photo.phase]);
-
-  return (
-    <div ref={ref} style={{
-      position: "absolute",
-      left: `${photo.x}px`, top: `${photo.y}px`,
-      width: `${photo.size}px`, height: `${photo.size}px`,
-      transform: "translate(-50%, -50%)",
-      borderRadius: "16px", overflow: "hidden",
-      boxShadow: "0 8px 40px rgba(0,0,0,0.5)",
-      pointerEvents: "none", zIndex: 11,
-      clipPath: "inset(0 50% 0 50%)",
-    }}>
-      <img src={photo.src} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-    </div>
   );
 }
 
