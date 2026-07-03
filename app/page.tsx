@@ -1917,7 +1917,7 @@ export default function Home() {
         };
         requestAnimationFrame(step);
         textPhysRef.current.active = true;
-      }, 5000);
+      }, 20000);
     }; // end startExplosionTimer
 
     // Ждём полной загрузки страницы, потом запускаем таймер
