@@ -924,20 +924,20 @@ function generate3DShapePoints(
     return fitToScreen(result);
   };
 
-  if (shapeType === 0) return scaleAndProject(makeLorenzAttractor(), Math.min(W, H) * 0.005);
+  if (shapeType === 0) return scaleAndProject(makeThomasAttractor(), Math.min(W, H) * 0.18);
   if (shapeType === 1) return scaleAndProject(makeDNAHelix(), Math.min(W, H) * 0.18);
-  if (shapeType === 2) return scaleAndProject(makeTorusKnot(4, 3), Math.min(W, H) * 0.09);
-  if (shapeType === 3) return scaleAndProject(makeTorusKnot(5, 3), Math.min(W, H) * 0.09);
-  if (shapeType === 4) return scaleAndProject(makeTorusKnot(7, 4), Math.min(W, H) * 0.13);
+  if (shapeType === 2) return scaleAndProject(makeTorusKnot(5, 3), Math.min(W, H) * 0.09);
+  if (shapeType === 3) return scaleAndProject(makeTorusKnot(7, 4), Math.min(W, H) * 0.13);
+  if (shapeType === 4) return scaleAndProject(makeTorusKnot(11, 5), Math.min(W, H) * 0.09);
   if (shapeType === 5) return scaleAndProject(makeLissajous3D(3, 4, 5, rng() * Math.PI), Math.min(W, H) * 0.20);
   if (shapeType === 6) return scaleAndProject(makeLissajous3D(5, 7, 8, rng() * Math.PI), Math.min(W, H) * 0.19);
-  if (shapeType === 7) return scaleAndProject(makeLissajous3D(2, 3, 7, rng() * Math.PI), Math.min(W, H) * 0.19);
+  if (shapeType === 7) return scaleAndProject(makeLissajous3D(7, 11, 13, rng() * Math.PI), Math.min(W, H) * 0.19);
   if (shapeType === 8) return withNaN(makeKleinBottle(), Math.min(W, H) * 0.04);
   if (shapeType === 9) return withNaN(makeBoysSurface(), Math.min(W, H) * 0.09);
-  if (shapeType === 10) return scaleAndProject(makeThomasAttractor(), Math.min(W, H) * 0.18);
-  if (shapeType === 11) return scaleAndProject(makeRosslerAttractor(), Math.min(W, H) * 0.09);
-  if (shapeType === 12) return withNaN(makeEnneperSurface(), Math.min(W, H) * 0.16);
-  if (shapeType === 13) return withNaN(makeTorusSpiral(1.5, 0.5, 7, 13).map(p => ({ ...p, z: isNaN(p.x) ? NaN : p.z })), Math.min(W, H) * 0.15);
+  if (shapeType === 10) return scaleAndProject(makeRosslerAttractor(), Math.min(W, H) * 0.09);
+  if (shapeType === 11) return withNaN(makeTorusSpiral(1.5, 0.5, 7, 13).map(p => ({ ...p, z: isNaN(p.x) ? NaN : p.z })), Math.min(W, H) * 0.15);
+  if (shapeType === 12) return withNaN(makeTorusSpiral(2, 0.6, 11, 17).map(p => ({ ...p, z: isNaN(p.x) ? NaN : p.z })), Math.min(W, H) * 0.15);
+  if (shapeType === 13) return scaleAndProject(makeLissajous3D(4, 5, 7, rng() * Math.PI), Math.min(W, H) * 0.20);
 
   // 4D политопы
   if (shapeType === 14) return fitToScreen(makeBrandPoints(Math.floor(rng() * 10), W, H));
@@ -1352,7 +1352,7 @@ export default function Home() {
       requestAnimationFrame(drawNext);
     };
 
-    // Фаза 0: трейлы кубиков 10 сек → мозаика
+    // Фаза 0: трейлы кубиков 10 сек → мозаика → картина
     const runPhase0 = () => {
       if (!activeRef.current) return;
       autoDrawActiveRef.current = false;
@@ -1362,46 +1362,37 @@ export default function Home() {
         physState.current.forEach(s => { s.trail = []; });
         clearCanvas();
         makeMosaic(trails);
-        schedTimer = setTimeout(runPhase1, 100);
+        schedTimer = setTimeout(runPhase3, 100); // → картина
       }, 10000);
     };
 
-    // Фаза 1: 3D/4D фигура
+    // Фаза 1: 3D/4D фигура → трейлы
     const runPhase1 = () => {
       if (!activeRef.current) return;
       const W = window.innerWidth, H = window.innerHeight;
       const pts = generate3DShapePoints(Math.floor(Math.random() * 999999), W, H, 0, 0);
-      runDrawPhase(pts, runPhase3);
+      runDrawPhase(pts, runPhase0); // → трейлы
     };
 
-    // Фаза 3: произведение искусства (синхронно из предзагруженного)
+    // Фаза 3: произведение искусства → геометрия
     const runPhase3 = () => {
       if (!activeRef.current) return;
       const W = window.innerWidth, H = window.innerHeight;
       const idx = artworkIdx % ARTWORKS.length;
       artworkIdx++;
       const url = ARTWORKS[idx];
-      console.log('[Phase3] Starting, url:', url, 'cached:', preloadedArtworks[idx]?.length ?? 'none');
 
       const startDraw = (pts: { x: number; y: number }[]) => {
-        console.log('[Phase3] startDraw, pts:', pts.length, 'activeRef:', activeRef.current);
         if (!activeRef.current) return;
-        if (pts.length < 3) {
-          console.warn('[Phase3] Not enough points, skipping to phase0');
-          runPhase0();
-          return;
-        }
-        runDrawPhase(pts, runPhase0);
+        if (pts.length < 3) { runPhase1(); return; }
+        runDrawPhase(pts, runPhase1); // → геометрия
       };
 
       const cached = preloadedArtworks[idx];
       if (cached && cached.length > 10) {
-        console.log('[Phase3] Using cached pts:', cached.length);
         startDraw(cached);
       } else {
-        console.log('[Phase3] Loading fresh from:', url);
         generateArtworkPoints(url, W, H).then(pts => {
-          console.log('[Phase3] Loaded pts:', pts.length, 'activeRef:', activeRef.current);
           if (!activeRef.current) return;
           preloadedArtworks[idx] = pts;
           startDraw(pts);
@@ -1526,25 +1517,14 @@ export default function Home() {
         wp.rotSpeed *= ROT_DAMPING;
         wp.x += wp.vx * dt; wp.y += wp.vy * dt;
         wp.ang += wp.rotSpeed * dt;
-        const pw = (wp.el.offsetWidth / 2 || 30) * wp.scale, ph = (wp.el.offsetHeight / 2 || 10) * wp.scale;
+        const pw = wp.el.offsetWidth / 2 || 30, ph = wp.el.offsetHeight / 2 || 10;
         if (wp.x < pw) { wp.x = pw; wp.vx = Math.abs(wp.vx) * BOUNCE; }
         if (wp.x > W - pw) { wp.x = W - pw; wp.vx = -Math.abs(wp.vx) * BOUNCE; }
         if (wp.y < ph) { wp.y = ph; wp.vy = Math.abs(wp.vy) * BOUNCE; }
         if (wp.y > H - ph) { wp.y = H - ph; wp.vy = -Math.abs(wp.vy) * BOUNCE; }
         wp.el.style.left = `${wp.x - pw}px`;
         wp.el.style.top = `${wp.y - ph}px`;
-
-        // Постепенно растём от 1x до 5x за 8 секунд, потом исчезаем
-        const age = (performance.now() - wp.born) / 1000;
-        const GROW_TIME = 8; // секунд до 5x
-        wp.scale = 1 + (age / GROW_TIME) * 4; // 1 → 5
-        const opacity = wp.scale >= 5 ? 0 : Math.min(1, (1 - (wp.scale - 4)));
-        if (wp.scale >= 5) {
-          wp.el.remove();
-          return false; // удаляем из массива
-        }
-        wp.el.style.transform = `rotate(${wp.ang}rad) scale(${wp.scale})`;
-        wp.el.style.opacity = String(opacity);
+        wp.el.style.transform = `rotate(${wp.ang}rad)`;
 
         // Коллизии слова с кубиками
         for (let i = 0; i < IMG_COUNT; i++) {
@@ -1569,40 +1549,42 @@ export default function Home() {
         return true;
       });
 
-      // Коллизии слов между собой — правильный AABB
+      // Коллизии слов между собой — правильный AABB, 3 итерации
       const wps = wordPhysRef.current;
-      for (let i = 0; i < wps.length; i++) {
-        for (let j = i + 1; j < wps.length; j++) {
-          const a = wps[i], b = wps[j];
-          const aw = (a.el.offsetWidth / 2 || 30) * a.scale;
-          const ah = (a.el.offsetHeight / 2 || 10) * a.scale;
-          const bw = (b.el.offsetWidth / 2 || 30) * b.scale;
-          const bh = (b.el.offsetHeight / 2 || 10) * b.scale;
-          // AABB overlap
-          const overlapX = (aw + bw) - Math.abs(b.x - a.x);
-          const overlapY = (ah + bh) - Math.abs(b.y - a.y);
-          if (overlapX > 0 && overlapY > 0) {
-            // Разрешаем по наименьшей оси
-            if (overlapX < overlapY) {
-              const sign = b.x > a.x ? 1 : -1;
-              a.x -= sign * overlapX / 2; b.x += sign * overlapX / 2;
-              const relVx = (b.vx - a.vx) * sign;
-              if (relVx < 0) {
-                const imp = -(1 + BOUNCE) * relVx / 2;
-                a.vx -= sign * imp; b.vx += sign * imp;
-              }
-            } else {
-              const sign = b.y > a.y ? 1 : -1;
-              a.y -= sign * overlapY / 2; b.y += sign * overlapY / 2;
-              const relVy = (b.vy - a.vy) * sign;
-              if (relVy < 0) {
-                const imp = -(1 + BOUNCE) * relVy / 2;
-                a.vy -= sign * imp; b.vy += sign * imp;
+      for (let iter = 0; iter < 3; iter++) {
+        for (let i = 0; i < wps.length; i++) {
+          for (let j = i + 1; j < wps.length; j++) {
+            const a = wps[i], b = wps[j];
+            const aw = (a.el.offsetWidth / 2 || 30);
+            const ah = (a.el.offsetHeight / 2 || 10);
+            const bw = (b.el.offsetWidth / 2 || 30);
+            const bh = (b.el.offsetHeight / 2 || 10);
+            // AABB overlap
+            const overlapX = (aw + bw) - Math.abs(b.x - a.x);
+            const overlapY = (ah + bh) - Math.abs(b.y - a.y);
+            if (overlapX > 0 && overlapY > 0) {
+              // Разрешаем по наименьшей оси
+              if (overlapX < overlapY) {
+                const sign = b.x > a.x ? 1 : -1;
+                a.x -= sign * overlapX / 2; b.x += sign * overlapX / 2;
+                const relVx = (b.vx - a.vx) * sign;
+                if (relVx < 0) {
+                  const imp = -(1 + BOUNCE) * relVx / 2;
+                  a.vx -= sign * imp; b.vx += sign * imp;
+                }
+              } else {
+                const sign = b.y > a.y ? 1 : -1;
+                a.y -= sign * overlapY / 2; b.y += sign * overlapY / 2;
+                const relVy = (b.vy - a.vy) * sign;
+                if (relVy < 0) {
+                  const imp = -(1 + BOUNCE) * relVy / 2;
+                  a.vy -= sign * imp; b.vy += sign * imp;
+                }
               }
             }
           }
         }
-      }
+      } // end iter
 
       // Коллизия с "I DO DESIGN" swept AABB
       const textEl = iDoDesignTextRef.current;
@@ -1749,153 +1731,162 @@ export default function Home() {
   const textPhysRef = useRef({ active: false, x: 0, y: 0, vx: 0, vy: 0, angle: 0, rotSpeed: 0 });
   const textFallTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const textRafRef = useRef<number>(0);
-  type WordPhys = { el: HTMLElement; x: number; y: number; vx: number; vy: number; ang: number; rotSpeed: number; scale: number; born: number };
+  type WordPhys = { el: HTMLElement; x: number; y: number; vx: number; vy: number; ang: number; rotSpeed: number };
   const wordPhysRef = useRef<WordPhys[]>([]);
 
   // Через 20 секунд текстовый блок становится большим кубиком с той же физикой
   useEffect(() => {
-    textFallTimerRef.current = setTimeout(() => {
-      // Защита от двойного вызова (React StrictMode)
-      if (wordPhysRef.current.length > 0 || textPhysRef.current.active) {
-        // Очищаем старые элементы перед повторным запуском
-        wordPhysRef.current.forEach(wp => wp.el.remove());
-        wordPhysRef.current = [];
-        document.querySelectorAll('[data-explosion]').forEach(el => el.remove());
-      }
-      // Берём позицию и размер текста "I DO DESIGN"
-      const titleEl = iDoDesignTextRef.current;
-      if (!titleEl) return;
-      const titleRect = titleEl.getBoundingClientRect();
+    // Стартуем таймер только после полной загрузки страницы
+    const startExplosionTimer = () => {
+      textFallTimerRef.current = setTimeout(() => {
+        // Защита от двойного вызова (React StrictMode)
+        if (wordPhysRef.current.length > 0 || textPhysRef.current.active) {
+          // Очищаем старые элементы перед повторным запуском
+          wordPhysRef.current.forEach(wp => wp.el.remove());
+          wordPhysRef.current = [];
+          document.querySelectorAll('[data-explosion]').forEach(el => el.remove());
+        }
+        // Берём позицию и размер текста "I DO DESIGN"
+        const titleEl = iDoDesignTextRef.current;
+        if (!titleEl) return;
+        const titleRect = titleEl.getBoundingClientRect();
 
-      // Текст для взрыва — "I DO DESIGN"
-      const text = "I DO DESIGN";
-      const fs = parseFloat(getComputedStyle(titleEl).fontSize) || 48;
-      const overlay = document.getElementById("explosion-overlay");
-      if (!overlay) return;
+        // Текст для взрыва — "I DO DESIGN"
+        const text = "I DO DESIGN";
+        const fs = parseFloat(getComputedStyle(titleEl).fontSize) || 48;
+        const overlay = document.getElementById("explosion-overlay");
+        if (!overlay) return;
 
-      // Создаём span для каждой буквы прямо в overlay
-      type LP = { el: HTMLSpanElement; x: number; y: number; vx: number; vy: number; a: number; rs: number };
-      const letters: LP[] = [];
-      const cx = titleRect.left + titleRect.width / 2;
-      const cy = titleRect.top + titleRect.height / 2;
+        // Создаём span для каждой буквы прямо в overlay
+        type LP = { el: HTMLSpanElement; x: number; y: number; vx: number; vy: number; a: number; rs: number };
+        const letters: LP[] = [];
+        const cx = titleRect.left + titleRect.width / 2;
+        const cy = titleRect.top + titleRect.height / 2;
 
-      // Временно рендерим буквы чтобы узнать их позиции
-      const measure = document.createElement("div");
-      measure.style.cssText = `position:fixed;top:${titleRect.top}px;left:${titleRect.left}px;font-family:'Arial Black',Arial,sans-serif;font-weight:900;font-size:${fs}px;letter-spacing:-0.04em;white-space:nowrap;visibility:hidden;pointer-events:none;z-index:-1;`;
-      document.body.appendChild(measure);
+        // Временно рендерим буквы чтобы узнать их позиции
+        const measure = document.createElement("div");
+        measure.style.cssText = `position:fixed;top:${titleRect.top}px;left:${titleRect.left}px;font-family:'Arial Black',Arial,sans-serif;font-weight:900;font-size:${fs}px;letter-spacing:-0.04em;white-space:nowrap;visibility:hidden;pointer-events:none;z-index:-1;`;
+        document.body.appendChild(measure);
 
-      let curX = titleRect.left;
-      text.split("").forEach((ch, i) => {
-        const tmp = document.createElement("span");
-        tmp.textContent = ch === " " ? " " : ch;
-        measure.appendChild(tmp);
-        const r = tmp.getBoundingClientRect();
+        let curX = titleRect.left;
+        text.split("").forEach((ch, i) => {
+          const tmp = document.createElement("span");
+          tmp.textContent = ch === " " ? " " : ch;
+          measure.appendChild(tmp);
+          const r = tmp.getBoundingClientRect();
 
-        const span = document.createElement("span");
-        span.textContent = ch === " " ? " " : ch;
-        span.style.cssText = `position:fixed;left:${r.left}px;top:${r.top}px;font-family:'Arial Black',Arial,sans-serif;font-weight:900;font-size:${fs}px;letter-spacing:-0.04em;color:white;white-space:nowrap;pointer-events:none;z-index:10;transform-origin:center center;`;
-        overlay.appendChild(span);
-
-        const lx = r.left + r.width / 2, ly = r.top + r.height / 2;
-        const dx = lx - cx, dy = ly - cy;
-        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-        const force = 2500 + Math.random() * 3000;
-        letters.push({
-          el: span, x: lx, y: ly,
-          vx: (dx / dist) * force + (Math.random() - 0.5) * 1500,
-          vy: (dy / dist) * force + (Math.random() - 0.5) * 1500,
-          a: 0, rs: (Math.random() - 0.5) * 18
-        });
-      });
-      document.body.removeChild(measure);
-
-      // Скрываем оригинальный текст
-      if (iDoDesignTextRef.current) iDoDesignTextRef.current.style.opacity = "0";
-
-      // Взрыв биографии — каждое слово отдельно
-      const bioEl = bioTextRef.current;
-      if (bioEl) {
-        const bioRect = bioEl.getBoundingClientRect();
-        const bioFs = parseFloat(getComputedStyle(bioEl).fontSize) || 12;
-        const bioText = bioEl.textContent || "";
-        const words = bioText.split(/\s+/).filter(w => w.length > 0);
-
-        // Рендерим слова невидимо чтобы узнать позиции
-        const bioMeasure = document.createElement("div");
-        bioMeasure.style.cssText = `position:fixed;top:${bioRect.top}px;left:${bioRect.left}px;width:${bioRect.width}px;font-family:'Arial Black',Arial,sans-serif;font-weight:900;font-size:${bioFs}px;text-transform:uppercase;text-align:justify;line-height:1.2;word-spacing:0;letter-spacing:0;visibility:hidden;pointer-events:none;z-index:-1;`;
-        words.forEach(w => {
-          const s = document.createElement("span");
-          s.textContent = w + " ";
-          s.style.display = "inline";
-          bioMeasure.appendChild(s);
-        });
-        document.body.appendChild(bioMeasure);
-
-        const wordSpans = Array.from(bioMeasure.querySelectorAll("span")) as HTMLSpanElement[];
-        wordSpans.forEach((ws, wi) => {
-          const r = ws.getBoundingClientRect();
-          if (r.width === 0) return;
           const span = document.createElement("span");
-          span.textContent = words[wi];
+          span.textContent = ch === " " ? " " : ch;
+          span.style.cssText = `position:fixed;left:${r.left}px;top:${r.top}px;font-family:'Arial Black',Arial,sans-serif;font-weight:900;font-size:${fs}px;letter-spacing:-0.04em;color:white;white-space:nowrap;pointer-events:none;z-index:10;transform-origin:center center;`;
+          overlay.appendChild(span);
+
           const lx = r.left + r.width / 2, ly = r.top + r.height / 2;
           const dx = lx - cx, dy = ly - cy;
           const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-
-          // 30% слов остаются с физикой кубиков
-          if (Math.random() < 0.30) {
-            span.dataset.explosion = "1";
-            span.style.cssText = `position:fixed;left:${r.left}px;top:${r.top}px;font-family:'Arial Black',Arial,sans-serif;font-weight:900;font-size:${bioFs}px;text-transform:uppercase;color:white;white-space:nowrap;pointer-events:none;z-index:10;transform-origin:center center;`;
-            span.dataset.sticky = "1"; // маркер для управления opacity
-            document.body.appendChild(span);
-            wordPhysRef.current.push({
-              el: span, x: lx, y: ly,
-              vx: (dx / dist) * 800 + (Math.random() - 0.5) * 600,
-              vy: (dy / dist) * 800 + (Math.random() - 0.5) * 600,
-              ang: 0, rotSpeed: (Math.random() - 0.5) * 3,
-              scale: 1, born: performance.now(),
-            });
-          } else {
-            // 70% улетают через overlay
-            span.dataset.explosion = "1";
-            span.style.cssText = `position:fixed;left:${r.left}px;top:${r.top}px;font-family:'Arial Black',Arial,sans-serif;font-weight:900;font-size:${bioFs}px;text-transform:uppercase;color:white;white-space:nowrap;pointer-events:none;z-index:10;transform-origin:center center;`;
-            overlay.appendChild(span);
-            const force = 2000 + Math.random() * 2500;
-            letters.push({
-              el: span, x: lx, y: ly,
-              vx: (dx / dist) * force + (Math.random() - 0.5) * 1200,
-              vy: (dy / dist) * force + (Math.random() - 0.5) * 1200,
-              a: 0, rs: (Math.random() - 0.5) * 12
-            });
-          }
+          const force = 2500 + Math.random() * 3000;
+          letters.push({
+            el: span, x: lx, y: ly,
+            vx: (dx / dist) * force + (Math.random() - 0.5) * 1500,
+            vy: (dy / dist) * force + (Math.random() - 0.5) * 1500,
+            a: 0, rs: (Math.random() - 0.5) * 18
+          });
         });
-        document.body.removeChild(bioMeasure);
-        bioEl.style.opacity = "0";
-      }
+        document.body.removeChild(measure);
 
-      // Анимация — чистый rAF, без зависимостей
-      let last = performance.now();
-      const step = (now: number) => {
-        const dt = Math.min((now - last) / 1000, 0.05); last = now;
-        let alive = false;
-        letters.forEach(L => {
-          L.vx *= 0.97; L.vy *= 0.97;
-          L.x += L.vx * dt; L.y += L.vy * dt;
-          L.a += L.rs * dt; L.rs *= 0.98;
-          const W = window.innerWidth, H = window.innerHeight;
-          if (L.x < -50 || L.x > W + 50 || L.y < -50 || L.y > H + 50) {
-            L.el.style.display = "none"; return;
-          }
-          alive = true;
-          L.el.style.left = `${L.x}px`;
-          L.el.style.top = `${L.y}px`;
-          L.el.style.transform = `translate(-50%,-50%) rotate(${L.a}rad)`;
-        });
-        if (alive) requestAnimationFrame(step);
-        else overlay.innerHTML = "";
-      };
-      requestAnimationFrame(step);
-      textPhysRef.current.active = true;
-    }, 5000);
+        // Скрываем оригинальный текст
+        if (iDoDesignTextRef.current) iDoDesignTextRef.current.style.opacity = "0";
+
+        // Взрыв биографии — каждое слово отдельно
+        const bioEl = bioTextRef.current;
+        if (bioEl) {
+          const bioRect = bioEl.getBoundingClientRect();
+          const bioFs = parseFloat(getComputedStyle(bioEl).fontSize) || 12;
+          const bioText = bioEl.textContent || "";
+          const words = bioText.split(/\s+/).filter(w => w.length > 0);
+
+          // Рендерим слова невидимо чтобы узнать позиции
+          const bioMeasure = document.createElement("div");
+          bioMeasure.style.cssText = `position:fixed;top:${bioRect.top}px;left:${bioRect.left}px;width:${bioRect.width}px;font-family:'Arial Black',Arial,sans-serif;font-weight:900;font-size:${bioFs}px;text-transform:uppercase;text-align:justify;line-height:1.2;word-spacing:0;letter-spacing:0;visibility:hidden;pointer-events:none;z-index:-1;`;
+          words.forEach(w => {
+            const s = document.createElement("span");
+            s.textContent = w + " ";
+            s.style.display = "inline";
+            bioMeasure.appendChild(s);
+          });
+          document.body.appendChild(bioMeasure);
+
+          const wordSpans = Array.from(bioMeasure.querySelectorAll("span")) as HTMLSpanElement[];
+          wordSpans.forEach((ws, wi) => {
+            const r = ws.getBoundingClientRect();
+            if (r.width === 0) return;
+            const span = document.createElement("span");
+            span.textContent = words[wi];
+            const lx = r.left + r.width / 2, ly = r.top + r.height / 2;
+            const dx = lx - cx, dy = ly - cy;
+            const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+
+            // 30% слов остаются с физикой кубиков
+            if (Math.random() < 0.30) {
+              span.dataset.explosion = "1";
+              span.style.cssText = `position:fixed;left:${r.left}px;top:${r.top}px;font-family:'Arial Black',Arial,sans-serif;font-weight:900;font-size:${bioFs}px;text-transform:uppercase;color:white;white-space:nowrap;pointer-events:none;z-index:10;transform-origin:center center;`;
+              span.dataset.sticky = "1"; // маркер для управления opacity
+              document.body.appendChild(span);
+              wordPhysRef.current.push({
+                el: span, x: lx, y: ly,
+                vx: (dx / dist) * 800 + (Math.random() - 0.5) * 600,
+                vy: (dy / dist) * 800 + (Math.random() - 0.5) * 600,
+                ang: 0, rotSpeed: (Math.random() - 0.5) * 3,
+              });
+            } else {
+              // 70% улетают через overlay
+              span.dataset.explosion = "1";
+              span.style.cssText = `position:fixed;left:${r.left}px;top:${r.top}px;font-family:'Arial Black',Arial,sans-serif;font-weight:900;font-size:${bioFs}px;text-transform:uppercase;color:white;white-space:nowrap;pointer-events:none;z-index:10;transform-origin:center center;`;
+              overlay.appendChild(span);
+              const force = 2000 + Math.random() * 2500;
+              letters.push({
+                el: span, x: lx, y: ly,
+                vx: (dx / dist) * force + (Math.random() - 0.5) * 1200,
+                vy: (dy / dist) * force + (Math.random() - 0.5) * 1200,
+                a: 0, rs: (Math.random() - 0.5) * 12
+              });
+            }
+          });
+          document.body.removeChild(bioMeasure);
+          bioEl.style.opacity = "0";
+        }
+
+        // Анимация — чистый rAF, без зависимостей
+        let last = performance.now();
+        const step = (now: number) => {
+          const dt = Math.min((now - last) / 1000, 0.05); last = now;
+          let alive = false;
+          letters.forEach(L => {
+            L.vx *= 0.97; L.vy *= 0.97;
+            L.x += L.vx * dt; L.y += L.vy * dt;
+            L.a += L.rs * dt; L.rs *= 0.98;
+            const W = window.innerWidth, H = window.innerHeight;
+            if (L.x < -50 || L.x > W + 50 || L.y < -50 || L.y > H + 50) {
+              L.el.style.display = "none"; return;
+            }
+            alive = true;
+            L.el.style.left = `${L.x}px`;
+            L.el.style.top = `${L.y}px`;
+            L.el.style.transform = `translate(-50%,-50%) rotate(${L.a}rad)`;
+          });
+          if (alive) requestAnimationFrame(step);
+          else overlay.innerHTML = "";
+        };
+        requestAnimationFrame(step);
+        textPhysRef.current.active = true;
+      }, 5000);
+    }; // end startExplosionTimer
+
+    // Ждём полной загрузки страницы, потом запускаем таймер
+    if (document.readyState === 'complete') {
+      startExplosionTimer();
+    } else {
+      window.addEventListener('load', startExplosionTimer, { once: true });
+    }
 
     return () => {
       if (textFallTimerRef.current) clearTimeout(textFallTimerRef.current);
@@ -2039,6 +2030,33 @@ export default function Home() {
     const ov = overlayRef.current; if (ov) ov.addEventListener("click", onClick);
     return () => { window.removeEventListener("mousemove", onMM); if (ov) ov.removeEventListener("click", onClick); };
   }, [showContact, selectedImg]);
+
+  // Автоскролл через 30 сек если пользователь не доскроллил до цветной секции — единоразово
+  useEffect(() => {
+    let fired = false;
+    const timer = setTimeout(() => {
+      if (fired) return;
+      fired = true;
+      if (scrollRef.current < TOTAL_SCROLL * 0.8) {
+        const target = TOTAL_SCROLL;
+        const start = scrollRef.current;
+        const duration = 8000;
+        const startTime = performance.now();
+        const animate = (now: number) => {
+          const elapsed = now - startTime;
+          const progress = Math.min(elapsed / duration, 1);
+          const ease = progress < 0.5
+            ? 4 * progress * progress * progress
+            : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+          scrollRef.current = start + (target - start) * ease;
+          applyAnimations(scrollRef.current, 0);
+          if (progress < 1) requestAnimationFrame(animate);
+        };
+        requestAnimationFrame(animate);
+      }
+    }, 90000);
+    return () => { clearTimeout(timer); fired = true; };
+  }, []);
 
   useEffect(() => {
     const vw = window.innerWidth, rw = getRowWidth();
