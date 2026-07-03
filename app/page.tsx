@@ -100,7 +100,7 @@ function buildColoredMosaic(
   minX: number, minY: number,
   cropW: number, cropH: number
 ): string | null {
-  const SIZE = 400;
+  const SIZE = 600;
   const scale = Math.min(SIZE / Math.max(cropW, cropH, 1), 4);
   const w = Math.max(4, Math.round(cropW * scale));
   const h = Math.max(4, Math.round(cropH * scale));
@@ -160,16 +160,13 @@ function buildColoredMosaic(
     });
   };
 
-  // Толстые серые разделители для flood-fill
-  drawTrails("#505050", Math.max(2.5, 2.5 * scale));
-
-  // Закрашиваем края canvas серым — чтобы flood-fill не создавал большую область по периметру
+  // Толстые серые разделители для flood-fill — минимум 2px
+  drawTrails("#505050", Math.max(2, 2 * scale));
+  // Закрашиваем края canvas серым
   ctx.fillStyle = "#505050";
   const bw = Math.max(2, Math.round(2 * scale));
-  ctx.fillRect(0, 0, w, bw);       // верх
-  ctx.fillRect(0, h - bw, w, bw);    // низ
-  ctx.fillRect(0, 0, bw, h);       // лево
-  ctx.fillRect(w - bw, 0, bw, h);    // право
+  ctx.fillRect(0, 0, w, bw); ctx.fillRect(0, h - bw, w, bw);
+  ctx.fillRect(0, 0, bw, h); ctx.fillRect(w - bw, 0, bw, h);
 
   const imgData = ctx.getImageData(0, 0, w, h);
   const data = imgData.data;
