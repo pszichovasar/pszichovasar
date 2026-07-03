@@ -2054,7 +2054,7 @@ export default function Home() {
         };
         requestAnimationFrame(animate);
       }
-    }, 90000);
+    }, 50000);
     return () => { clearTimeout(timer); fired = true; };
   }, []);
 
