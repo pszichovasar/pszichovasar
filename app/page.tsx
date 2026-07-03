@@ -878,6 +878,19 @@ function makeBrandPoints(seed: number, W: number, H: number): { x: number, y: nu
   return (logos[idx] as any).flat ? (logos[idx] as any).flat() as { x: number, y: number }[] : logos[idx] as { x: number, y: number }[];
 }
 
+// Строит трейл из рёбер политопа
+function buildEdgeTrail(edges: [number, number][], projected: { x: number, y: number }[]): { x: number, y: number }[] {
+  const result: { x: number, y: number }[] = [];
+  const used = new Set<string>();
+  const key = (a: number, b: number) => `${Math.min(a, b)}-${Math.max(a, b)}`;
+  for (const [a, b] of edges) {
+    if (used.has(key(a, b))) continue;
+    used.add(key(a, b));
+    result.push(projected[a], projected[b], { x: NaN, y: NaN });
+  }
+  return result;
+}
+
 function generate3DShapePoints(
   seed: number,
   W: number, H: number,
@@ -926,9 +939,27 @@ function generate3DShapePoints(
 
   if (shapeType === 0) return scaleAndProject(makeThomasAttractor(), Math.min(W, H) * 0.18);
   if (shapeType === 1) return scaleAndProject(makeDNAHelix(), Math.min(W, H) * 0.18);
-  if (shapeType === 2) return scaleAndProject(makeTorusKnot(5, 3), Math.min(W, H) * 0.09);
-  if (shapeType === 3) return scaleAndProject(makeTorusKnot(7, 4), Math.min(W, H) * 0.13);
-  if (shapeType === 4) return scaleAndProject(makeTorusKnot(11, 5), Math.min(W, H) * 0.09);
+  if (shapeType === 2) {
+    // Два вложенных торических узла — сложное переплетение
+    const a = makeTorusKnot(5, 3); const b = makeTorusKnot(7, 4);
+    return scaleAndProject([...a, { x: NaN, y: NaN, z: NaN }, ...b], Math.min(W, H) * 0.09);
+  }
+  if (shapeType === 3) {
+    // Три Лиссажу разных фаз — объёмная звезда
+    const a = makeLissajous3D(3, 4, 5, 0); const b = makeLissajous3D(3, 4, 5, Math.PI / 3); const c = makeLissajous3D(3, 4, 5, Math.PI * 2 / 3);
+    return scaleAndProject([...a, { x: NaN, y: NaN, z: NaN }, ...b, { x: NaN, y: NaN, z: NaN }, ...c], Math.min(W, H) * 0.18);
+  }
+  if (shapeType === 4) {
+    // 4D Tesseract + 16-cell вместе
+    const s4D = Math.min(W, H) * 0.10;
+    const rotXY = rng() * Math.PI * 2, rotXZ = rng() * Math.PI * 2, rotXW = rng() * Math.PI * 2;
+    const t = makeTesseract(); const c16 = make16Cell();
+    const projT = t.verts.map(v => project4D(v, rotXY, rotXZ, rotXW, s4D, cx, cy));
+    const projC = c16.verts.map(v => project4D(v, rotXY + 0.5, rotXZ + 0.5, rotXW + 0.3, s4D, cx, cy));
+    const ptsT = buildEdgeTrail(t.edges, projT);
+    const ptsC = buildEdgeTrail(c16.edges, projC);
+    return [...ptsT, { x: NaN, y: NaN }, ...ptsC];
+  }
   if (shapeType === 5) return scaleAndProject(makeLissajous3D(3, 4, 5, rng() * Math.PI), Math.min(W, H) * 0.20);
   if (shapeType === 6) return scaleAndProject(makeLissajous3D(5, 7, 8, rng() * Math.PI), Math.min(W, H) * 0.19);
   if (shapeType === 7) return scaleAndProject(makeLissajous3D(7, 11, 13, rng() * Math.PI), Math.min(W, H) * 0.19);
@@ -1016,6 +1047,13 @@ export default function Home() {
   const scrollRef = useRef(0);
   const touchStartRef = useRef(0);
   const [pinkOpacity, setPinkOpacity] = useState(1);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Экран загрузки — 10 секунд, потом плавно скрываем
+  useEffect(() => {
+    const t = setTimeout(() => setIsLoading(false), 10000);
+    return () => clearTimeout(t);
+  }, []);
   const [videoOpacity, setVideoOpacity] = useState(0);
 
   const floatingRefs = useRef<(HTMLDivElement | null)[]>(Array(IMG_COUNT).fill(null));
@@ -1738,6 +1776,7 @@ export default function Home() {
   useEffect(() => {
     // Стартуем таймер только после полной загрузки страницы
     const startExplosionTimer = () => {
+      // Только после экрана загрузки (10 сек уже прошло)
       textFallTimerRef.current = setTimeout(() => {
         // Защита от двойного вызова (React StrictMode)
         if (wordPhysRef.current.length > 0 || textPhysRef.current.active) {
@@ -2031,8 +2070,9 @@ export default function Home() {
     return () => { window.removeEventListener("mousemove", onMM); if (ov) ov.removeEventListener("click", onClick); };
   }, [showContact, selectedImg]);
 
-  // Автоскролл через 30 сек если пользователь не доскроллил до цветной секции — единоразово
+  // Автоскролл — единоразово, только после экрана загрузки
   useEffect(() => {
+    if (isLoading) return; // ждём конца загрузки
     let fired = false;
     const timer = setTimeout(() => {
       if (fired) return;
@@ -2056,7 +2096,7 @@ export default function Home() {
       }
     }, 50000);
     return () => { clearTimeout(timer); fired = true; };
-  }, []);
+  }, [isLoading]);
 
   useEffect(() => {
     const vw = window.innerWidth, rw = getRowWidth();
@@ -2266,12 +2306,129 @@ export default function Home() {
       <div ref={cursorRef} style={{ position: "fixed", top: 0, left: 0, width: "240px", height: "240px", pointerEvents: "none", zIndex: 999999, opacity: 0, willChange: "transform", transform: "translate(-9999px,-9999px)", marginLeft: "-120px", marginTop: "-120px", display: "none" }} className="cursor-el">
         <img src="/cursor.png" alt="" style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} />
       </div>
+      {/* Экран загрузки — карта мира отрисовывается контурами */}
+      {isLoading && (
+        <div style={{
+          position: "fixed", inset: 0, background: "#000", zIndex: 9999,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          animation: "loadingFadeOut 0.8s ease forwards",
+          animationDelay: "9.2s",
+        }}>
+          <style>{`@keyframes loadingFadeOut { from { opacity:1 } to { opacity:0; pointer-events:none } }`}</style>
+          <canvas id="map-loading-canvas" style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} />
+          <MapLoader />
+        </div>
+      )}
     </>
   );
 }
 
 // ThumbItem: position:absolute внутри thumbContainerRef.
 // imgRef позволяет обновить src без перемонтирования когда мозаика готова.
+// MapLoader — рисует карту мира контурами как картины при загрузке
+function MapLoader() {
+  useEffect(() => {
+    const canvas = document.getElementById("map-loading-canvas") as HTMLCanvasElement;
+    if (!canvas) return;
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    const ctx = canvas.getContext("2d")!;
+    const W = canvas.width, H = canvas.height;
+
+    const img = new Image();
+    img.onload = () => {
+      // Sobel — те же параметры что и для картин
+      const scale = Math.min(W / img.width, H / img.height) * 0.92;
+      const sw = Math.round(img.width * scale), sh = Math.round(img.height * scale);
+      const ox = Math.round((W - sw) / 2), oy = Math.round((H - sh) / 2);
+      const SCALE = 0.5;
+      const cW = Math.round(W * SCALE), cH = Math.round(H * SCALE);
+      const offscreen = document.createElement("canvas");
+      offscreen.width = cW; offscreen.height = cH;
+      const octx = offscreen.getContext("2d", { willReadFrequently: true })!;
+      octx.fillStyle = "#000"; octx.fillRect(0, 0, cW, cH);
+      octx.drawImage(img, ox * SCALE, oy * SCALE, sw * SCALE, sh * SCALE);
+      const { data } = octx.getImageData(0, 0, cW, cH);
+      const invScale = 1 / SCALE;
+
+      // Sobel
+      const S = 1;
+      type Pt = { x: number, y: number, m: number };
+      const edgePts: Pt[] = [];
+      let maxMag = 0;
+      for (let y = S; y < cH - S; y += S) {
+        for (let x = S; x < cW - S; x += S) {
+          const g = (px: number, py: number) => { const o = (Math.min(py, cH - 1) * cW + Math.min(px, cW - 1)) * 4; return data[o] * 0.299 + data[o + 1] * 0.587 + data[o + 2] * 0.114; };
+          const gx = -g(x - S, y - S) - 2 * g(x - S, y) - g(x - S, y + S) + g(x + S, y - S) + 2 * g(x + S, y) + g(x + S, y + S);
+          const gy = -g(x - S, y - S) - 2 * g(x, y - S) - g(x + S, y - S) + g(x - S, y + S) + 2 * g(x, y + S) + g(x + S, y + S);
+          const m = Math.sqrt(gx * gx + gy * gy);
+          if (m > maxMag) maxMag = m;
+          edgePts.push({ x, y, m });
+        }
+      }
+      const threshold = maxMag * 0.18;
+      const strong = edgePts.filter(p => p.m > threshold);
+      strong.sort((a, b) => b.m - a.m);
+      const top = strong.slice(0, 50000);
+
+      // Строим штрихи
+      const gridSize = S;
+      const grid = new Map<string, number>();
+      top.forEach((p, i) => grid.set(`${Math.round(p.x / gridSize)},${Math.round(p.y / gridSize)}`, i));
+      const used = new Set<number>();
+      const strokes: { x: number, y: number }[][] = [];
+      const dirs8 = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 1], [1, -1], [1, 0], [1, 1]];
+      for (let si = 0; si < top.length; si++) {
+        if (used.has(si)) continue;
+        const stroke: { x: number, y: number }[] = [];
+        let cur = si;
+        while (cur !== -1 && !used.has(cur)) {
+          used.add(cur);
+          stroke.push({ x: top[cur].x * invScale, y: top[cur].y * invScale });
+          let next = -1, bestM = -1;
+          const gx0 = Math.round(top[cur].x / gridSize), gy0 = Math.round(top[cur].y / gridSize);
+          for (const [dr, dc] of dirs8) {
+            const ni = grid.get(`${gx0 + dc},${gy0 + dr}`);
+            if (ni !== undefined && !used.has(ni) && top[ni].m > bestM) { bestM = top[ni].m; next = ni; }
+          }
+          cur = bestM > 0 ? next : -1;
+        }
+        if (stroke.length >= 3) strokes.push(stroke);
+        if (strokes.length > 3000) break;
+      }
+
+      // Плавная отрисовка — все штрихи за 9 секунд
+      const totalDuration = 9000;
+      const startTime = performance.now();
+      let strokeIdx = 0;
+      ctx.strokeStyle = "rgba(255,255,255,0.85)";
+      ctx.lineWidth = 0.8;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+
+      const drawNext = (now: number) => {
+        const elapsed = now - startTime;
+        const targetStroke = Math.min(Math.floor((elapsed / totalDuration) * strokes.length), strokes.length);
+        while (strokeIdx < targetStroke && strokeIdx < strokes.length) {
+          const s = strokes[strokeIdx++];
+          ctx.beginPath();
+          ctx.moveTo(s[0].x, s[0].y);
+          for (let i = 1; i < s.length; i++) {
+            const mx = (s[i - 1].x + s[i].x) / 2, my = (s[i - 1].y + s[i].y) / 2;
+            ctx.quadraticCurveTo(s[i - 1].x, s[i - 1].y, mx, my);
+          }
+          ctx.stroke();
+        }
+        if (strokeIdx < strokes.length) requestAnimationFrame(drawNext);
+      };
+      requestAnimationFrame(drawNext);
+    };
+    img.onerror = () => { };
+    img.src = "/map.jpg";
+  }, []);
+  return null;
+}
+
 function ThumbItem({ thumb }: { thumb: Thumbnail }) {
   const ref = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
