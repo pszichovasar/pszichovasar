@@ -160,18 +160,36 @@ function buildColoredMosaic(
     });
   };
 
-  // Толстые серые разделители для flood-fill — минимум 2px
-  drawTrails("#505050", Math.max(2, 2 * scale));
+  // Рисуем разделители — сначала жирные точки в вершинах, потом линии
+  const sepW = Math.max(3, Math.round(3 * scale));
+
+  // Точки в каждой вершине — закрывают зазоры между рёбрами
+  ctx.fillStyle = "#505050";
+  trails.forEach(trail => {
+    trail.forEach(p => {
+      if (isNaN(p.x)) return;
+      const sx = (p.x - minX) * scale;
+      const sy = (p.y - minY) * scale;
+      ctx.beginPath();
+      ctx.arc(sx, sy, sepW, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  });
+
+  // Линии поверх точек
+  drawTrails("#505050", sepW);
+  drawTrails("#505050", sepW + 1); // второй проход чуть толще
+
   // Закрашиваем края canvas серым
   ctx.fillStyle = "#505050";
-  const bw = Math.max(2, Math.round(2 * scale));
+  const bw = Math.max(3, Math.round(3 * scale));
   ctx.fillRect(0, 0, w, bw); ctx.fillRect(0, h - bw, w, bw);
   ctx.fillRect(0, 0, bw, h); ctx.fillRect(w - bw, 0, bw, h);
 
   const imgData = ctx.getImageData(0, 0, w, h);
   const data = imgData.data;
   const n = w * h;
-  const isBorder = (i: number) => data[i * 4] > 30;
+  const isBorder = (i: number) => data[i * 4] > 20;
   const visited = new Uint8Array(n);
   const queue = new Int32Array(n);
   const recentColors: number[] = [];
@@ -883,15 +901,32 @@ function makeBrandPoints(seed: number, W: number, H: number): { x: number, y: nu
   return (logos[idx] as any).flat ? (logos[idx] as any).flat() as { x: number, y: number }[] : logos[idx] as { x: number, y: number }[];
 }
 
-// Строит трейл из рёбер политопа
+// Строит трейл из рёбер политопа как замкнутые треугольники для мозаики
 function buildEdgeTrail(edges: [number, number][], projected: { x: number, y: number }[]): { x: number, y: number }[] {
+  // Находим треугольники — тройки вершин где каждая пара соединена ребром
+  const edgeSet = new Set(edges.map(([a, b]) => `${Math.min(a, b)}-${Math.max(a, b)}`));
+  const hasEdge = (a: number, b: number) => edgeSet.has(`${Math.min(a, b)}-${Math.max(a, b)}`);
   const result: { x: number, y: number }[] = [];
-  const used = new Set<string>();
-  const key = (a: number, b: number) => `${Math.min(a, b)}-${Math.max(a, b)}`;
+
+  // Рёбра как отрезки
   for (const [a, b] of edges) {
-    if (used.has(key(a, b))) continue;
-    used.add(key(a, b));
+    if (isNaN(projected[a]?.x) || isNaN(projected[b]?.x)) continue;
     result.push(projected[a], projected[b], { x: NaN, y: NaN });
+  }
+
+  // Замкнутые треугольники из граней
+  const n = projected.length;
+  for (let a = 0; a < n; a++) {
+    for (let b = a + 1; b < n; b++) {
+      if (!hasEdge(a, b)) continue;
+      for (let c = b + 1; c < n; c++) {
+        if (hasEdge(a, c) && hasEdge(b, c)) {
+          const pa = projected[a], pb = projected[b], pc = projected[c];
+          if (!pa || !pb || !pc || isNaN(pa.x) || isNaN(pb.x) || isNaN(pc.x)) continue;
+          result.push(pa, pb, pc, pa, { x: NaN, y: NaN });
+        }
+      }
+    }
   }
   return result;
 }
@@ -1130,7 +1165,7 @@ export default function Home() {
 
   // Экран загрузки — 10 секунд, потом плавно скрываем
   useEffect(() => {
-    const t = setTimeout(() => setIsLoading(false), 21000);
+    const t = setTimeout(() => setIsLoading(false), 10000);
     return () => clearTimeout(t);
   }, []);
   const [videoOpacity, setVideoOpacity] = useState(0);
@@ -2391,7 +2426,7 @@ export default function Home() {
           position: "fixed", inset: 0, background: "#000", zIndex: 9999,
           display: "flex", alignItems: "center", justifyContent: "center",
           animation: "loadingFadeOut 0.8s ease forwards",
-          animationDelay: "20.2s",
+          animationDelay: "9.2s",
         }}>
           <style>{`@keyframes loadingFadeOut { from { opacity:1 } to { opacity:0; pointer-events:none } }`}</style>
           <canvas id="map-loading-canvas" style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} />
@@ -2413,123 +2448,94 @@ function MapLoader() {
     canvas.height = window.innerHeight;
     const ctx = canvas.getContext("2d")!;
     const W = canvas.width, H = canvas.height;
+    ctx.strokeStyle = "rgba(255,255,255,0.85)";
+    ctx.lineWidth = 0.9;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
 
-    const DURATION = 7000;
-    const images = [
-      { src: "/map.jpg", label: null as string | null },
-      { src: "/montreal.jpg", label: "Montréal" },
-      { src: "/kyiv.jpg", label: "Kyiv" },
-    ];
+    const img = new Image();
+    img.onload = () => {
+      const isMob = W <= 768;
+      const SCALE = isMob ? 0.7 : 0.35;
+      const cW = Math.round(W * SCALE), cH = Math.round(H * SCALE);
+      const invScale = 1 / SCALE;
+      const imgScale = Math.min(W / img.width, H / img.height) * 0.92;
+      const sw = Math.round(img.width * imgScale), sh = Math.round(img.height * imgScale);
+      const ox = Math.round((W - sw) / 2), oy = Math.round((H - sh) / 2);
 
-    const processImage = (imgSrc: string, label: string | null, onDone: () => void) => {
-      ctx.clearRect(0, 0, W, H);
-      const img = new Image();
-      img.onload = () => {
-        // Sobel полностью в Web Worker-style через setTimeout 0
-        const SCALE = 0.35;
-        const cW = Math.round(W * SCALE), cH = Math.round(H * SCALE);
-        const invScale = 1 / SCALE;
-        const imgScale = Math.min(W / img.width, H / img.height) * 0.92;
-        const sw = Math.round(img.width * imgScale), sh = Math.round(img.height * imgScale);
-        const ox = Math.round((W - sw) / 2), oy = Math.round((H - sh) / 2);
+      const offscreen = document.createElement("canvas");
+      offscreen.width = cW; offscreen.height = cH;
+      const octx = offscreen.getContext("2d", { willReadFrequently: true })!;
+      octx.fillStyle = "#000"; octx.fillRect(0, 0, cW, cH);
+      octx.drawImage(img, ox * SCALE, oy * SCALE, sw * SCALE, sh * SCALE);
+      const { data } = octx.getImageData(0, 0, cW, cH);
 
-        const offscreen = document.createElement("canvas");
-        offscreen.width = cW; offscreen.height = cH;
-        const octx = offscreen.getContext("2d", { willReadFrequently: true })!;
-        octx.fillStyle = "#000"; octx.fillRect(0, 0, cW, cH);
-        octx.drawImage(img, ox * SCALE, oy * SCALE, sw * SCALE, sh * SCALE);
-        const { data } = octx.getImageData(0, 0, cW, cH);
-
-        // Sobel + трассировка в одном setTimeout — не блокирует первый рендер
-        setTimeout(() => {
-          const S = 2;
-          const edgePts: { x: number, y: number, m: number }[] = [];
-          let maxMag = 0;
-          for (let y = S; y < cH - S; y += S) {
-            for (let x = S; x < cW - S; x += S) {
-              const g = (px: number, py: number) => { const o = (Math.min(py, cH - 1) * cW + Math.min(px, cW - 1)) * 4; return data[o] * 0.299 + data[o + 1] * 0.587 + data[o + 2] * 0.114; };
-              const gx = -g(x - S, y - S) - 2 * g(x - S, y) - g(x - S, y + S) + g(x + S, y - S) + 2 * g(x + S, y) + g(x + S, y + S);
-              const gy = -g(x - S, y - S) - 2 * g(x, y - S) - g(x + S, y - S) + g(x - S, y + S) + 2 * g(x, y + S) + g(x + S, y + S);
-              const m = Math.sqrt(gx * gx + gy * gy);
-              if (m > maxMag) maxMag = m;
-              edgePts.push({ x, y, m });
-            }
+      setTimeout(() => {
+        const S = 2;
+        const edgePts: { x: number, y: number, m: number }[] = [];
+        let maxMag = 0;
+        for (let y = S; y < cH - S; y += S) {
+          for (let x = S; x < cW - S; x += S) {
+            const g = (px: number, py: number) => { const o = (Math.min(py, cH - 1) * cW + Math.min(px, cW - 1)) * 4; return data[o] * 0.299 + data[o + 1] * 0.587 + data[o + 2] * 0.114; };
+            const gx = -g(x - S, y - S) - 2 * g(x - S, y) - g(x - S, y + S) + g(x + S, y - S) + 2 * g(x + S, y) + g(x + S, y + S);
+            const gy = -g(x - S, y - S) - 2 * g(x, y - S) - g(x + S, y - S) + g(x - S, y + S) + 2 * g(x, y + S) + g(x + S, y + S);
+            const m = Math.sqrt(gx * gx + gy * gy);
+            if (m > maxMag) maxMag = m;
+            edgePts.push({ x, y, m });
           }
-          const threshold = maxMag * 0.20;
-          const strong = edgePts.filter(p => p.m > threshold);
-          strong.sort((a, b) => b.m - a.m);
-          const top = strong.slice(0, 40000);
+        }
+        const threshold = maxMag * 0.20;
+        const strong = edgePts.filter(p => p.m > threshold);
+        strong.sort((a, b) => b.m - a.m);
+        const top = strong.slice(0, 40000);
 
-          // Трассировка штрихов
-          const grid = new Map<string, number>();
-          top.forEach((p, i) => grid.set(`${Math.round(p.x / S)},${Math.round(p.y / S)}`, i));
-          const used = new Set<number>();
-          const strokes: { x: number, y: number }[][] = [];
-          const dirs8 = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 1], [1, -1], [1, 0], [1, 1]];
-          for (let si = 0; si < top.length; si++) {
-            if (used.has(si)) continue;
-            const stroke: { x: number, y: number }[] = [];
-            let cur = si;
-            while (cur !== -1 && !used.has(cur)) {
-              used.add(cur);
-              stroke.push({ x: top[cur].x * invScale, y: top[cur].y * invScale });
-              let next = -1, bestM = -1;
-              const gx0 = Math.round(top[cur].x / S), gy0 = Math.round(top[cur].y / S);
-              for (const [dr, dc] of dirs8) {
-                const ni = grid.get(`${gx0 + dc},${gy0 + dr}`);
-                if (ni !== undefined && !used.has(ni) && top[ni].m > bestM) { bestM = top[ni].m; next = ni; }
-              }
-              cur = bestM > 0 ? next : -1;
+        const grid = new Map<string, number>();
+        top.forEach((p, i) => grid.set(`${Math.round(p.x / S)},${Math.round(p.y / S)}`, i));
+        const used = new Set<number>();
+        const strokes: { x: number, y: number }[][] = [];
+        const dirs8 = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 1], [1, -1], [1, 0], [1, 1]];
+        for (let si = 0; si < top.length; si++) {
+          if (used.has(si)) continue;
+          const stroke: { x: number, y: number }[] = [];
+          let cur = si;
+          while (cur !== -1 && !used.has(cur)) {
+            used.add(cur);
+            stroke.push({ x: top[cur].x * invScale, y: top[cur].y * invScale });
+            let next = -1, bestM = -1;
+            const gx0 = Math.round(top[cur].x / S), gy0 = Math.round(top[cur].y / S);
+            for (const [dr, dc] of dirs8) {
+              const ni = grid.get(`${gx0 + dc},${gy0 + dr}`);
+              if (ni !== undefined && !used.has(ni) && top[ni].m > bestM) { bestM = top[ni].m; next = ni; }
             }
-            if (stroke.length >= 3) strokes.push(stroke);
-            if (strokes.length > 2500) break;
+            cur = bestM > 0 ? next : -1;
           }
+          if (stroke.length >= 3) strokes.push(stroke);
+          if (strokes.length > 2500) break;
+        }
 
-          // Плавная отрисовка штрихов за DURATION мс
-          ctx.strokeStyle = "rgba(255,255,255,0.85)";
-          ctx.lineWidth = 0.9;
-          ctx.lineCap = "round";
-          ctx.lineJoin = "round";
-          const startTime = performance.now();
-          let strokeIdx = 0;
-
-          const drawNext = (now: number) => {
-            const elapsed = now - startTime;
-            const target = Math.min(Math.floor((elapsed / DURATION) * strokes.length), strokes.length);
-            while (strokeIdx < target) {
-              const s = strokes[strokeIdx++];
-              ctx.beginPath();
-              ctx.moveTo(s[0].x, s[0].y);
-              for (let i = 1; i < s.length; i++) {
-                const mx = (s[i - 1].x + s[i].x) / 2, my = (s[i - 1].y + s[i].y) / 2;
-                ctx.quadraticCurveTo(s[i - 1].x, s[i - 1].y, mx, my);
-              }
-              ctx.stroke();
+        const DURATION = 9500;
+        const startTime = performance.now();
+        let strokeIdx = 0;
+        const drawNext = (now: number) => {
+          const elapsed = now - startTime;
+          const target = Math.min(Math.floor((elapsed / DURATION) * strokes.length), strokes.length);
+          while (strokeIdx < target) {
+            const s = strokes[strokeIdx++];
+            ctx.beginPath();
+            ctx.moveTo(s[0].x, s[0].y);
+            for (let i = 1; i < s.length; i++) {
+              const mx = (s[i - 1].x + s[i].x) / 2, my = (s[i - 1].y + s[i].y) / 2;
+              ctx.quadraticCurveTo(s[i - 1].x, s[i - 1].y, mx, my);
             }
-            // Подпись в последние 1.5 сек
-            if (label && elapsed > DURATION - 1500) {
-              const alpha = Math.min(1, (elapsed - (DURATION - 1500)) / 800);
-              ctx.font = `bold ${Math.max(16, W * 0.02)}px "Arial Black", Arial, sans-serif`;
-              ctx.fillStyle = `rgba(255,255,255,${alpha})`;
-              ctx.textAlign = "center";
-              ctx.textBaseline = "bottom";
-              ctx.fillText(label, W / 2, H - 50);
-            }
-            if (elapsed < DURATION) requestAnimationFrame(drawNext);
-            else { setTimeout(onDone, 100); }
-          };
-          requestAnimationFrame(drawNext);
-        }, 50);
-      };
-      img.onerror = () => onDone();
-      img.src = imgSrc;
+            ctx.stroke();
+          }
+          if (elapsed < DURATION) requestAnimationFrame(drawNext);
+        };
+        requestAnimationFrame(drawNext);
+      }, 50);
     };
-
-    const runSequence = (idx: number) => {
-      if (idx >= images.length) return;
-      processImage(images[idx].src, images[idx].label, () => runSequence(idx + 1));
-    };
-    runSequence(0);
+    img.onerror = () => { };
+    img.src = "/map.jpg";
   }, []);
   return null;
 }
