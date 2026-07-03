@@ -586,7 +586,9 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
     const img = new Image();
     img.onload = () => {
       // Рисуем уменьшенную копию для Sobel — быстрее и меньше точек
-      const SCALE = 0.4; // работаем на 40% размера экрана
+      // На мобильных используем больший масштаб для точных контуров
+      const isMob = W <= 768;
+      const SCALE = isMob ? 1.6 : 0.8;
       const cW = Math.round(W * SCALE), cH = Math.round(H * SCALE);
       const imgScale = Math.min(cW / img.width, cH / img.height) * 0.90;
       const sw = Math.round(img.width * imgScale);
@@ -602,7 +604,7 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
       ctx.drawImage(img, ox, oy, sw, sh);
       const { data } = ctx.getImageData(0, 0, cW, cH);
 
-      // Sobel на маленьком canvas
+      // Шаг 1px — максимальная точность
       const S = 1;
       type Pt = { x: number, y: number, m: number };
       const edgePts: Pt[] = [];
@@ -1064,6 +1066,18 @@ export default function Home() {
       s.vy += (dy / sd) * force * (1 / 16);
       s.rotSpeed += ((Math.random() - 0.5) * 8) * t;
     });
+    // Мышь также толкает слова
+    wordPhysRef.current.forEach(wp => {
+      const dx = wp.x - px, dy = wp.y - py;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist >= radius) return;
+      const t = 1 - dist / radius;
+      const force = maxForce * t * t;
+      const sd = Math.max(dist, 1);
+      wp.vx += (dx / sd) * force * (1 / 16);
+      wp.vy += (dy / sd) * force * (1 / 16);
+      wp.rotSpeed += ((Math.random() - 0.5) * 4) * t;
+    });
   };
 
   const GAP = 20;
@@ -1327,7 +1341,7 @@ export default function Home() {
 
         if (targetIdx > idx) {
           const ctx = c.getContext("2d")!;
-          ctx.lineWidth = 1.5;
+          ctx.lineWidth = window.innerWidth <= 768 ? 0.8 : 1.5;
           ctx.lineCap = "round";
           ctx.lineJoin = "round";
           ctx.strokeStyle = "rgba(255,255,255,0.92)";
@@ -1555,14 +1569,25 @@ export default function Home() {
         wp.rotSpeed *= ROT_DAMPING;
         wp.x += wp.vx * dt; wp.y += wp.vy * dt;
         wp.ang += wp.rotSpeed * dt;
-        const pw = wp.el.offsetWidth / 2 || 30, ph = wp.el.offsetHeight / 2 || 10;
+        const pw = (wp.el.offsetWidth / 2 || 30) * wp.scale, ph = (wp.el.offsetHeight / 2 || 10) * wp.scale;
         if (wp.x < pw) { wp.x = pw; wp.vx = Math.abs(wp.vx) * BOUNCE; }
         if (wp.x > W - pw) { wp.x = W - pw; wp.vx = -Math.abs(wp.vx) * BOUNCE; }
         if (wp.y < ph) { wp.y = ph; wp.vy = Math.abs(wp.vy) * BOUNCE; }
         if (wp.y > H - ph) { wp.y = H - ph; wp.vy = -Math.abs(wp.vy) * BOUNCE; }
         wp.el.style.left = `${wp.x - pw}px`;
         wp.el.style.top = `${wp.y - ph}px`;
-        wp.el.style.transform = `rotate(${wp.ang}rad)`;
+
+        // Постепенно растём от 1x до 5x за 8 секунд, потом исчезаем
+        const age = (performance.now() - wp.born) / 1000;
+        const GROW_TIME = 8; // секунд до 5x
+        wp.scale = 1 + (age / GROW_TIME) * 4; // 1 → 5
+        const opacity = wp.scale >= 5 ? 0 : Math.min(1, (1 - (wp.scale - 4)));
+        if (wp.scale >= 5) {
+          wp.el.remove();
+          return false; // удаляем из массива
+        }
+        wp.el.style.transform = `rotate(${wp.ang}rad) scale(${wp.scale})`;
+        wp.el.style.opacity = String(opacity);
 
         // Коллизии слова с кубиками
         for (let i = 0; i < IMG_COUNT; i++) {
@@ -1757,7 +1782,7 @@ export default function Home() {
   const textPhysRef = useRef({ active: false, x: 0, y: 0, vx: 0, vy: 0, angle: 0, rotSpeed: 0 });
   const textFallTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const textRafRef = useRef<number>(0);
-  type WordPhys = { el: HTMLElement; x: number; y: number; vx: number; vy: number; ang: number; rotSpeed: number };
+  type WordPhys = { el: HTMLElement; x: number; y: number; vx: number; vy: number; ang: number; rotSpeed: number; scale: number; born: number };
   const wordPhysRef = useRef<WordPhys[]>([]);
 
   // Через 20 секунд текстовый блок становится большим кубиком с той же физикой
@@ -1860,6 +1885,7 @@ export default function Home() {
               vx: (dx / dist) * 800 + (Math.random() - 0.5) * 600,
               vy: (dy / dist) * 800 + (Math.random() - 0.5) * 600,
               ang: 0, rotSpeed: (Math.random() - 0.5) * 3,
+              scale: 1, born: performance.now(),
             });
           } else {
             // 70% улетают через overlay
