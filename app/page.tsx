@@ -593,9 +593,8 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
-      // Рисуем уменьшенную копию для Sobel — быстрее и меньше точек
-      // На мобильных используем больший масштаб для точных контуров
-      const SCALE = 0.4; // фиксированный — S=2 компенсирует качество
+      const isMob = W <= 768;
+      const SCALE = isMob ? 1.0 : 0.7;
       const cW = Math.round(W * SCALE), cH = Math.round(H * SCALE);
       const imgScale = Math.min(cW / img.width, cH / img.height) * 0.90;
       const sw = Math.round(img.width * imgScale);
@@ -611,58 +610,65 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
       ctx.drawImage(img, ox, oy, sw, sh);
       const { data } = ctx.getImageData(0, 0, cW, cH);
 
-      // Шаг 2px — в 4x быстрее, качество достаточное
-      const S = 2;
+      const S = 1;
       type Pt = { x: number, y: number, m: number };
       const edgePts: Pt[] = [];
       let maxMag = 0;
 
-      for (let y = S; y < cH - S; y += S) {
-        for (let x = S; x < cW - S; x += S) {
-          const g = (px: number, py: number) => {
-            const o = (Math.min(py, cH - 1) * cW + Math.min(px, cW - 1)) * 4;
-            return data[o] * 0.299 + data[o + 1] * 0.587 + data[o + 2] * 0.114;
-          };
-          const gx = -g(x - S, y - S) - 2 * g(x - S, y) - g(x - S, y + S) + g(x + S, y - S) + 2 * g(x + S, y) + g(x + S, y + S);
-          const gy = -g(x - S, y - S) - 2 * g(x, y - S) - g(x + S, y - S) + g(x - S, y + S) + 2 * g(x, y + S) + g(x + S, y + S);
-          const m = Math.sqrt(gx * gx + gy * gy);
-          if (m > maxMag) maxMag = m;
-          edgePts.push({ x, y, m });
+      // Sobel по чанкам через rAF — не блокируем UI
+      const CHUNK = 12; // строк за кадр
+      let rowY = S;
+
+      const sobelChunk = () => {
+        const endY = Math.min(rowY + CHUNK, cH - S);
+        for (let y = rowY; y < endY; y += S) {
+          for (let x = S; x < cW - S; x += S) {
+            const g = (px: number, py: number) => {
+              const o = (Math.min(py, cH - 1) * cW + Math.min(px, cW - 1)) * 4;
+              return data[o] * 0.299 + data[o + 1] * 0.587 + data[o + 2] * 0.114;
+            };
+            const gx = -g(x - S, y - S) - 2 * g(x - S, y) - g(x - S, y + S) + g(x + S, y - S) + 2 * g(x + S, y) + g(x + S, y + S);
+            const gy = -g(x - S, y - S) - 2 * g(x, y - S) - g(x + S, y - S) + g(x - S, y + S) + 2 * g(x, y + S) + g(x + S, y + S);
+            const m = Math.sqrt(gx * gx + gy * gy);
+            if (m > maxMag) maxMag = m;
+            edgePts.push({ x, y, m });
+          }
         }
-      }
+        rowY = endY;
 
-      const threshold = maxMag * 0.10;
-      const strong = edgePts.filter(p => p.m > threshold);
-      strong.sort((a, b) => b.m - a.m);
-      const top = strong.slice(0, 40000);
+        if (rowY < cH - S) {
+          // Следующий чанк в следующем кадре
+          requestAnimationFrame(sobelChunk);
+          return;
+        }
 
-      if (top.length < 10) { resolve([]); return; }
+        // Sobel готов — строим штрихи
+        const threshold = maxMag * 0.10;
+        const strong = edgePts.filter(p => p.m > threshold);
+        strong.sort((a, b) => b.m - a.m);
+        const top = strong.slice(0, 80000);
 
-      // Строим штрихи — жадный обход соседей
-      const STEP = S;
-      const grid = new Map<string, number>();
-      top.forEach((p, i) => grid.set(Math.round(p.x / STEP) + ',' + Math.round(p.y / STEP), i));
-      const used = new Set<number>();
-      const result: { x: number, y: number }[] = [];
-      // Масштаб обратно на реальный экран
-      const invScale = 1 / SCALE;
-      // Центрируем на реальном экране
-      const offX = (W - cW * invScale) / 2;
-      const offY = (H - cH * invScale) / 2;
+        if (top.length < 10) { resolve([]); return; }
 
-      for (let si = 0; si < top.length; si++) {
-        if (used.has(si)) continue;
-        const stroke: { x: number, y: number }[] = [];
-        let cur = si;
-        while (cur !== -1 && !used.has(cur)) {
-          used.add(cur);
-          // Переводим в экранные координаты
-          stroke.push({ x: top[cur].x * invScale + offX, y: top[cur].y * invScale + offY });
-          let next = -1, bestD = Infinity;
-          const gx0 = Math.round(top[cur].x / STEP);
-          const gy0 = Math.round(top[cur].y / STEP);
-          for (let dr = -2; dr <= 2; dr++) {
-            for (let dc = -2; dc <= 2; dc++) {
+        const STEP = S;
+        const grid = new Map<string, number>();
+        top.forEach((p, i) => grid.set(Math.round(p.x / STEP) + ',' + Math.round(p.y / STEP), i));
+        const used = new Set<number>();
+        const result: { x: number, y: number }[] = [];
+        const invScale = 1 / SCALE;
+        const offX = (W - cW * invScale) / 2;
+        const offY = (H - cH * invScale) / 2;
+
+        for (let si = 0; si < top.length; si++) {
+          if (used.has(si)) continue;
+          const stroke: { x: number, y: number }[] = [];
+          let cur = si;
+          while (cur !== -1 && !used.has(cur)) {
+            used.add(cur);
+            stroke.push({ x: top[cur].x * invScale + offX, y: top[cur].y * invScale + offY });
+            let next = -1, bestD = Infinity;
+            const gx0 = Math.round(top[cur].x / STEP), gy0 = Math.round(top[cur].y / STEP);
+            for (let dr = -2; dr <= 2; dr++) for (let dc = -2; dc <= 2; dc++) {
               if (!dr && !dc) continue;
               const ni = grid.get((gx0 + dc) + ',' + (gy0 + dr));
               if (ni !== undefined && !used.has(ni)) {
@@ -670,28 +676,20 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
                 if (d < bestD) { bestD = d; next = ni; }
               }
             }
+            cur = bestD < (STEP * 3) ** 2 ? next : -1;
           }
-          cur = bestD < (STEP * 3) ** 2 ? next : -1;
+          if (stroke.length >= 3) result.push(...stroke, { x: NaN, y: NaN });
+          if (result.length > 120000) break;
         }
-        if (stroke.length >= 3) {
-          // Сглаживание
-          const s: { x: number, y: number }[] = [stroke[0]];
-          for (let i = 1; i < stroke.length - 1; i++)
-            s.push({ x: (stroke[i - 1].x + stroke[i].x * 2 + stroke[i + 1].x) / 4, y: (stroke[i - 1].y + stroke[i].y * 2 + stroke[i + 1].y) / 4 });
-          s.push(stroke[stroke.length - 1]);
-          result.push(...s, { x: NaN, y: NaN });
-        }
-        if (result.length > 120000) break;
-      }
+        resolve(result);
+      };
 
-      resolve(result);
+      requestAnimationFrame(sobelChunk);
     };
-    img.onerror = (e) => { console.error('[Artwork] ERROR loading:', url, e); resolve([]); };
+    img.onerror = () => resolve([]);
     img.src = url;
   });
 }
-
-
 const ARTWORKS = ["/art1.png", "/art2.png", "/art3.png", "/art4.png", "/art5.png", "/art6.png", "/art7.png", "/art8.png", "/art9.png", "/art10.png"];
 
 // Спираль на торе — линия обвивает бублик p раз по большому кругу и q по малому
