@@ -1141,8 +1141,7 @@ function makeOmSymbol(): { x: number, y: number, z: number }[] {
 function makeFlowerOfLife(): { x: number, y: number, z: number }[] {
   const pts = [];
   const r = 0.5;
-  const centers = [[0, 0], [...([0, 1, 2, 3, 4, 5].map(i => [r * Math.cos(i / 6 * Math.PI * 2), r * Math.sin(i / 6 * Math.PI * 2)]))).flat()].reduce((a, v, i) => i % 2 === 0 ? [...a, [v]] : ((a[a.length - 1].push(v)), a), [])].flat(2);
-  const allCenters = [[0, 0], ...Array.from({ length: 6 }, (_, i) => [r * Math.cos(i / 6 * Math.PI * 2), r * Math.sin(i / 6 * Math.PI * 2)])];
+  const allCenters: [number, number][] = [[0, 0], ...Array.from({ length: 6 }, (_, i): [number, number] => [r * Math.cos(i / 6 * Math.PI * 2), r * Math.sin(i / 6 * Math.PI * 2)])];
   allCenters.forEach(([cx, cy]) => {
     for (let i = 0; i <= 60; i++) { const a = i / 60 * Math.PI * 2; pts.push({ x: cx + r * Math.cos(a), y: cy + r * Math.sin(a), z: 0.05 * Math.sin(a * 3) }); }
     pts.push({ x: NaN, y: NaN, z: NaN });
