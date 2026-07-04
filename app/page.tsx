@@ -100,7 +100,7 @@ function buildColoredMosaic(
   minX: number, minY: number,
   cropW: number, cropH: number
 ): string | null {
-  const SIZE = 600;
+  const SIZE = 400;
   const scale = Math.min(SIZE / Math.max(cropW, cropH, 1), 4);
   const w = Math.max(4, Math.round(cropW * scale));
   const h = Math.max(4, Math.round(cropH * scale));
@@ -123,7 +123,7 @@ function buildColoredMosaic(
     return canvas.toDataURL("image/png");
   }
 
-  ctx.fillStyle = "#000";
+  ctx.fillStyle = "#111";
   ctx.fillRect(0, 0, w, h);
 
   // Рисуем разделители с учётом NaN разрывов и quadratic curves
@@ -160,50 +160,21 @@ function buildColoredMosaic(
     });
   };
 
-  // Вычисляем среднюю длину штрихов — для коротких рёбер нужны толще линии
-  let totalLen = 0, segCount = 0;
-  trails.forEach(trail => {
-    for (let i = 1; i < trail.length; i++) {
-      const a = trail[i - 1], b = trail[i];
-      if (!isNaN(a.x) && !isNaN(b.x)) {
-        const dx = (b.x - a.x) * scale, dy = (b.y - a.y) * scale;
-        totalLen += Math.sqrt(dx * dx + dy * dy);
-        segCount++;
-      }
-    }
-  });
-  const avgLen = segCount > 0 ? totalLen / segCount : 20;
-  // Чем короче сегменты — тем толще разделители
-  const sepW = avgLen < 8 ? Math.max(4, Math.round(5 * scale)) :
-    avgLen < 20 ? Math.max(3, Math.round(3 * scale)) :
-      Math.max(2, Math.round(2 * scale));
 
-  // Точки в каждой вершине — закрывают зазоры между рёбрами
-  ctx.fillStyle = "#333";
-  trails.forEach(trail => {
-    trail.forEach(p => {
-      if (isNaN(p.x)) return;
-      const sx = (p.x - minX) * scale;
-      const sy = (p.y - minY) * scale;
-      ctx.beginPath();
-      ctx.arc(sx, sy, sepW, 0, Math.PI * 2);
-      ctx.fill();
-    });
-  });
 
-  // Линии разделителей
-  drawTrails("#333", sepW);
+  // Разделители — как в оригинале
+  drawTrails("#505050", Math.max(2.5, 2.5 * scale));
 
   // Края canvas
-  ctx.fillStyle = "#333";
-  const bw = Math.max(3, Math.round(3 * scale));
+  ctx.fillStyle = "#505050";
+  const bw = Math.max(2, Math.round(2 * scale));
   ctx.fillRect(0, 0, w, bw); ctx.fillRect(0, h - bw, w, bw);
   ctx.fillRect(0, 0, bw, h); ctx.fillRect(w - bw, 0, bw, h);
 
   const imgData = ctx.getImageData(0, 0, w, h);
   const data = imgData.data;
   const n = w * h;
-  const isBorder = (i: number) => data[i * 4] > 25;
+  const isBorder = (i: number) => data[i * 4] > 30;
   const visited = new Uint8Array(n);
   const queue = new Int32Array(n);
   const recentColors: number[] = [];
@@ -234,7 +205,7 @@ function buildColoredMosaic(
   ctx.putImageData(imgData, 0, 0);
 
   // Тонкие чёрные линии поверх — точный контур
-  drawTrails("#000", Math.max(0.4, 0.4 * scale));
+  drawTrails("#000", Math.max(0.8, 0.8 * scale));
 
   return canvas.toDataURL("image/png");
 }
