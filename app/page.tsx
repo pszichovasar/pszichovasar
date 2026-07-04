@@ -1135,18 +1135,7 @@ export default function Home() {
       s.vy += (dy / sd) * force * (1 / 16);
       s.rotSpeed += ((Math.random() - 0.5) * 8) * t;
     });
-    // Мышь также толкает слова
-    wordPhysRef.current.forEach(wp => {
-      const dx = wp.x - px, dy = wp.y - py;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist >= radius) return;
-      const t = 1 - dist / radius;
-      const force = maxForce * t * t;
-      const sd = Math.max(dist, 1);
-      wp.vx += (dx / sd) * force * (1 / 16);
-      wp.vy += (dy / sd) * force * (1 / 16);
-      wp.rotSpeed += ((Math.random() - 0.5) * 4) * t;
-    });
+
   };
 
   const GAP = 20;
@@ -1621,121 +1610,12 @@ export default function Home() {
         wp.el.style.top = `${wp.y - ph}px`;
         wp.el.style.transform = `rotate(${wp.ang}rad)`;
 
-        // Коллизии слова с кубиками
-        for (let i = 0; i < IMG_COUNT; i++) {
-          const s = states[i]; if (!s.initialized) continue;
-          const dx = s.x - wp.x, dy = s.y - wp.y;
-          const minDist = S / 2 + Math.max(pw, ph);
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist < minDist && dist > 0) {
-            const nx = dx / dist, ny = dy / dist;
-            const relVn = (s.vx - wp.vx) * nx + (s.vy - wp.vy) * ny;
-            if (relVn < 0) {
-              const imp = -(1 + BOUNCE) * relVn / 2;
-              s.vx += imp * nx; s.vy += imp * ny;
-              wp.vx -= imp * nx; wp.vy -= imp * ny;
-              wp.rotSpeed += (nx * imp - ny * imp) * 0.05;
-            }
-            const overlap = minDist - dist;
-            s.x += nx * overlap / 2; s.y += ny * overlap / 2;
-            wp.x -= nx * overlap / 2; wp.y -= ny * overlap / 2;
-          }
-        }
+
         return true;
       });
 
-      // Коллизии слов между собой — правильный AABB, 3 итерации
       const wps = wordPhysRef.current;
-      for (let iter = 0; iter < 3; iter++) {
-        for (let i = 0; i < wps.length; i++) {
-          for (let j = i + 1; j < wps.length; j++) {
-            const a = wps[i], b = wps[j];
-            const aw = (a.el.offsetWidth / 2 || 30);
-            const ah = (a.el.offsetHeight / 2 || 10);
-            const bw = (b.el.offsetWidth / 2 || 30);
-            const bh = (b.el.offsetHeight / 2 || 10);
-            // AABB overlap
-            const overlapX = (aw + bw) - Math.abs(b.x - a.x);
-            const overlapY = (ah + bh) - Math.abs(b.y - a.y);
-            if (overlapX > 0 && overlapY > 0) {
-              // Разрешаем по наименьшей оси
-              if (overlapX < overlapY) {
-                const sign = b.x > a.x ? 1 : -1;
-                a.x -= sign * overlapX / 2; b.x += sign * overlapX / 2;
-                const relVx = (b.vx - a.vx) * sign;
-                if (relVx < 0) {
-                  const imp = -(1 + BOUNCE) * relVx / 2;
-                  a.vx -= sign * imp; b.vx += sign * imp;
-                }
-              } else {
-                const sign = b.y > a.y ? 1 : -1;
-                a.y -= sign * overlapY / 2; b.y += sign * overlapY / 2;
-                const relVy = (b.vy - a.vy) * sign;
-                if (relVy < 0) {
-                  const imp = -(1 + BOUNCE) * relVy / 2;
-                  a.vy -= sign * imp; b.vy += sign * imp;
-                }
-              }
-            }
-          }
-        }
-      } // end iter
 
-      // Коллизия с "I DO DESIGN" swept AABB
-      const textEl = iDoDesignTextRef.current;
-      if (textEl) {
-        const r = textEl.getBoundingClientRect();
-        const prev = prevTextRectRef.current;
-        const vis = r.width > 10 && r.height > 10 && r.top < H && r.bottom > 0 && r.left < W && r.right > 0;
-        if (vis) {
-          const h = S / 2;
-          const uL = Math.min(r.left, prev ? prev.left : r.left) - h;
-          const uR = Math.max(r.right, prev ? prev.right : r.right) + h;
-          const uT = Math.min(r.top, prev ? prev.top : r.top) - h;
-          const uB = Math.max(r.bottom, prev ? prev.bottom : r.bottom) + h;
-          for (let i = 0; i < IMG_COUNT; i++) {
-            const s = states[i]; if (!s.initialized) continue;
-            if (s.x <= uL || s.x >= uR || s.y <= uT || s.y >= uB) continue;
-            const dL = s.x - uL, dR = uR - s.x, dT = s.y - uT, dB = uB - s.y;
-            const minD = Math.min(dL, dR, dT, dB);
-            let nx = 0, ny = 0;
-            if (minD === dL) nx = -1; else if (minD === dR) nx = 1;
-            else if (minD === dT) ny = -1; else ny = 1;
-            s.x += nx * (minD + 0.5); s.y += ny * (minD + 0.5);
-            const vn = s.vx * nx + s.vy * ny;
-            if (vn < 0) { s.vx -= vn * nx * (1 + BOUNCE); s.vy -= vn * ny * (1 + BOUNCE); }
-          }
-        }
-        prevTextRectRef.current = vis ? r : null;
-      }
-
-      // Коллизия с текстом биографии под "I DO DESIGN"
-      const bioEl = bioTextRef.current;
-      if (bioEl) {
-        const r = bioEl.getBoundingClientRect();
-        const prev = prevBioRectRef.current;
-        const vis = r.width > 10 && r.height > 10 && r.top < H && r.bottom > 0 && r.left < W && r.right > 0;
-        if (vis) {
-          const h = S / 2;
-          const uL = Math.min(r.left, prev ? prev.left : r.left) - h;
-          const uR = Math.max(r.right, prev ? prev.right : r.right) + h;
-          const uT = Math.min(r.top, prev ? prev.top : r.top) - h;
-          const uB = Math.max(r.bottom, prev ? prev.bottom : r.bottom) + h;
-          for (let i = 0; i < IMG_COUNT; i++) {
-            const s = states[i]; if (!s.initialized) continue;
-            if (s.x <= uL || s.x >= uR || s.y <= uT || s.y >= uB) continue;
-            const dL = s.x - uL, dR = uR - s.x, dT = s.y - uT, dB = uB - s.y;
-            const minD = Math.min(dL, dR, dT, dB);
-            let nx = 0, ny = 0;
-            if (minD === dL) nx = -1; else if (minD === dR) nx = 1;
-            else if (minD === dT) ny = -1; else ny = 1;
-            s.x += nx * (minD + 0.5); s.y += ny * (minD + 0.5);
-            const vn = s.vx * nx + s.vy * ny;
-            if (vn < 0) { s.vx -= vn * nx * (1 + BOUNCE); s.vy -= vn * ny * (1 + BOUNCE); }
-          }
-        }
-        prevBioRectRef.current = vis ? r : null;
-      }
 
 
       const trailCanvas = trailCanvasRef.current;
@@ -1974,7 +1854,7 @@ export default function Home() {
         };
         requestAnimationFrame(step);
         textPhysRef.current.active = true;
-      }, 20000);
+      }, 5000);
     }; // end startExplosionTimer
 
     // Ждём полной загрузки страницы, потом запускаем таймер
