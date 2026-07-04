@@ -878,6 +878,170 @@ function makeBrandPoints(seed: number, W: number, H: number): { x: number, y: nu
   return (logos[idx] as any).flat ? (logos[idx] as any).flat() as { x: number, y: number }[] : logos[idx] as { x: number, y: number }[];
 }
 
+// Сейфертова поверхность — вязаный узел
+function makeSeiferSurface(): { x: number, y: number, z: number }[] {
+  const pts = [];
+  for (let u = 0; u <= 80; u++) {
+    const t = u / 80 * Math.PI * 4;
+    for (let v = 0; v <= 1; v++) {
+      const r = 0.5 + 0.3 * Math.cos(t * 1.5 + v * Math.PI);
+      pts.push({ x: r * Math.cos(t), y: r * Math.sin(t), z: 0.4 * Math.sin(t * 2 + v * Math.PI) });
+    }
+    pts.push({ x: NaN, y: NaN, z: NaN });
+  }
+  return pts;
+}
+
+// Сфера Данна — скрученная поверхность
+function makeDunnSphere(n: number): { x: number, y: number, z: number }[] {
+  const pts = [], N = 60;
+  for (let i = 0; i <= N; i++) {
+    const u = i / N * Math.PI * 2;
+    for (let j = 0; j <= N; j++) {
+      const v = j / N * Math.PI * 2;
+      const r = 1 + 0.4 * Math.cos(n * u);
+      pts.push({ x: r * Math.cos(v) * Math.cos(u), y: r * Math.sin(v) * Math.cos(u), z: r * Math.sin(u) + 0.2 * Math.cos(n * v) });
+    }
+    pts.push({ x: NaN, y: NaN, z: NaN });
+  }
+  return pts;
+}
+
+// Суперквадрика — звёздоподобная форма
+function makeSuperquadric(e1: number, e2: number): { x: number, y: number, z: number }[] {
+  const pts = [], N = 40;
+  const sgn = (x: number) => x < 0 ? -1 : 1;
+  const c = (t: number, e: number) => sgn(Math.cos(t)) * Math.pow(Math.abs(Math.cos(t)), e);
+  const s = (t: number, e: number) => sgn(Math.sin(t)) * Math.pow(Math.abs(Math.sin(t)), e);
+  for (let i = 0; i <= N; i++) {
+    const u = i / N * Math.PI - Math.PI / 2;
+    for (let j = 0; j <= N; j++) {
+      const v = j / N * Math.PI * 2;
+      pts.push({ x: c(u, e1) * c(v, e2), y: c(u, e1) * s(v, e2), z: s(u, e1) });
+    }
+    pts.push({ x: NaN, y: NaN, z: NaN });
+  }
+  return pts;
+}
+
+// Спирограф 3D — эпициклоида в трёх измерениях
+function makeSpirograph3D(R: number, r: number, d: number, freq: number): { x: number, y: number, z: number }[] {
+  const pts = [];
+  for (let i = 0; i <= 1200; i++) {
+    const t = i / 1200 * Math.PI * 2 * freq;
+    pts.push({
+      x: (R - r) * Math.cos(t) + d * Math.cos((R - r) / r * t),
+      y: (R - r) * Math.sin(t) - d * Math.sin((R - r) / r * t),
+      z: 0.3 * Math.sin(3 * t) + 0.2 * Math.cos(7 * t),
+    });
+  }
+  return pts;
+}
+
+// Цепочка Хопфа — волокна на 3-сфере
+function makeHopfFibration(n: number): { x: number, y: number, z: number }[] {
+  const pts = [];
+  for (let k = 0; k < n; k++) {
+    const phi = k / n * Math.PI * 2;
+    const eta = Math.PI / 4;
+    for (let i = 0; i <= 100; i++) {
+      const psi = i / 100 * Math.PI * 2;
+      const a1 = Math.cos(eta) * Math.cos(phi + psi), a2 = Math.cos(eta) * Math.sin(phi + psi);
+      const a3 = Math.sin(eta) * Math.cos(phi - psi), a4 = Math.sin(eta) * Math.sin(phi - psi);
+      const denom = 1 - a4, x = a1 / denom, y = a2 / denom, z = a3 / denom;
+      const r = Math.sqrt(x * x + y * y + z * z);
+      pts.push({ x: x / r * 0.8, y: y / r * 0.8, z: z / r * 0.8 });
+    }
+    pts.push({ x: NaN, y: NaN, z: NaN });
+  }
+  return pts;
+}
+
+// Аттрактор Халворсена
+function makeHalvorsenAttractor(): { x: number, y: number, z: number }[] {
+  const pts = [];
+  let x = 1, y = 0, z = 0; const a = 1.4, dt = 0.01;
+  for (let i = 0; i < 18000; i++) {
+    const dx = -a * x - 4 * y - 4 * z - y * y;
+    const dy = -a * y - 4 * z - 4 * x - z * z;
+    const dz = -a * z - 4 * x - 4 * y - x * x;
+    x += dx * dt; y += dy * dt; z += dz * dt;
+    if (i > 500) pts.push({ x: x / 8, y: y / 8, z: z / 8 });
+  }
+  return pts;
+}
+
+// Узел-трилистник с возмущением
+function makePerturbedKnot(p: number, q: number, amp: number): { x: number, y: number, z: number }[] {
+  const pts = [];
+  for (let i = 0; i <= 800; i++) {
+    const t = i / 800 * Math.PI * 2;
+    const phi = q / p * t;
+    const r = Math.cos(phi) + 2 + amp * Math.cos(3 * t);
+    pts.push({ x: r * Math.cos(t), y: r * Math.sin(t), z: amp * Math.sin(3 * t) + Math.sin(phi) });
+  }
+  return pts;
+}
+
+// Поверхность Штейнера (Римановская)
+function makeSteinerSurface(): { x: number, y: number, z: number }[] {
+  const pts = [], N = 50;
+  for (let i = 0; i <= N; i++) {
+    const u = i / N * Math.PI;
+    for (let j = 0; j <= N; j++) {
+      const v = j / N * Math.PI;
+      pts.push({
+        x: Math.sin(2 * u) * Math.cos(v) * Math.cos(v) / 2,
+        y: Math.sin(u) * Math.sin(2 * v) / 2,
+        z: Math.cos(u) * Math.sin(2 * v) / 2,
+      });
+    }
+    pts.push({ x: NaN, y: NaN, z: NaN });
+  }
+  return pts;
+}
+
+// Кривая Лорана — запутанная 3D петля
+function makeLorentzCurve(): { x: number, y: number, z: number }[] {
+  const pts = [];
+  for (let i = 0; i <= 1000; i++) {
+    const t = i / 1000 * Math.PI * 6;
+    pts.push({
+      x: Math.sin(t) + 2 * Math.sin(2 * t),
+      y: Math.cos(t) - 2 * Math.cos(2 * t),
+      z: -Math.sin(3 * t),
+    });
+  }
+  return pts;
+}
+
+// Аттрактор Дадды (Dadda/Duffing)
+function makeDuffingAttractor(): { x: number, y: number, z: number }[] {
+  const pts = [];
+  let x = 0.1, y = 0.1; const dt = 0.05;
+  for (let i = 0; i < 20000; i++) {
+    const dx = y;
+    const dy = x - x * x * x - 0.25 * y + 0.3 * Math.cos(i * dt);
+    x += dx * dt; y += dy * dt;
+    if (i > 1000) pts.push({ x: x / 3, y: y / 3, z: 0.3 * Math.sin(i * dt * 0.5) });
+  }
+  return pts;
+}
+
+// Многомерная Лиссажу-звезда (5 осей проекции)
+function makeLissajousStar(n: number): { x: number, y: number, z: number }[] {
+  const pts = [];
+  for (let i = 0; i <= 2000; i++) {
+    const t = i / 2000 * Math.PI * 2;
+    pts.push({
+      x: Math.cos(n * t) + 0.5 * Math.cos((n + 2) * t) + 0.25 * Math.cos((n + 4) * t),
+      y: Math.sin(n * t) + 0.5 * Math.sin((n + 2) * t) - 0.25 * Math.sin((n + 4) * t),
+      z: 0.5 * Math.sin((2 * n + 1) * t),
+    });
+  }
+  return pts;
+}
+
 function generate3DShapePoints(
   seed: number,
   W: number, H: number,
@@ -889,7 +1053,34 @@ function generate3DShapePoints(
   const cx = W * 0.5, cy = H * 0.5;
   const rotX = rng() * Math.PI * 2;
   const rotY = rng() * Math.PI * 2;
-  const shapeType = Math.floor(rng() * 18); // 16 типов
+  const shapeType = Math.floor(rng() * 28); // 28 типов
+
+  if (shapeType === 0) return scaleAndProject(makeThomasAttractor(), Math.min(W, H) * 0.18);
+  if (shapeType === 1) return scaleAndProject(makeDNAHelix(), Math.min(W, H) * 0.18);
+  if (shapeType === 2) return scaleAndProject(makeTorusKnot(5, 3), Math.min(W, H) * 0.09);
+  if (shapeType === 3) return scaleAndProject(makeTorusKnot(7, 4), Math.min(W, H) * 0.13);
+  if (shapeType === 4) return scaleAndProject(makeTorusKnot(11, 5), Math.min(W, H) * 0.09);
+  if (shapeType === 5) return scaleAndProject(makeLissajous3D(3, 4, 5, rng() * Math.PI), Math.min(W, H) * 0.20);
+  if (shapeType === 6) return scaleAndProject(makeLissajous3D(5, 7, 8, rng() * Math.PI), Math.min(W, H) * 0.19);
+  if (shapeType === 7) return scaleAndProject(makeLissajous3D(7, 11, 13, rng() * Math.PI), Math.min(W, H) * 0.19);
+  if (shapeType === 8) return withNaN(makeKleinBottle(), Math.min(W, H) * 0.04);
+  if (shapeType === 9) return withNaN(makeBoysSurface(), Math.min(W, H) * 0.09);
+  if (shapeType === 10) return scaleAndProject(makeRosslerAttractor(), Math.min(W, H) * 0.09);
+  if (shapeType === 11) return withNaN(makeTorusSpiral(1.5, 0.5, 7, 13).map(p => ({ ...p, z: isNaN(p.x) ? NaN : p.z })), Math.min(W, H) * 0.15);
+  if (shapeType === 12) return withNaN(makeTorusSpiral(2, 0.6, 11, 17).map(p => ({ ...p, z: isNaN(p.x) ? NaN : p.z })), Math.min(W, H) * 0.15);
+  if (shapeType === 13) return scaleAndProject(makeLissajous3D(4, 5, 7, rng() * Math.PI), Math.min(W, H) * 0.20);
+  // Новые невероятные фигуры
+  if (shapeType === 17) return scaleAndProject(makeHalvorsenAttractor(), Math.min(W, H) * 0.14);
+  if (shapeType === 18) return scaleAndProject(makePerturbedKnot(3, 2, 0.4), Math.min(W, H) * 0.16);
+  if (shapeType === 19) return scaleAndProject(makePerturbedKnot(5, 3, 0.35), Math.min(W, H) * 0.14);
+  if (shapeType === 20) return withNaN(makeSuperquadric(0.5, 0.5), Math.min(W, H) * 0.22);
+  if (shapeType === 21) return withNaN(makeSuperquadric(2.5, 0.3), Math.min(W, H) * 0.22);
+  if (shapeType === 22) return scaleAndProject(makeSpirograph3D(7, 2, 3, 6), Math.min(W, H) * 0.16);
+  if (shapeType === 23) return scaleAndProject(makeSpirograph3D(5, 3, 2, 8), Math.min(W, H) * 0.16);
+  if (shapeType === 24) return withNaN(makeSteinerSurface(), Math.min(W, H) * 0.30);
+  if (shapeType === 25) return scaleAndProject(makeLissajousStar(3), Math.min(W, H) * 0.22);
+  if (shapeType === 26) return scaleAndProject(makeLissajousStar(5), Math.min(W, H) * 0.22);
+  if (shapeType === 27) return withNaN(makeHopfFibration(8), Math.min(W, H) * 0.28); // 16 типов
 
   // Непрерывные кривые — проецируем напрямую
   // Автоматически масштабирует и центрирует точки по экрану
