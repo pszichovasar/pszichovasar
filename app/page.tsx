@@ -1095,7 +1095,7 @@ export default function Home() {
 
   // Экран загрузки — 10 секунд, потом плавно скрываем
   useEffect(() => {
-    const t = setTimeout(() => setIsLoading(false), 16000);
+    const t = setTimeout(() => setIsLoading(false), 14000);
     return () => clearTimeout(t);
   }, []);
   const [videoOpacity, setVideoOpacity] = useState(0);
@@ -1502,7 +1502,7 @@ export default function Home() {
       runPhase3();
     };
     // Запускаем после загрузочного экрана
-    schedTimer = setTimeout(waitAndStart, 16500);
+    schedTimer = setTimeout(waitAndStart, 14500);
 
     const onMouseMove = (e: MouseEvent) => { mousePosRef.current = { x: e.clientX, y: e.clientY }; };
     window.addEventListener("mousemove", onMouseMove);
@@ -2375,7 +2375,7 @@ export default function Home() {
           position: "fixed", inset: 0, background: "#000", zIndex: 9999,
           display: "flex", alignItems: "center", justifyContent: "center",
           animation: "loadingFadeOut 0.8s ease forwards",
-          animationDelay: "15.2s",
+          animationDelay: "13.2s",
         }}>
           <style>{`@keyframes loadingFadeOut { from { opacity:1 } to { opacity:0; pointer-events:none } }`}</style>
           <canvas id="map-loading-canvas" style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} />
@@ -2402,7 +2402,6 @@ function MapLoader() {
     const images = [
       { src: "/map.jpg", label: null as string | null },
       { src: "/montreal.jpg", label: null },
-      { src: "/fifa.jpg", label: null },
       { src: "/kyiv.jpg", label: null },
     ];
 
