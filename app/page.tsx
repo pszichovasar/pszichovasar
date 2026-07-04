@@ -1202,7 +1202,6 @@ export default function Home() {
       if (ctx2) ctx2.drawImage(snap, minX * dpr, minY * dpr, cropW * dpr, cropH * dpr, 0, 0, crop.width, crop.height);
       const src = crop.toDataURL("image/png");
       const SW = window.innerWidth, SH = window.innerHeight;
-      const tyPx = getCurrentTyPx();
       const isMobile = SW <= 768;
       const DST_SIZE = isMobile ? 57 : 170;
       const GAP = 8;
@@ -1217,16 +1216,14 @@ export default function Home() {
       setThumbnails(prev => {
         const occupied = new Set<number>();
         prev.forEach(t => {
-          const col = Math.round((t.dstX) / cellW);
-          const row = Math.round((t.dstY + tyPx) / cellH);
+          const col = Math.round(t.dstX / cellW);
+          const row = Math.round(t.dstY / cellH);
           occupied.add(row * cols + col);
         });
-        // Случайный порядок свободных ячеек
         const freeCells: number[] = [];
         for (let i = 0; i < totalCells; i++) {
           if (!occupied.has(i)) freeCells.push(i);
         }
-        // Перемешиваем
         for (let i = freeCells.length - 1; i > 0; i--) {
           const j = Math.floor(Math.random() * (i + 1));
           [freeCells[i], freeCells[j]] = [freeCells[j], freeCells[i]];
@@ -1238,13 +1235,13 @@ export default function Home() {
           const col = freeCell % cols;
           const row = Math.floor(freeCell / cols);
           dstX = col * cellW + GAP / 2;
-          dstY = row * cellH + GAP / 2 - tyPx;
+          dstY = row * cellH + GAP / 2;
         } else {
           const oldest = prev.reduce((a, b) => a.id < b.id ? a : b);
           dstX = oldest.dstX; dstY = oldest.dstY;
           nextPrev = prev.filter(t => t.id !== oldest.id);
         }
-        return [...nextPrev, { id: newId, src, srcX: minX, srcY: minY - tyPx, srcW: cropW, srcH: cropH, dstX, dstY, dstSize: DST_SIZE, offsetY: 0 }];
+        return [...nextPrev, { id: newId, src, srcX: minX, srcY: minY, srcW: cropW, srcH: cropH, dstX, dstY, dstSize: DST_SIZE, offsetY: 0 }];
       });
       const mosaicSrc = buildColoredMosaic([pts], minX, minY, cropW, cropH);
       if (mosaicSrc) setThumbnails(prev => prev.map(t => t.id === newId ? { ...t, src: mosaicSrc } : t));
@@ -1282,7 +1279,6 @@ export default function Home() {
       if (ctx2) ctx2.drawImage(c, minX * dpr, minY * dpr, cropW * dpr, cropH * dpr, 0, 0, crop.width, crop.height);
       const src = crop.toDataURL("image/png");
       const W = window.innerWidth, H = window.innerHeight;
-      const tyPx = getCurrentTyPx();
       const isMobile = W <= 768;
       const DST_SIZE = isMobile ? 57 : 170;
       const GAP2 = 8;
@@ -1296,7 +1292,7 @@ export default function Home() {
         const occupied2 = new Set<number>();
         prev.forEach(t => {
           const col = Math.round(t.dstX / cellW2);
-          const row = Math.round((t.dstY + tyPx) / cellH2);
+          const row = Math.round(t.dstY / cellH2);
           occupied2.add(row * cols2 + col);
         });
         const freeCells2: number[] = [];
@@ -1314,13 +1310,13 @@ export default function Home() {
           const col = freeCell2 % cols2;
           const row = Math.floor(freeCell2 / cols2);
           dstX = col * cellW2 + GAP2 / 2;
-          dstY = row * cellH2 + GAP2 / 2 - tyPx;
+          dstY = row * cellH2 + GAP2 / 2;
         } else {
           const oldest = prev.reduce((a, b) => a.id < b.id ? a : b);
           dstX = oldest.dstX; dstY = oldest.dstY;
           nextPrev2 = prev.filter(t => t.id !== oldest.id);
         }
-        return [...nextPrev2, { id: newId, src, srcX: minX, srcY: minY - tyPx, srcW: cropW, srcH: cropH, dstX, dstY, dstSize: DST_SIZE, offsetY: 0 }];
+        return [...nextPrev2, { id: newId, src, srcX: minX, srcY: minY, srcW: cropW, srcH: cropH, dstX, dstY, dstSize: DST_SIZE, offsetY: 0 }];
       });
       const mosaicSrc = buildColoredMosaic(trails, minX, minY, cropW, cropH);
       if (mosaicSrc) setThumbnails(prev => prev.map(t => t.id === newId ? { ...t, src: mosaicSrc } : t));
