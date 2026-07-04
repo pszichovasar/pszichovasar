@@ -1290,8 +1290,16 @@ function generate3DShapePoints(
   if (shapeType === 17) return scaleAndProject(makeHalvorsenAttractor(), Math.min(W, H) * 0.14);
   if (shapeType === 18) return scaleAndProject(makePerturbedKnot(3, 2, 0.4), Math.min(W, H) * 0.16);
   if (shapeType === 19) return scaleAndProject(makePerturbedKnot(5, 3, 0.35), Math.min(W, H) * 0.14);
-  if (shapeType === 20) return withNaN(makeSuperquadric(0.5, 0.5), Math.min(W, H) * 0.22);
-  if (shapeType === 21) return withNaN(makeSuperquadric(2.5, 0.3), Math.min(W, H) * 0.22);
+  if (shapeType === 20) {
+    // Три Лиссажу под разными фазами — звезда
+    const a = makeLissajous3D(3, 4, 5, 0), b = makeLissajous3D(3, 4, 5, Math.PI / 3), c = makeLissajous3D(3, 4, 5, Math.PI * 2 / 3);
+    return scaleAndProject([...a, { x: NaN, y: NaN, z: NaN }, ...b, { x: NaN, y: NaN, z: NaN }, ...c], Math.min(W, H) * 0.18);
+  }
+  if (shapeType === 21) {
+    // Два торических узла переплетённых
+    const a = makeTorusKnot(5, 3), b = makeTorusKnot(8, 5);
+    return scaleAndProject([...a, { x: NaN, y: NaN, z: NaN }, ...b], Math.min(W, H) * 0.10);
+  }
   if (shapeType === 22) return scaleAndProject(makeSpirograph3D(7, 2, 3, 6), Math.min(W, H) * 0.16);
   if (shapeType === 23) return scaleAndProject(makeSpirograph3D(5, 3, 2, 8), Math.min(W, H) * 0.16);
   if (shapeType === 24) return withNaN(makeSteinerSurface(), Math.min(W, H) * 0.30);
@@ -1328,9 +1336,28 @@ function generate3DShapePoints(
   if (shapeType === 13) return scaleAndProject(makeLissajous3D(4, 5, 7, rng() * Math.PI), Math.min(W, H) * 0.20);
 
   // 4D политопы
-  if (shapeType === 14) return fitToScreen(makeBrandPoints(Math.floor(rng() * 10), W, H));
-  if (shapeType === 15) return fitToScreen(makeBrandPoints(Math.floor(rng() * 10), W, H));
-  if (shapeType === 16) return fitToScreen(makeBrandPoints(Math.floor(rng() * 10), W, H));
+  // 4D политопы — самые сложные
+  if (shapeType === 14) {
+    const s4 = Math.min(W, H) * 0.11, rXY = rng() * Math.PI * 2, rXZ = rng() * Math.PI * 2, rXW = rng() * Math.PI * 2;
+    const t = makeTesseract(); const c24 = make24Cell();
+    const p1 = t.edges.flatMap(([a, b]) => { const pa = t.verts[a], pb = t.verts[b]; return [project4D(pa, rXY, rXZ, rXW, s4, W / 2, H / 2), project4D(pb, rXY, rXZ, rXW, s4, W / 2, H / 2), { x: NaN, y: NaN }]; });
+    const p2 = c24.edges.flatMap(([a, b]) => { const pa = c24.verts[a], pb = c24.verts[b]; return [project4D(pa, rXY + 1, rXZ + 0.5, rXW + 0.7, s4, W / 2, H / 2), project4D(pb, rXY + 1, rXZ + 0.5, rXW + 0.7, s4, W / 2, H / 2), { x: NaN, y: NaN }]; });
+    return fitToScreen([...p1, ...p2]);
+  }
+  if (shapeType === 15) {
+    const s4 = Math.min(W, H) * 0.10, rXY = rng() * Math.PI * 2, rXZ = rng() * Math.PI * 2, rXW = rng() * Math.PI * 2;
+    const c16 = make16Cell(); const c24 = make24Cell(); const t = makeTesseract();
+    const p1 = c16.edges.flatMap(([a, b]) => [project4D(c16.verts[a], rXY, rXZ, rXW, s4 * 1.8, W / 2, H / 2), project4D(c16.verts[b], rXY, rXZ, rXW, s4 * 1.8, W / 2, H / 2), { x: NaN, y: NaN }]);
+    const p2 = c24.edges.flatMap(([a, b]) => [project4D(c24.verts[a], rXY + 0.9, rXZ + 1.1, rXW + 0.4, s4, W / 2, H / 2), project4D(c24.verts[b], rXY + 0.9, rXZ + 1.1, rXW + 0.4, s4, W / 2, H / 2), { x: NaN, y: NaN }]);
+    const p3 = t.edges.flatMap(([a, b]) => [project4D(t.verts[a], rXY + 0.3, rXZ + 0.6, rXW + 1.2, s4 * 1.4, W / 2, H / 2), project4D(t.verts[b], rXY + 0.3, rXZ + 0.6, rXW + 1.2, s4 * 1.4, W / 2, H / 2), { x: NaN, y: NaN }]);
+    return fitToScreen([...p1, ...p2, ...p3]);
+  }
+  if (shapeType === 16) {
+    const s4 = Math.min(W, H) * 0.09, rXY = rng() * Math.PI * 2, rXZ = rng() * Math.PI * 2, rXW = rng() * Math.PI * 2;
+    const c600 = make600Cell();
+    const pts = c600.edges.flatMap(([a, b]) => [project4D(c600.verts[a], rXY, rXZ, rXW, s4, W / 2, H / 2), project4D(c600.verts[b], rXY, rXZ, rXW, s4, W / 2, H / 2), { x: NaN, y: NaN }]);
+    return fitToScreen(pts);
+  }
   const scale4D = Math.min(W, H) * 0.09;
   const rotXY = rng() * Math.PI * 2, rotXZ = rng() * Math.PI * 2, rotXW = rng() * Math.PI * 2;
   const polytopes = [makeTesseract, make16Cell, make24Cell];
