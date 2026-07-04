@@ -1330,6 +1330,8 @@ export default function Home() {
       }
       const cropW = Math.max(1, maxX - minX);
       const cropH = Math.max(1, maxY - minY);
+      const dpr = window.devicePixelRatio || 1;
+      const crop = document.createElement("canvas");
       crop.width = Math.round(cropW * dpr);
       crop.height = Math.round(cropH * dpr);
       const ctx2 = crop.getContext("2d");
