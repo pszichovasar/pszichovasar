@@ -632,10 +632,10 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
         }
       }
 
-      const threshold = maxMag * 0.10;
+      const threshold = maxMag * 0.08;
       const strong = edgePts.filter(p => p.m > threshold);
       strong.sort((a, b) => b.m - a.m);
-      const top = strong.slice(0, 80000);
+      const top = strong.slice(0, 120000);
 
       console.log('[Artwork] cW:', cW, 'cH:', cH, 'strong:', strong.length, 'top:', top.length, 'maxMag:', maxMag.toFixed(0));
 
@@ -684,7 +684,7 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
           s.push(stroke[stroke.length - 1]);
           result.push(...s, { x: NaN, y: NaN });
         }
-        if (result.length > 120000) break;
+        if (result.length > 180000) break;
       }
 
       console.log('[Artwork] result pts:', result.length);
@@ -1095,7 +1095,7 @@ export default function Home() {
 
   // Экран загрузки — 10 секунд, потом плавно скрываем
   useEffect(() => {
-    const t = setTimeout(() => setIsLoading(false), 14000);
+    const t = setTimeout(() => setIsLoading(false), 16000);
     return () => clearTimeout(t);
   }, []);
   const [videoOpacity, setVideoOpacity] = useState(0);
@@ -1502,7 +1502,7 @@ export default function Home() {
       runPhase3();
     };
     // Запускаем после загрузочного экрана
-    schedTimer = setTimeout(waitAndStart, 14500);
+    schedTimer = setTimeout(waitAndStart, 16500);
 
     const onMouseMove = (e: MouseEvent) => { mousePosRef.current = { x: e.clientX, y: e.clientY }; };
     window.addEventListener("mousemove", onMouseMove);
@@ -2375,7 +2375,7 @@ export default function Home() {
           position: "fixed", inset: 0, background: "#000", zIndex: 9999,
           display: "flex", alignItems: "center", justifyContent: "center",
           animation: "loadingFadeOut 0.8s ease forwards",
-          animationDelay: "13.2s",
+          animationDelay: "15.2s",
         }}>
           <style>{`@keyframes loadingFadeOut { from { opacity:1 } to { opacity:0; pointer-events:none } }`}</style>
           <canvas id="map-loading-canvas" style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} />
@@ -2402,6 +2402,7 @@ function MapLoader() {
     const images = [
       { src: "/map.jpg", label: null as string | null },
       { src: "/montreal.jpg", label: null },
+      { src: "/fifa.jpg", label: null },
       { src: "/kyiv.jpg", label: null },
     ];
 
@@ -2415,7 +2416,7 @@ function MapLoader() {
 
       const img = new Image();
       img.onload = () => {
-        const SCALE = 0.7; // высокое разрешение на всех устройствах
+        const SCALE = 0.7; // то же разрешение что и у картин
         const cW = Math.round(W * SCALE), cH = Math.round(H * SCALE);
         const inv = 1 / SCALE;
         const sc = Math.min(W / img.width, H / img.height) * 0.92;
@@ -2451,10 +2452,10 @@ function MapLoader() {
           if (rowY < cH - S) { requestAnimationFrame(sobelChunk); return; }
 
           // Строим штрихи
-          const threshold = maxMag * 0.15;
+          const threshold = maxMag * 0.08;
           const strong = edgePts.filter(p => p.m > threshold);
           strong.sort((a, b) => b.m - a.m);
-          const top = strong.slice(0, 60000);
+          const top = strong.slice(0, 120000);
           const grid = new Map<string, number>();
           top.forEach((p, i) => grid.set(`${Math.round(p.x / S)},${Math.round(p.y / S)}`, i));
           const used = new Set<number>();
@@ -2476,7 +2477,7 @@ function MapLoader() {
               cur = bestM > 0 ? next : -1;
             }
             if (stroke.length >= 3) strokes.push(stroke);
-            if (strokes.length > 4000) break;
+            if (strokes.length > 8000) break;
           }
 
           // Рисуем плавно за DURATION мс
