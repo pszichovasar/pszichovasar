@@ -596,7 +596,7 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
       // Рисуем уменьшенную копию для Sobel — быстрее и меньше точек
       // На мобильных используем больший масштаб для точных контуров
       const isMob = W <= 768;
-      const SCALE = isMob ? 1.0 : 0.7;
+      const SCALE = 0.7; // одинаковое разрешение на всех устройствах
       const cW = Math.round(W * SCALE), cH = Math.round(H * SCALE);
       const imgScale = Math.min(cW / img.width, cH / img.height) * 0.90;
       const sw = Math.round(img.width * imgScale);
@@ -1385,7 +1385,7 @@ export default function Home() {
 
         if (targetIdx > idx) {
           const ctx = c.getContext("2d")!;
-          ctx.lineWidth = window.innerWidth <= 768 ? 0.8 : 1.5;
+          ctx.lineWidth = 1.5;
           ctx.lineCap = "round";
           ctx.lineJoin = "round";
           ctx.strokeStyle = "rgba(255,255,255,0.92)";
