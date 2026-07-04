@@ -1246,7 +1246,9 @@ function generate3DShapePoints(
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     valid.forEach(p => { if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x; if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y; });
     const fw = maxX - minX || 1, fh = maxY - minY || 1;
-    const scale = Math.min(W / fw, H / fh);
+    // Используем min чтобы фигура вписывалась по наименьшей стороне — соотношение 1:1
+    const pad = 0.80; // 80% экрана — всегда влезает
+    const scale = Math.min(W * pad / fw, H * pad / fh);
     const ox = cx - (minX + fw / 2) * scale;
     const oy = cy - (minY + fh / 2) * scale;
     return pts.map(p => isNaN(p.x) ? p : { x: p.x * scale + ox, y: p.y * scale + oy });
@@ -1273,7 +1275,7 @@ function generate3DShapePoints(
   const shapeType = Math.floor(rng() * 40);
 
   if (shapeType === 0) return scaleAndProject(makeThomasAttractor(), Math.min(W, H) * 0.18);
-  if (shapeType === 1) return scaleAndProject(makeDNAHelix(), Math.min(W, H) * 0.18);
+  if (shapeType === 1) return scaleAndProject(makeTorusKnot(3, 2), Math.min(W, H) * 0.12);
   if (shapeType === 2) return scaleAndProject(makeTorusKnot(5, 3), Math.min(W, H) * 0.09);
   if (shapeType === 3) return scaleAndProject(makeTorusKnot(7, 4), Math.min(W, H) * 0.13);
   if (shapeType === 4) return scaleAndProject(makeTorusKnot(11, 5), Math.min(W, H) * 0.09);
@@ -1282,14 +1284,14 @@ function generate3DShapePoints(
   if (shapeType === 7) return scaleAndProject(makeLissajous3D(7, 11, 13, rng() * Math.PI), Math.min(W, H) * 0.19);
   if (shapeType === 8) return withNaN(makeKleinBottle(), Math.min(W, H) * 0.04);
   if (shapeType === 9) return withNaN(makeBoysSurface(), Math.min(W, H) * 0.09);
-  if (shapeType === 10) return scaleAndProject(makeRosslerAttractor(), Math.min(W, H) * 0.09);
+  if (shapeType === 10) return scaleAndProject(makeHalvorsenAttractor(), Math.min(W, H) * 0.14);
   if (shapeType === 11) return withNaN(makeTorusSpiral(1.5, 0.5, 7, 13).map(p => ({ ...p, z: isNaN(p.x) ? NaN : p.z })), Math.min(W, H) * 0.15);
   if (shapeType === 12) return withNaN(makeTorusSpiral(2, 0.6, 11, 17).map(p => ({ ...p, z: isNaN(p.x) ? NaN : p.z })), Math.min(W, H) * 0.15);
   if (shapeType === 13) return scaleAndProject(makeLissajous3D(4, 5, 7, rng() * Math.PI), Math.min(W, H) * 0.20);
   // Новые невероятные фигуры
   if (shapeType === 17) return scaleAndProject(makeHalvorsenAttractor(), Math.min(W, H) * 0.14);
   if (shapeType === 18) return scaleAndProject(makePerturbedKnot(3, 2, 0.4), Math.min(W, H) * 0.16);
-  if (shapeType === 19) return scaleAndProject(makePerturbedKnot(5, 3, 0.35), Math.min(W, H) * 0.14);
+  if (shapeType === 19) return scaleAndProject(makeMandala(6), Math.min(W, H) * 0.26);
   if (shapeType === 20) {
     // Три Лиссажу под разными фазами — звезда
     const a = makeLissajous3D(3, 4, 5, 0), b = makeLissajous3D(3, 4, 5, Math.PI / 3), c = makeLissajous3D(3, 4, 5, Math.PI * 2 / 3);
@@ -1303,7 +1305,7 @@ function generate3DShapePoints(
   if (shapeType === 22) return scaleAndProject(makeSpirograph3D(7, 2, 3, 6), Math.min(W, H) * 0.16);
   if (shapeType === 23) return scaleAndProject(makeSpirograph3D(5, 3, 2, 8), Math.min(W, H) * 0.16);
   if (shapeType === 24) return withNaN(makeSteinerSurface(), Math.min(W, H) * 0.30);
-  if (shapeType === 25) return scaleAndProject(makeLissajousStar(3), Math.min(W, H) * 0.22);
+  if (shapeType === 25) return scaleAndProject(makeLissajousStar(4), Math.min(W, H) * 0.22);
   if (shapeType === 26) return scaleAndProject(makeLissajousStar(5), Math.min(W, H) * 0.22);
   if (shapeType === 27) return withNaN(makeHopfFibration(8), Math.min(W, H) * 0.28);
   // Иконические символы и формы
@@ -1321,7 +1323,7 @@ function generate3DShapePoints(
   if (shapeType === 39) return scaleAndProject(makeOmSymbol(), Math.min(W, H) * 0.28);
 
   if (shapeType === 0) return scaleAndProject(makeThomasAttractor(), Math.min(W, H) * 0.18);
-  if (shapeType === 1) return scaleAndProject(makeDNAHelix(), Math.min(W, H) * 0.18);
+  if (shapeType === 1) return scaleAndProject(makeTorusKnot(3, 2), Math.min(W, H) * 0.12);
   if (shapeType === 2) return scaleAndProject(makeTorusKnot(5, 3), Math.min(W, H) * 0.09);
   if (shapeType === 3) return scaleAndProject(makeTorusKnot(7, 4), Math.min(W, H) * 0.13);
   if (shapeType === 4) return scaleAndProject(makeTorusKnot(11, 5), Math.min(W, H) * 0.09);
@@ -1330,7 +1332,7 @@ function generate3DShapePoints(
   if (shapeType === 7) return scaleAndProject(makeLissajous3D(7, 11, 13, rng() * Math.PI), Math.min(W, H) * 0.19);
   if (shapeType === 8) return withNaN(makeKleinBottle(), Math.min(W, H) * 0.04);
   if (shapeType === 9) return withNaN(makeBoysSurface(), Math.min(W, H) * 0.09);
-  if (shapeType === 10) return scaleAndProject(makeRosslerAttractor(), Math.min(W, H) * 0.09);
+  if (shapeType === 10) return scaleAndProject(makeHalvorsenAttractor(), Math.min(W, H) * 0.14);
   if (shapeType === 11) return withNaN(makeTorusSpiral(1.5, 0.5, 7, 13).map(p => ({ ...p, z: isNaN(p.x) ? NaN : p.z })), Math.min(W, H) * 0.15);
   if (shapeType === 12) return withNaN(makeTorusSpiral(2, 0.6, 11, 17).map(p => ({ ...p, z: isNaN(p.x) ? NaN : p.z })), Math.min(W, H) * 0.15);
   if (shapeType === 13) return scaleAndProject(makeLissajous3D(4, 5, 7, rng() * Math.PI), Math.min(W, H) * 0.20);
