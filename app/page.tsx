@@ -1401,7 +1401,7 @@ export default function Home() {
       autoDrawActiveRef.current = true;
       physState.current.forEach(s => { s.trail = []; });
       clearCanvas();
-      const totalDuration = 10000;
+      const totalDuration = 4000;
       const startTime = performance.now();
       let idx = 0;
 
@@ -1469,6 +1469,7 @@ export default function Home() {
     };
 
     // Фаза 0: трейлы кубиков 10 сек → мозаика → картина
+    // Фаза 0: трейлы кубиков 4 сек → мозаика → геометрия
     const runPhase0 = () => {
       if (!activeRef.current) return;
       autoDrawActiveRef.current = false;
@@ -1478,11 +1479,11 @@ export default function Home() {
         physState.current.forEach(s => { s.trail = []; });
         clearCanvas();
         makeMosaic(trails);
-        schedTimer = setTimeout(runPhase3, 100); // → картина
-      }, 10000);
+        schedTimer = setTimeout(runPhase1, 100); // → геометрия
+      }, 4000);
     };
 
-    // Фаза 1: 3D/4D фигура → трейлы
+    // Фаза 1: 3D/4D фигура 4 сек → трейлы
     const runPhase1 = () => {
       if (!activeRef.current) return;
       const W = window.innerWidth, H = window.innerHeight;
@@ -1490,18 +1491,20 @@ export default function Home() {
       runDrawPhase(pts, runPhase0); // → трейлы
     };
 
-    // Фаза 3: произведение искусства → геометрия
+    // Фаза 3: одна картина 4 сек → следующая картина, после всех → трейлы+геометрия
     const runPhase3 = () => {
       if (!activeRef.current) return;
       const W = window.innerWidth, H = window.innerHeight;
-      const idx = artworkIdx % ARTWORKS.length;
+      const idx = artworkIdx;
       artworkIdx++;
+      if (idx >= ARTWORKS.length) { runPhase0(); return; } // все картины показаны — переходим
       const url = ARTWORKS[idx];
 
       const startDraw = (pts: { x: number; y: number }[]) => {
         if (!activeRef.current) return;
-        if (pts.length < 3) { runPhase1(); return; }
-        runDrawPhase(pts, runPhase1); // → геометрия
+        const onDone = artworkIdx < ARTWORKS.length ? runPhase3 : runPhase0;
+        if (pts.length < 3) { onDone(); return; }
+        runDrawPhase(pts, onDone);
       };
 
       const cached = preloadedArtworks[idx];
@@ -1516,8 +1519,8 @@ export default function Home() {
       }
     };
 
-    // Старт
-    runPhase0();
+    // Старт: сначала все картины (art1→art10), потом трейлы и геометрия
+    runPhase3();
 
     const onMouseMove = (e: MouseEvent) => { mousePosRef.current = { x: e.clientX, y: e.clientY }; };
     window.addEventListener("mousemove", onMouseMove);
