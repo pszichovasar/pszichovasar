@@ -1139,7 +1139,7 @@ function makeOmSymbol(): { x: number, y: number, z: number }[] {
 
 // Сакральная геометрия — Цветок жизни
 function makeFlowerOfLife(): { x: number, y: number, z: number }[] {
-  const pts = [];
+  const pts: { x: number, y: number, z: number }[] = [];
   const r = 0.5;
   const allCenters: [number, number][] = [[0, 0], ...Array.from({ length: 6 }, (_, i): [number, number] => [r * Math.cos(i / 6 * Math.PI * 2), r * Math.sin(i / 6 * Math.PI * 2)])];
   allCenters.forEach(([cx, cy]) => {
