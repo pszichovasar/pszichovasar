@@ -615,11 +615,13 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
       const edgePts: Pt[] = [];
       let maxMag = 0;
 
-      // Sobel по чанкам через rAF — не блокируем UI
-      // Sobel синхронно
+      // Sobel по чанкам — не блокируем UI во время загрузки
+      let rowY = S;
+      const ROWS_PER_CHUNK = 30; // 30 строк за кадр — быстро, не блокирует
+
       const sobelChunk = () => {
-        const endY = cH - S;
-        for (let y = S; y < endY; y += S) {
+        const endY = Math.min(rowY + ROWS_PER_CHUNK, cH - S);
+        for (let y = rowY; y < endY; y += S) {
           for (let x = S; x < cW - S; x += S) {
             const g = (px: number, py: number) => {
               const o = (Math.min(py, cH - 1) * cW + Math.min(px, cW - 1)) * 4;
@@ -631,6 +633,11 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
             if (m > maxMag) maxMag = m;
             edgePts.push({ x, y, m });
           }
+        }
+        rowY = endY;
+        if (rowY < cH - S) {
+          requestAnimationFrame(sobelChunk);
+          return;
         }
         // Sobel готов — строим штрихи
         const threshold = maxMag * 0.10;
@@ -674,7 +681,7 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
         resolve(result);
       };
 
-      setTimeout(sobelChunk, 0);
+      requestAnimationFrame(sobelChunk);
     };
     img.onerror = () => resolve([]);
     img.src = url;
@@ -1356,12 +1363,13 @@ export default function Home() {
     // Загружаем картины последовательно с задержкой — не перегружаем UI
     const loadNextArtwork = (i: number) => {
       if (i >= ARTWORKS.length) return;
+      const delay = i === 0 ? 100 : 0; // первую через 100мс, остальные сразу после предыдущей
       setTimeout(() => {
         generateArtworkPoints(ARTWORKS[i], window.innerWidth, window.innerHeight).then(pts => {
           preloadedArtworks[i] = pts;
           loadNextArtwork(i + 1);
         }).catch(() => loadNextArtwork(i + 1));
-      }, i * 2000 + 1000); // начинаем почти сразу
+      }, delay);
     };
     loadNextArtwork(0);
 
