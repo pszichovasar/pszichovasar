@@ -2401,126 +2401,49 @@ function MapLoader() {
 
     const DURATION = 4000;
     const images = [
-      { src: "/map.jpg", label: null as string | null },
-      { src: "/montreal.jpg", label: null },
-      { src: "/kyiv.jpg", label: null },
+      "/map.jpg",
+      "/montreal.jpg",
+      "/kyiv.jpg",
     ];
 
-    // Sobel + трассировка для одного изображения
-    const processImage = (imgSrc: string, label: string | null, onDone: () => void) => {
-      ctx.clearRect(0, 0, W, H);
-      ctx.strokeStyle = "rgba(255,255,255,0.92)";
-      ctx.lineWidth = 1.5;
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-
+    const showNext = (idx: number) => {
+      if (idx >= images.length) return;
       const img = new Image();
       img.onload = () => {
-        const dpr2 = window.devicePixelRatio || 1;
-        const SCALE = 0.4; // фиксированный — быстрый Sobel, не лагает
-        const cW = Math.round(W * SCALE), cH = Math.round(H * SCALE);
-        const inv = 1 / SCALE;
-        const sc = Math.min(W / img.width, H / img.height) * 0.92;
-        const sw = Math.round(img.width * sc), sh = Math.round(img.height * sc);
-        const ox = Math.round((W - sw) / 2), oy = Math.round((H - sh) / 2);
+        const sc = Math.min(W / img.width, H / img.height);
+        const sw = img.width * sc, sh = img.height * sc;
+        const ox = (W - sw) / 2, oy = (H - sh) / 2;
+        const startTime = performance.now();
 
-        const off = document.createElement("canvas");
-        off.width = cW; off.height = cH;
-        const octx = off.getContext("2d", { willReadFrequently: true })!;
-        octx.fillStyle = "#000"; octx.fillRect(0, 0, cW, cH);
-        octx.drawImage(img, ox * SCALE, oy * SCALE, sw * SCALE, sh * SCALE);
-        const { data } = octx.getImageData(0, 0, cW, cH);
-
-        // Sobel по чанкам — не блокируем UI
-        const S = 2;
-        const edgePts: { x: number, y: number, m: number }[] = [];
-        let maxMag = 0;
-        let rowY = S;
-
-        const sobelChunk = () => {
-          const end = Math.min(rowY + 8 * S, cH - S);
-          for (let y = rowY; y < end; y += S) {
-            for (let x = S; x < cW - S; x += S) {
-              const g = (px: number, py: number) => { const o = (Math.min(py, cH - 1) * cW + Math.min(px, cW - 1)) * 4; return data[o] * 0.299 + data[o + 1] * 0.587 + data[o + 2] * 0.114; };
-              const gx = -g(x - S, y - S) - 2 * g(x - S, y) - g(x - S, y + S) + g(x + S, y - S) + 2 * g(x + S, y) + g(x + S, y + S);
-              const gy = -g(x - S, y - S) - 2 * g(x, y - S) - g(x + S, y - S) + g(x - S, y + S) + 2 * g(x, y + S) + g(x + S, y + S);
-              const m = Math.sqrt(gx * gx + gy * gy);
-              if (m > maxMag) maxMag = m;
-              edgePts.push({ x, y, m });
-            }
+        const draw = (now: number) => {
+          const elapsed = now - startTime;
+          const alpha = Math.min(1, elapsed / 600);
+          ctx.clearRect(0, 0, W, H);
+          ctx.globalAlpha = alpha;
+          ctx.drawImage(img, ox, oy, sw, sh);
+          ctx.globalAlpha = 1;
+          if (elapsed < DURATION) requestAnimationFrame(draw);
+          else {
+            // fade out
+            const t0 = performance.now();
+            const fade = (n: number) => {
+              ctx.clearRect(0, 0, W, H);
+              ctx.globalAlpha = Math.max(0, 1 - (n - t0) / 400);
+              ctx.drawImage(img, ox, oy, sw, sh);
+              ctx.globalAlpha = 1;
+              if (n - t0 < 400) requestAnimationFrame(fade);
+              else showNext(idx + 1);
+            };
+            requestAnimationFrame(fade);
           }
-          rowY = end;
-          if (rowY < cH - S) { requestAnimationFrame(sobelChunk); return; }
-
-          // Строим штрихи
-          const threshold = maxMag * 0.16;
-          const strong = edgePts.filter(p => p.m > threshold);
-          strong.sort((a, b) => b.m - a.m);
-          const top = strong.slice(0, 30000);
-          const grid = new Map<string, number>();
-          top.forEach((p, i) => grid.set(`${Math.round(p.x / S)},${Math.round(p.y / S)}`, i));
-          const used = new Set<number>();
-          const strokes: { x: number, y: number }[][] = [];
-          const dirs8 = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 1], [1, -1], [1, 0], [1, 1]];
-          for (let si = 0; si < top.length; si++) {
-            if (used.has(si)) continue;
-            const stroke: { x: number, y: number }[] = [];
-            let cur = si;
-            while (cur !== -1 && !used.has(cur)) {
-              used.add(cur);
-              stroke.push({ x: top[cur].x * inv, y: top[cur].y * inv });
-              let next = -1, bestM = -1;
-              const gx0 = Math.round(top[cur].x / S), gy0 = Math.round(top[cur].y / S);
-              for (const [dr, dc] of dirs8) {
-                const ni = grid.get(`${gx0 + dc},${gy0 + dr}`);
-                if (ni !== undefined && !used.has(ni) && top[ni].m > bestM) { bestM = top[ni].m; next = ni; }
-              }
-              cur = bestM > 0 ? next : -1;
-            }
-            if (stroke.length >= 3) strokes.push(stroke);
-            if (strokes.length > 2000) break;
-          }
-
-          // Рисуем плавно за DURATION мс — точно как картины
-          const startTime = performance.now();
-          let sIdx = 0;
-          const draw = (now: number) => {
-            const elapsed = now - startTime;
-            const target = Math.min(Math.floor((elapsed / DURATION) * strokes.length), strokes.length);
-            while (sIdx < target) {
-              const s = strokes[sIdx++];
-              if (s.length < 2) continue;
-              ctx.beginPath();
-              ctx.moveTo(s[0].x, s[0].y);
-              for (let i = 1; i < s.length; i++) ctx.lineTo(s[i].x, s[i].y);
-              ctx.stroke();
-            }
-            if (label && elapsed > DURATION - 1200) {
-              const alpha = Math.min(1, (elapsed - (DURATION - 1200)) / 700);
-              ctx.save();
-              ctx.font = `bold ${Math.max(16, W * 0.022)}px "Arial Black",Arial,sans-serif`;
-              ctx.fillStyle = `rgba(255,255,255,${alpha})`;
-              ctx.shadowColor = "rgba(0,0,0,0.9)"; ctx.shadowBlur = 10;
-              ctx.textAlign = "center"; ctx.textBaseline = "bottom";
-              ctx.fillText(label, W / 2, H - 40);
-              ctx.restore();
-            }
-            if (elapsed < DURATION) requestAnimationFrame(draw);
-            else setTimeout(onDone, 80);
-          };
-          requestAnimationFrame(draw);
         };
-        requestAnimationFrame(sobelChunk);
+        requestAnimationFrame(draw);
       };
-      img.onerror = () => onDone();
-      img.src = imgSrc;
+      img.onerror = () => showNext(idx + 1);
+      img.src = images[idx];
     };
 
-    const run = (idx: number) => {
-      if (idx >= images.length) return;
-      processImage(images[idx].src, images[idx].label, () => run(idx + 1));
-    };
-    run(0);
+    showNext(0);
   }, []);
   return null;
 }
