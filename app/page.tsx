@@ -595,8 +595,7 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
     img.onload = () => {
       // Рисуем уменьшенную копию для Sobel — быстрее и меньше точек
       // На мобильных используем больший масштаб для точных контуров
-      const isMob = W <= 768;
-      const SCALE = isMob ? 1.0 : 0.7;
+      const SCALE = 0.4; // фиксированный — S=2 компенсирует качество
       const cW = Math.round(W * SCALE), cH = Math.round(H * SCALE);
       const imgScale = Math.min(cW / img.width, cH / img.height) * 0.90;
       const sw = Math.round(img.width * imgScale);
@@ -612,8 +611,8 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
       ctx.drawImage(img, ox, oy, sw, sh);
       const { data } = ctx.getImageData(0, 0, cW, cH);
 
-      // Шаг 1px — максимальная точность
-      const S = 1;
+      // Шаг 2px — в 4x быстрее, качество достаточное
+      const S = 2;
       type Pt = { x: number, y: number, m: number };
       const edgePts: Pt[] = [];
       let maxMag = 0;
@@ -635,9 +634,7 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
       const threshold = maxMag * 0.10;
       const strong = edgePts.filter(p => p.m > threshold);
       strong.sort((a, b) => b.m - a.m);
-      const top = strong.slice(0, 80000);
-
-      console.log('[Artwork] cW:', cW, 'cH:', cH, 'strong:', strong.length, 'top:', top.length, 'maxMag:', maxMag.toFixed(0));
+      const top = strong.slice(0, 40000);
 
       if (top.length < 10) { resolve([]); return; }
 
@@ -687,7 +684,6 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
         if (result.length > 120000) break;
       }
 
-      console.log('[Artwork] result pts:', result.length);
       resolve(result);
     };
     img.onerror = (e) => { console.error('[Artwork] ERROR loading:', url, e); resolve([]); };
@@ -1355,7 +1351,7 @@ export default function Home() {
           preloadedArtworks[i] = pts;
           loadNextArtwork(i + 1);
         }).catch(() => loadNextArtwork(i + 1));
-      }, i === 0 ? 200 : 300); // начинаем почти сразу
+      }, i * 2000 + 1000); // начинаем почти сразу
     };
     loadNextArtwork(0);
 
