@@ -596,7 +596,8 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
       // Рисуем уменьшенную копию для Sobel — быстрее и меньше точек
       // На мобильных используем больший масштаб для точных контуров
       const isMob = W <= 768;
-      const SCALE = 0.7; // одинаковое разрешение на всех устройствах
+      const dpr = window.devicePixelRatio || 1;
+      const SCALE = Math.min(0.7 * dpr, 1.4); // учитываем retina дисплей
       const cW = Math.round(W * SCALE), cH = Math.round(H * SCALE);
       const imgScale = Math.min(cW / img.width, cH / img.height) * 0.90;
       const sw = Math.round(img.width * imgScale);
@@ -2415,7 +2416,8 @@ function MapLoader() {
 
       const img = new Image();
       img.onload = () => {
-        const SCALE = 0.7; // то же разрешение что и у картин
+        const dpr2 = window.devicePixelRatio || 1;
+        const SCALE = Math.min(0.7 * dpr2, 1.4); // retina
         const cW = Math.round(W * SCALE), cH = Math.round(H * SCALE);
         const inv = 1 / SCALE;
         const sc = Math.min(W / img.width, H / img.height) * 0.92;
