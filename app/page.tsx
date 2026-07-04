@@ -1022,6 +1022,26 @@ export default function Home() {
   const scrollRef = useRef(0);
   const touchStartRef = useRef(0);
   const [pinkOpacity, setPinkOpacity] = useState(1);
+  const [overlayOpacity, setOverlayOpacity] = useState(1);
+
+  useEffect(() => {
+    // Загружаем всё тяжёлое пока оверлей закрывает экран
+    const fadeStart = 10000;
+    const fadeDuration = 1000;
+    const t = setTimeout(() => {
+      // Плавный fade out
+      const start = performance.now();
+      const fade = (now: number) => {
+        const elapsed = now - start;
+        const opacity = Math.max(0, 1 - elapsed / fadeDuration);
+        setOverlayOpacity(opacity);
+        if (opacity > 0) requestAnimationFrame(fade);
+      };
+      requestAnimationFrame(fade);
+    }, fadeStart);
+    return () => clearTimeout(t);
+  }, []);
+  const [overlayOpacity, setOverlayOpacity] = useState(1); // чёрный оверлей при загрузке
   const [videoOpacity, setVideoOpacity] = useState(0);
 
   const floatingRefs = useRef<(HTMLDivElement | null)[]>(Array(IMG_COUNT).fill(null));
@@ -1202,6 +1222,7 @@ export default function Home() {
       if (ctx2) ctx2.drawImage(snap, minX * dpr, minY * dpr, cropW * dpr, cropH * dpr, 0, 0, crop.width, crop.height);
       const src = crop.toDataURL("image/png");
       const SW = window.innerWidth, SH = window.innerHeight;
+      const tyPx = getCurrentTyPx(); // смещение контейнера — нужно для правильного позиционирования
       const isMobile = SW <= 768;
       const DST_SIZE = isMobile ? 57 : 170;
       const GAP = 8;
@@ -1214,10 +1235,11 @@ export default function Home() {
       const newId = thumbIdRef.current;
 
       setThumbnails(prev => {
+        // Сравниваем в экранных координатах (dstY + tyPx = экранная Y)
         const occupied = new Set<number>();
         prev.forEach(t => {
           const col = Math.round(t.dstX / cellW);
-          const row = Math.round(t.dstY / cellH);
+          const row = Math.round((t.dstY + tyPx) / cellH);
           occupied.add(row * cols + col);
         });
         const freeCells: number[] = [];
@@ -1235,13 +1257,13 @@ export default function Home() {
           const col = freeCell % cols;
           const row = Math.floor(freeCell / cols);
           dstX = col * cellW + GAP / 2;
-          dstY = row * cellH + GAP / 2;
+          dstY = row * cellH + GAP / 2 - tyPx; // переводим из экранных в координаты контейнера
         } else {
           const oldest = prev.reduce((a, b) => a.id < b.id ? a : b);
           dstX = oldest.dstX; dstY = oldest.dstY;
           nextPrev = prev.filter(t => t.id !== oldest.id);
         }
-        return [...nextPrev, { id: newId, src, srcX: minX, srcY: minY, srcW: cropW, srcH: cropH, dstX, dstY, dstSize: DST_SIZE, offsetY: 0 }];
+        return [...nextPrev, { id: newId, src, srcX: minX, srcY: minY - tyPx, srcW: cropW, srcH: cropH, dstX, dstY, dstSize: DST_SIZE, offsetY: 0 }];
       });
       const mosaicSrc = buildColoredMosaic([pts], minX, minY, cropW, cropH);
       if (mosaicSrc) setThumbnails(prev => prev.map(t => t.id === newId ? { ...t, src: mosaicSrc } : t));
@@ -1279,6 +1301,7 @@ export default function Home() {
       if (ctx2) ctx2.drawImage(c, minX * dpr, minY * dpr, cropW * dpr, cropH * dpr, 0, 0, crop.width, crop.height);
       const src = crop.toDataURL("image/png");
       const W = window.innerWidth, H = window.innerHeight;
+      const tyPx2 = getCurrentTyPx();
       const isMobile = W <= 768;
       const DST_SIZE = isMobile ? 57 : 170;
       const GAP2 = 8;
@@ -1292,7 +1315,7 @@ export default function Home() {
         const occupied2 = new Set<number>();
         prev.forEach(t => {
           const col = Math.round(t.dstX / cellW2);
-          const row = Math.round(t.dstY / cellH2);
+          const row = Math.round((t.dstY + tyPx2) / cellH2);
           occupied2.add(row * cols2 + col);
         });
         const freeCells2: number[] = [];
@@ -1310,13 +1333,13 @@ export default function Home() {
           const col = freeCell2 % cols2;
           const row = Math.floor(freeCell2 / cols2);
           dstX = col * cellW2 + GAP2 / 2;
-          dstY = row * cellH2 + GAP2 / 2;
+          dstY = row * cellH2 + GAP2 / 2 - tyPx2;
         } else {
           const oldest = prev.reduce((a, b) => a.id < b.id ? a : b);
           dstX = oldest.dstX; dstY = oldest.dstY;
           nextPrev2 = prev.filter(t => t.id !== oldest.id);
         }
-        return [...nextPrev2, { id: newId, src, srcX: minX, srcY: minY, srcW: cropW, srcH: cropH, dstX, dstY, dstSize: DST_SIZE, offsetY: 0 }];
+        return [...nextPrev2, { id: newId, src, srcX: minX, srcY: minY - tyPx2, srcW: cropW, srcH: cropH, dstX, dstY, dstSize: DST_SIZE, offsetY: 0 }];
       });
       const mosaicSrc = buildColoredMosaic(trails, minX, minY, cropW, cropH);
       if (mosaicSrc) setThumbnails(prev => prev.map(t => t.id === newId ? { ...t, src: mosaicSrc } : t));
@@ -1956,7 +1979,7 @@ export default function Home() {
         };
         requestAnimationFrame(step);
         textPhysRef.current.active = true;
-      }, 20000);
+      }, 11000);
     }; // end startExplosionTimer
 
     // Ждём полной загрузки страницы, потом запускаем таймер
@@ -2292,6 +2315,10 @@ export default function Home() {
         </div>
 
         {/* I DO DESIGN + биография */}
+        {/* Чёрный оверлей загрузки — исчезает через 10 сек, текст остаётся */}
+        {overlayOpacity > 0 && (
+          <div style={{ position: "fixed", inset: 0, background: "#000", zIndex: 4, pointerEvents: overlayOpacity > 0.01 ? "all" : "none", opacity: overlayOpacity }} />
+        )}
         <div ref={iDoDesignRef} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", zIndex: 5, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", pointerEvents: "none", willChange: "transform,opacity", }}>
           <div style={{ position: "relative", display: "inline-flex", flexDirection: "column", alignItems: "center" }}>
             <div ref={iDoDesignTextRef} style={{ position: "relative", fontFamily: "'Arial Black',Arial,sans-serif", fontWeight: 900, fontSize: "clamp(14px,3.5vw,48px)", letterSpacing: "-0.04em", color: "white", lineHeight: 0.95, whiteSpace: "nowrap", textAlign: "center" }}>
