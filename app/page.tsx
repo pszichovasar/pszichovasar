@@ -596,8 +596,7 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
       // Рисуем уменьшенную копию для Sobel — быстрее и меньше точек
       // На мобильных используем больший масштаб для точных контуров
       const isMob = W <= 768;
-      const dpr = window.devicePixelRatio || 1;
-      const SCALE = Math.min(0.9 * dpr, 1.6); // высокое разрешение
+      const SCALE = 0.5; // фиксированный — быстрый Sobel
       const cW = Math.round(W * SCALE), cH = Math.round(H * SCALE);
       const imgScale = Math.min(cW / img.width, cH / img.height) * 0.90;
       const sw = Math.round(img.width * imgScale);
@@ -1135,7 +1134,12 @@ export default function Home() {
       s.vy += (dy / sd) * force * (1 / 16);
       s.rotSpeed += ((Math.random() - 0.5) * 8) * t;
     });
-
+    wordPhysRef.current.forEach(wp => {
+      const dx = wp.x - px, dy = wp.y - py, dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist >= radius) return;
+      const t = 1 - dist / radius, force = maxForce * t * t, sd = Math.max(dist, 1);
+      wp.vx += (dx / sd) * force * (1 / 16); wp.vy += (dy / sd) * force * (1 / 16);
+    });
   };
 
   const GAP = 20;
@@ -1345,7 +1349,7 @@ export default function Home() {
           preloadedArtworks[i] = pts;
           loadNextArtwork(i + 1);
         }).catch(() => loadNextArtwork(i + 1));
-      }, i === 0 ? 200 : 300); // начинаем почти сразу
+      }, i === 0 ? 2000 : 1500); // даём браузеру прогрузиться
     };
     loadNextArtwork(0);
 
@@ -1610,11 +1614,69 @@ export default function Home() {
         wp.el.style.top = `${wp.y - ph}px`;
         wp.el.style.transform = `rotate(${wp.ang}rad)`;
 
+        // Коллизии слова с кубиками
+        for (let i = 0; i < IMG_COUNT; i++) {
+          const s = states[i]; if (!s.initialized) continue;
+          const dx = s.x - wp.x, dy = s.y - wp.y;
+          const minD = S / 2 + Math.max(pw, ph), dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < minD && dist > 0) {
+            const nx = dx / dist, ny = dy / dist, relVn = (s.vx - wp.vx) * nx + (s.vy - wp.vy) * ny;
+            if (relVn < 0) { const imp = -(1 + BOUNCE) * relVn / 2; s.vx += imp * nx; s.vy += imp * ny; wp.vx -= imp * nx; wp.vy -= imp * ny; }
+            const ov = minD - dist; s.x += nx * ov / 2; s.y += ny * ov / 2; wp.x -= nx * ov / 2; wp.y -= ny * ov / 2;
+          }
+        }
+
 
         return true;
       });
 
       const wps = wordPhysRef.current;
+
+      // Коллизия с "I DO DESIGN"
+      const textEl = iDoDesignTextRef.current;
+      if (textEl && !textPhysRef.current.active) {
+        const r = textEl.getBoundingClientRect();
+        const prev = prevTextRectRef.current;
+        const vis = r.width > 10 && r.top < H && r.bottom > 0;
+        if (vis) {
+          const h = S / 2;
+          const uL = Math.min(r.left, prev?.left ?? r.left) - h, uR = Math.max(r.right, prev?.right ?? r.right) + h;
+          const uT = Math.min(r.top, prev?.top ?? r.top) - h, uB = Math.max(r.bottom, prev?.bottom ?? r.bottom) + h;
+          for (let i = 0; i < IMG_COUNT; i++) {
+            const s = states[i]; if (!s.initialized || s.x <= uL || s.x >= uR || s.y <= uT || s.y >= uB) continue;
+            const dL = s.x - uL, dR = uR - s.x, dT = s.y - uT, dB = uB - s.y, minD = Math.min(dL, dR, dT, dB);
+            let nx = 0, ny = 0;
+            if (minD === dL) nx = -1; else if (minD === dR) nx = 1; else if (minD === dT) ny = -1; else ny = 1;
+            s.x += nx * (minD + 0.5); s.y += ny * (minD + 0.5);
+            const vn = s.vx * nx + s.vy * ny;
+            if (vn < 0) { s.vx -= vn * nx * (1 + BOUNCE); s.vy -= vn * ny * (1 + BOUNCE); }
+          }
+        }
+        prevTextRectRef.current = vis ? r : null;
+      }
+
+      // Коллизия с биографией
+      const bioEl = bioTextRef.current;
+      if (bioEl && !textPhysRef.current.active) {
+        const r = bioEl.getBoundingClientRect();
+        const prev = prevBioRectRef.current;
+        const vis = r.width > 10 && r.top < H && r.bottom > 0;
+        if (vis) {
+          const h = S / 2;
+          const uL = Math.min(r.left, prev?.left ?? r.left) - h, uR = Math.max(r.right, prev?.right ?? r.right) + h;
+          const uT = Math.min(r.top, prev?.top ?? r.top) - h, uB = Math.max(r.bottom, prev?.bottom ?? r.bottom) + h;
+          for (let i = 0; i < IMG_COUNT; i++) {
+            const s = states[i]; if (!s.initialized || s.x <= uL || s.x >= uR || s.y <= uT || s.y >= uB) continue;
+            const dL = s.x - uL, dR = uR - s.x, dT = s.y - uT, dB = uB - s.y, minD = Math.min(dL, dR, dT, dB);
+            let nx = 0, ny = 0;
+            if (minD === dL) nx = -1; else if (minD === dR) nx = 1; else if (minD === dT) ny = -1; else ny = 1;
+            s.x += nx * (minD + 0.5); s.y += ny * (minD + 0.5);
+            const vn = s.vx * nx + s.vy * ny;
+            if (vn < 0) { s.vx -= vn * nx * (1 + BOUNCE); s.vy -= vn * ny * (1 + BOUNCE); }
+          }
+        }
+        prevBioRectRef.current = vis ? r : null;
+      }
 
 
 
