@@ -1124,7 +1124,7 @@ export default function Home() {
 
   // Экран загрузки — 10 секунд, потом плавно скрываем
   useEffect(() => {
-    const t = setTimeout(() => setIsLoading(false), 12000);
+    const t = setTimeout(() => setIsLoading(false), 14000);
     return () => clearTimeout(t);
   }, []);
   const [videoOpacity, setVideoOpacity] = useState(0);
@@ -2393,7 +2393,7 @@ export default function Home() {
           position: "fixed", inset: 0, background: "#000", zIndex: 9999,
           display: "flex", alignItems: "center", justifyContent: "center",
           animation: "loadingFadeOut 0.8s ease forwards",
-          animationDelay: "11.2s",
+          animationDelay: "13.2s",
         }}>
           <style>{`@keyframes loadingFadeOut { from { opacity:1 } to { opacity:0; pointer-events:none } }`}</style>
           <canvas id="map-loading-canvas" style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} />
@@ -2416,7 +2416,7 @@ function MapLoader() {
     const ctx = canvas.getContext("2d")!;
     const W = canvas.width, H = canvas.height;
 
-    const DURATION = 4000; // 4 сек на каждое изображение
+    const DURATION = 4000;
     const images = [
       { src: "/map.jpg", label: null as string | null },
       { src: "/montreal.jpg", label: "Montréal" },
@@ -2433,7 +2433,7 @@ function MapLoader() {
       const img = new Image();
       img.onload = () => {
         const isMob = W <= 768;
-        const SCALE = isMob ? 1.0 : 0.6; // высокое разрешение как у картин
+        const SCALE = isMob ? 0.5 : 0.5; // одинаково — быстрее вычисление, лучше видно
         const cW = Math.round(W * SCALE), cH = Math.round(H * SCALE);
         const invScale = 1 / SCALE;
         const imgScale = Math.min(W / img.width, H / img.height) * 0.92;
@@ -2447,11 +2447,16 @@ function MapLoader() {
         octx.drawImage(img, ox * SCALE, oy * SCALE, sw * SCALE, sh * SCALE);
         const { data } = octx.getImageData(0, 0, cW, cH);
 
-        setTimeout(() => {
-          const S = 2;
-          const edgePts: { x: number; y: number; m: number }[] = [];
-          let maxMag = 0;
-          for (let y = S; y < cH - S; y += S) {
+        // Sobel по чанкам через rAF — не блокируем UI
+        const S = 2;
+        const edgePts: { x: number; y: number; m: number }[] = [];
+        let maxMag = 0;
+        let procY = S;
+        const CHUNK = 20; // строк за кадр
+
+        const sobelChunk = () => {
+          const endY = Math.min(procY + CHUNK * S, cH - S);
+          for (let y = procY; y < endY; y += S) {
             for (let x = S; x < cW - S; x += S) {
               const g = (px: number, py: number) => { const o = (Math.min(py, cH - 1) * cW + Math.min(px, cW - 1)) * 4; return data[o] * 0.299 + data[o + 1] * 0.587 + data[o + 2] * 0.114; };
               const gx = -g(x - S, y - S) - 2 * g(x - S, y) - g(x - S, y + S) + g(x + S, y - S) + 2 * g(x + S, y) + g(x + S, y + S);
@@ -2461,10 +2466,14 @@ function MapLoader() {
               edgePts.push({ x, y, m });
             }
           }
-          const threshold = maxMag * 0.12;
+          procY = endY;
+          if (procY < cH - S) { requestAnimationFrame(sobelChunk); return; }
+
+          // Sobel готов — строим штрихи
+          const threshold = maxMag * 0.15;
           const strong = edgePts.filter(p => p.m > threshold);
           strong.sort((a, b) => b.m - a.m);
-          const top = strong.slice(0, 80000);
+          const top = strong.slice(0, 60000);
 
           const grid = new Map<string, number>();
           top.forEach((p, i) => grid.set(`${Math.round(p.x / S)},${Math.round(p.y / S)}`, i));
@@ -2487,7 +2496,7 @@ function MapLoader() {
               cur = bestM > 0 ? next : -1;
             }
             if (stroke.length >= 3) strokes.push(stroke);
-            if (strokes.length > 5000) break;
+            if (strokes.length > 4000) break;
           }
 
           const startTime = performance.now();
@@ -2505,7 +2514,6 @@ function MapLoader() {
               }
               ctx.stroke();
             }
-            // Подпись в последние 1 сек
             if (label && elapsed > DURATION - 1000) {
               const alpha = Math.min(1, (elapsed - (DURATION - 1000)) / 600);
               ctx.font = `bold ${Math.max(16, W * 0.02)}px "Arial Black", Arial, sans-serif`;
@@ -2518,7 +2526,8 @@ function MapLoader() {
             else setTimeout(onDone, 80);
           };
           requestAnimationFrame(drawNext);
-        }, 50);
+        };
+        requestAnimationFrame(sobelChunk);
       };
       img.onerror = () => onDone();
       img.src = imgSrc;
