@@ -1242,13 +1242,22 @@ export default function Home() {
         if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
       });
       if (!isFinite(minX)) return;
+      const W = window.innerWidth, H = window.innerHeight;
+      const minSide = Math.min(W, H);
       const pad = 10;
       minX = Math.max(0, minX - pad); minY = Math.max(0, minY - pad);
       maxX += pad; maxY += pad;
+      // Если фигура маленькая — расширяем crop до minSide
+      if ((maxX - minX) < minSide || (maxY - minY) < minSide) {
+        const centerX = (minX + maxX) / 2, centerY = (minY + maxY) / 2;
+        minX = Math.max(0, centerX - minSide / 2);
+        minY = Math.max(0, centerY - minSide / 2);
+        maxX = Math.min(W, centerX + minSide / 2);
+        maxY = Math.min(H, centerY + minSide / 2);
+      }
       const cropW = Math.max(1, maxX - minX);
       const cropH = Math.max(1, maxY - minY);
       const dpr = window.devicePixelRatio || 1;
-      // Thumbnail — снимок того что было нарисовано
       const crop = document.createElement("canvas");
       crop.width = Math.round(cropW * dpr);
       crop.height = Math.round(cropH * dpr);
@@ -1259,25 +1268,50 @@ export default function Home() {
       const tyPx = getCurrentTyPx();
       const isMobile = W <= 768;
       const DST_SIZE = isMobile ? 57 : 170;
-      const PAD = 16;
-      const findFreeSpot = (existing: Thumbnail[]) => {
-        for (let attempt = 0; attempt < 60; attempt++) {
-          const margin = 0.04;
-          const x = (margin + Math.random() * (1 - 2 * margin - DST_SIZE / W)) * W;
-          const y = (margin + Math.random() * (1 - 2 * margin - DST_SIZE / H)) * H - tyPx;
-          const ok = existing.every(t =>
-            x + DST_SIZE + PAD < t.dstX || x > t.dstX + DST_SIZE + PAD ||
-            y + DST_SIZE + PAD < t.dstY || y > t.dstY + DST_SIZE + PAD
-          );
-          if (ok) return { dstX: x, dstY: y };
-        }
-        return { dstX: (0.04 + Math.random() * 0.88) * W, dstY: (0.04 + Math.random() * 0.88) * H - tyPx };
-      };
+      const GAP = 8; // минимальный зазор между мозаиками
+
+      // Сетка ячеек — занимаем первую свободную, иначе заменяем самую старую
+      const cellW = DST_SIZE + GAP, cellH = DST_SIZE + GAP;
+      const cols = Math.floor(W / cellW);
+      const rows = Math.floor(H / cellH);
+      const totalCells = Math.max(1, cols * rows);
+
       thumbIdRef.current++;
       const newId = thumbIdRef.current;
+
       setThumbnails(prev => {
-        const { dstX, dstY } = findFreeSpot(prev);
-        return [...prev, { id: newId, src, srcX: minX, srcY: minY - tyPx, srcW: cropW, srcH: cropH, dstX, dstY, dstSize: DST_SIZE, offsetY: 0 }];
+        // Строим занятые ячейки
+        const occupied = new Set<number>();
+        prev.forEach(t => {
+          const col = Math.round((t.dstX) / cellW);
+          const row = Math.round((t.dstY + tyPx) / cellH);
+          occupied.add(row * cols + col);
+        });
+
+        // Ищем свободную ячейку
+        let freeCell = -1;
+        for (let i = 0; i < totalCells; i++) {
+          if (!occupied.has(i)) { freeCell = i; break; }
+        }
+
+        let dstX: number, dstY: number;
+        let nextPrev = prev;
+
+        if (freeCell >= 0) {
+          // Есть свободное место
+          const col = freeCell % cols;
+          const row = Math.floor(freeCell / cols);
+          dstX = col * cellW + GAP / 2;
+          dstY = row * cellH + GAP / 2 - tyPx;
+        } else {
+          // Мест нет — заменяем самую старую (минимальный id)
+          const oldest = prev.reduce((a, b) => a.id < b.id ? a : b);
+          dstX = oldest.dstX;
+          dstY = oldest.dstY;
+          nextPrev = prev.filter(t => t.id !== oldest.id);
+        }
+
+        return [...nextPrev, { id: newId, src, srcX: minX, srcY: minY - tyPx, srcW: cropW, srcH: cropH, dstX, dstY, dstSize: DST_SIZE, offsetY: 0 }];
       });
       const mosaicSrc = buildColoredMosaic([pts], minX, minY, cropW, cropH);
       if (mosaicSrc) setThumbnails(prev => prev.map(t => t.id === newId ? { ...t, src: mosaicSrc } : t));
@@ -1293,13 +1327,20 @@ export default function Home() {
         if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
       }));
       if (!isFinite(minX)) return;
+      const WW = window.innerWidth, HH = window.innerHeight;
+      const minSide2 = Math.min(WW, HH);
       const pad = 10;
       minX = Math.max(0, minX - pad); minY = Math.max(0, minY - pad);
       maxX += pad; maxY += pad;
+      if ((maxX - minX) < minSide2 || (maxY - minY) < minSide2) {
+        const centerX = (minX + maxX) / 2, centerY = (minY + maxY) / 2;
+        minX = Math.max(0, centerX - minSide2 / 2);
+        minY = Math.max(0, centerY - minSide2 / 2);
+        maxX = Math.min(WW, centerX + minSide2 / 2);
+        maxY = Math.min(HH, centerY + minSide2 / 2);
+      }
       const cropW = Math.max(1, maxX - minX);
       const cropH = Math.max(1, maxY - minY);
-      const dpr = window.devicePixelRatio || 1;
-      const crop = document.createElement("canvas");
       crop.width = Math.round(cropW * dpr);
       crop.height = Math.round(cropH * dpr);
       const ctx2 = crop.getContext("2d");
@@ -1309,25 +1350,37 @@ export default function Home() {
       const tyPx = getCurrentTyPx();
       const isMobile = W <= 768;
       const DST_SIZE = isMobile ? 57 : 170;
-      const PAD = 16;
-      const findFreeSpot = (existing: Thumbnail[]) => {
-        for (let attempt = 0; attempt < 60; attempt++) {
-          const margin = 0.04;
-          const x = (margin + Math.random() * (1 - 2 * margin - DST_SIZE / W)) * W;
-          const y = (margin + Math.random() * (1 - 2 * margin - DST_SIZE / H)) * H - tyPx;
-          const ok = existing.every(t =>
-            x + DST_SIZE + PAD < t.dstX || x > t.dstX + DST_SIZE + PAD ||
-            y + DST_SIZE + PAD < t.dstY || y > t.dstY + DST_SIZE + PAD
-          );
-          if (ok) return { dstX: x, dstY: y };
-        }
-        return { dstX: (0.04 + Math.random() * 0.88) * W, dstY: (0.04 + Math.random() * 0.88) * H - tyPx };
-      };
+      const GAP2 = 8;
+      const cellW2 = DST_SIZE + GAP2, cellH2 = DST_SIZE + GAP2;
+      const cols2 = Math.floor(W / cellW2);
+      const rows2 = Math.floor(H / cellH2);
+      const totalCells2 = Math.max(1, cols2 * rows2);
       thumbIdRef.current++;
       const newId = thumbIdRef.current;
       setThumbnails(prev => {
-        const { dstX, dstY } = findFreeSpot(prev);
-        return [...prev, { id: newId, src, srcX: minX, srcY: minY - tyPx, srcW: cropW, srcH: cropH, dstX, dstY, dstSize: DST_SIZE, offsetY: 0 }];
+        const occupied2 = new Set<number>();
+        prev.forEach(t => {
+          const col = Math.round(t.dstX / cellW2);
+          const row = Math.round((t.dstY + tyPx) / cellH2);
+          occupied2.add(row * cols2 + col);
+        });
+        let freeCell2 = -1;
+        for (let i = 0; i < totalCells2; i++) {
+          if (!occupied2.has(i)) { freeCell2 = i; break; }
+        }
+        let dstX: number, dstY: number;
+        let nextPrev2 = prev;
+        if (freeCell2 >= 0) {
+          const col = freeCell2 % cols2;
+          const row = Math.floor(freeCell2 / cols2);
+          dstX = col * cellW2 + GAP2 / 2;
+          dstY = row * cellH2 + GAP2 / 2 - tyPx;
+        } else {
+          const oldest = prev.reduce((a, b) => a.id < b.id ? a : b);
+          dstX = oldest.dstX; dstY = oldest.dstY;
+          nextPrev2 = prev.filter(t => t.id !== oldest.id);
+        }
+        return [...nextPrev2, { id: newId, src, srcX: minX, srcY: minY - tyPx, srcW: cropW, srcH: cropH, dstX, dstY, dstSize: DST_SIZE, offsetY: 0 }];
       });
       const mosaicSrc = buildColoredMosaic(trails, minX, minY, cropW, cropH);
       if (mosaicSrc) setThumbnails(prev => prev.map(t => t.id === newId ? { ...t, src: mosaicSrc } : t));
@@ -1372,7 +1425,7 @@ export default function Home() {
 
         if (targetIdx > idx) {
           const ctx = c.getContext("2d")!;
-          ctx.lineWidth = window.innerWidth <= 768 ? 0.8 : 1.5;
+          ctx.lineWidth = window.innerWidth <= 768 ? 1.6 : 3.0;
           ctx.lineCap = "round";
           ctx.lineJoin = "round";
           ctx.strokeStyle = "rgba(255,255,255,0.92)";
