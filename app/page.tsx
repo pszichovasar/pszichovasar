@@ -123,7 +123,7 @@ function buildColoredMosaic(
     return canvas.toDataURL("image/png");
   }
 
-  ctx.fillStyle = "#111";
+  ctx.fillStyle = "#fff";
   ctx.fillRect(0, 0, w, h);
 
   // Рисуем разделители с учётом NaN разрывов и quadratic curves
@@ -163,10 +163,10 @@ function buildColoredMosaic(
 
 
   // Разделители — как в оригинале
-  drawTrails("#505050", Math.max(2.5, 2.5 * scale));
+  drawTrails("#000", Math.max(2.5, 2.5 * scale));
 
   // Края canvas
-  ctx.fillStyle = "#505050";
+  ctx.fillStyle = "#000";
   const bw = Math.max(2, Math.round(2 * scale));
   ctx.fillRect(0, 0, w, bw); ctx.fillRect(0, h - bw, w, bw);
   ctx.fillRect(0, 0, bw, h); ctx.fillRect(w - bw, 0, bw, h);
@@ -174,7 +174,7 @@ function buildColoredMosaic(
   const imgData = ctx.getImageData(0, 0, w, h);
   const data = imgData.data;
   const n = w * h;
-  const isBorder = (i: number) => data[i * 4] > 30;
+  const isBorder = (i: number) => data[i * 4] < 180;
   const visited = new Uint8Array(n);
   const queue = new Int32Array(n);
   const recentColors: number[] = [];
@@ -205,7 +205,7 @@ function buildColoredMosaic(
   ctx.putImageData(imgData, 0, 0);
 
   // Тонкие чёрные линии поверх — точный контур
-  drawTrails("#000", Math.max(0.8, 0.8 * scale));
+  drawTrails("#000", Math.max(0.4, 0.4 * scale));
 
   return canvas.toDataURL("image/png");
 }
@@ -635,7 +635,7 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
       const threshold = maxMag * 0.08;
       const strong = edgePts.filter(p => p.m > threshold);
       strong.sort((a, b) => b.m - a.m);
-      const top = strong.slice(0, 120000);
+      const top = strong.slice(0, 240000);
 
       console.log('[Artwork] cW:', cW, 'cH:', cH, 'strong:', strong.length, 'top:', top.length, 'maxMag:', maxMag.toFixed(0));
 
@@ -684,7 +684,7 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
           s.push(stroke[stroke.length - 1]);
           result.push(...s, { x: NaN, y: NaN });
         }
-        if (result.length > 180000) break;
+        if (result.length > 360000) break;
       }
 
       console.log('[Artwork] result pts:', result.length);
