@@ -616,11 +616,9 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
       let maxMag = 0;
 
       // Sobel по чанкам через rAF — не блокируем UI
-      const CHUNK = 12; // строк за кадр
-      let rowY = S;
-
+      // Sobel синхронно
       const sobelChunk = () => {
-        const endY = Math.min(rowY + CHUNK, cH - S);
+        const endY = cH - S;
         for (let y = rowY; y < endY; y += S) {
           for (let x = S; x < cW - S; x += S) {
             const g = (px: number, py: number) => {
@@ -634,14 +632,6 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
             edgePts.push({ x, y, m });
           }
         }
-        rowY = endY;
-
-        if (rowY < cH - S) {
-          // Следующий чанк в следующем кадре
-          requestAnimationFrame(sobelChunk);
-          return;
-        }
-
         // Sobel готов — строим штрихи
         const threshold = maxMag * 0.10;
         const strong = edgePts.filter(p => p.m > threshold);
@@ -684,7 +674,7 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
         resolve(result);
       };
 
-      requestAnimationFrame(sobelChunk);
+      setTimeout(sobelChunk, 0);
     };
     img.onerror = () => resolve([]);
     img.src = url;
@@ -951,15 +941,9 @@ function generate3DShapePoints(
     return scaleAndProject([...a, { x: NaN, y: NaN, z: NaN }, ...b, { x: NaN, y: NaN, z: NaN }, ...c], Math.min(W, H) * 0.18);
   }
   if (shapeType === 4) {
-    // 4D Tesseract + 16-cell вместе
-    const s4D = Math.min(W, H) * 0.10;
-    const rotXY = rng() * Math.PI * 2, rotXZ = rng() * Math.PI * 2, rotXW = rng() * Math.PI * 2;
-    const t = makeTesseract(); const c16 = make16Cell();
-    const projT = t.verts.map(v => project4D(v, rotXY, rotXZ, rotXW, s4D, cx, cy));
-    const projC = c16.verts.map(v => project4D(v, rotXY + 0.5, rotXZ + 0.5, rotXW + 0.3, s4D, cx, cy));
-    const ptsT = buildEdgeTrail(t.edges, projT);
-    const ptsC = buildEdgeTrail(c16.edges, projC);
-    return [...ptsT, { x: NaN, y: NaN }, ...ptsC];
+    // Аттрактор Халворсена + узел — плотная органическая форма
+    const a = makeHalvorsenAttractor(); const b = makeTorusKnot(5, 3);
+    return scaleAndProject([...a, { x: NaN, y: NaN, z: NaN }, ...b], Math.min(W, H) * 0.14);
   }
   if (shapeType === 5) return scaleAndProject(makeLissajous3D(3, 4, 5, rng() * Math.PI), Math.min(W, H) * 0.20);
   if (shapeType === 6) return scaleAndProject(makeLissajous3D(5, 7, 8, rng() * Math.PI), Math.min(W, H) * 0.19);
@@ -1012,56 +996,9 @@ function generate3DShapePoints(
     const a = makeDNAHelix(); const b = makeTorusKnot(3, 2); const c = makeTorusKnot(5, 3);
     return scaleAndProject([...a, { x: NaN, y: NaN, z: NaN }, ...b, { x: NaN, y: NaN, z: NaN }, ...c], Math.min(W, H) * 0.14);
   }
-  const scale4D = Math.min(W, H) * 0.09;
-  const rotXY = rng() * Math.PI * 2, rotXZ = rng() * Math.PI * 2, rotXW = rng() * Math.PI * 2;
-  const polytopes = [makeTesseract, make16Cell, make24Cell];
-  const shape = polytopes[Math.floor(rng() * polytopes.length)]();
-  const projected = shape.verts.map(v => project4D(v, rotXY, rotXZ, rotXW, scale4D, cx, cy));
-
-  // Строим непрерывный трейл по рёбрам
-  const pts: { x: number; y: number }[] = [];
-  const used = new Set<string>();
-  const key = (a: number, b: number) => `${Math.min(a, b)}-${Math.max(a, b)}`;
-
-  let cur = 0;
-  pts.push(projected[cur]);
-
-  let safety = 0;
-  while (used.size < shape.edges.length && safety++ < 2000) {
-    const available = shape.edges.filter(([a, b]) =>
-      (a === cur || b === cur) && !used.has(key(a, b))
-    );
-
-    if (available.length === 0) {
-      const nextEdge = shape.edges.find(([a, b]) => !used.has(key(a, b)));
-      if (!nextEdge) break;
-      const next = nextEdge[0];
-      const from = projected[cur], to = projected[next];
-      for (let i = 1; i <= 4; i++) {
-        const t = i / 4;
-        pts.push({ x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t });
-      }
-      cur = next;
-      continue;
-    }
-
-    const [a, b] = available[0];
-    const next = a === cur ? b : a;
-    used.add(key(cur, next));
-
-    const from = projected[cur], to = projected[next];
-    const steps = 10;
-    for (let i = 1; i <= steps; i++) {
-      const t = i / steps;
-      pts.push({
-        x: from.x + (to.x - from.x) * t,
-        y: from.y + (to.y - from.y) * t,
-      });
-    }
-    cur = next;
-  }
-
-  return pts;
+  // Fallback — Халворсен + спираль
+  const a = makeHalvorsenAttractor(); const b = makeTorusSpiral(1.5, 0.6, 9, 13);
+  return scaleAndProject([...a, { x: NaN, y: NaN, z: NaN }, ...b], Math.min(W, H) * 0.15);
 }
 
 
@@ -1284,10 +1221,17 @@ export default function Home() {
           const row = Math.round((t.dstY + tyPx) / cellH);
           occupied.add(row * cols + col);
         });
-        let freeCell = -1;
+        // Случайный порядок свободных ячеек
+        const freeCells: number[] = [];
         for (let i = 0; i < totalCells; i++) {
-          if (!occupied.has(i)) { freeCell = i; break; }
+          if (!occupied.has(i)) freeCells.push(i);
         }
+        // Перемешиваем
+        for (let i = freeCells.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [freeCells[i], freeCells[j]] = [freeCells[j], freeCells[i]];
+        }
+        const freeCell = freeCells.length > 0 ? freeCells[0] : -1;
         let dstX: number, dstY: number;
         let nextPrev = prev;
         if (freeCell >= 0) {
@@ -1355,10 +1299,15 @@ export default function Home() {
           const row = Math.round((t.dstY + tyPx) / cellH2);
           occupied2.add(row * cols2 + col);
         });
-        let freeCell2 = -1;
+        const freeCells2: number[] = [];
         for (let i = 0; i < totalCells2; i++) {
-          if (!occupied2.has(i)) { freeCell2 = i; break; }
+          if (!occupied2.has(i)) freeCells2.push(i);
         }
+        for (let i = freeCells2.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [freeCells2[i], freeCells2[j]] = [freeCells2[j], freeCells2[i]];
+        }
+        const freeCell2 = freeCells2.length > 0 ? freeCells2[0] : -1;
         let dstX: number, dstY: number;
         let nextPrev2 = prev;
         if (freeCell2 >= 0) {
@@ -1779,7 +1728,7 @@ export default function Home() {
       if (trailCanvas && !autoDrawActiveRef.current) {
         const ctx = trailCanvas.getContext("2d");
         if (ctx) {
-          ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 1; ctx.lineCap = "round";
+          ctx.strokeStyle = "#ffffff"; ctx.lineWidth = window.innerWidth <= 768 ? 1.6 : 3.0; ctx.lineCap = "round";
           states.forEach(s => {
             if (!s.initialized) return;
             const last = s.trail[s.trail.length - 1];
