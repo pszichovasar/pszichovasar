@@ -2409,8 +2409,8 @@ function MapLoader() {
     // Sobel + трассировка для одного изображения
     const processImage = (imgSrc: string, label: string | null, onDone: () => void) => {
       ctx.clearRect(0, 0, W, H);
-      ctx.strokeStyle = "rgba(255,255,255,0.9)";
-      ctx.lineWidth = 0.8;
+      ctx.strokeStyle = "rgba(255,255,255,0.92)";
+      ctx.lineWidth = 1.5;
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
 
@@ -2481,7 +2481,7 @@ function MapLoader() {
             if (strokes.length > 8000) break;
           }
 
-          // Рисуем плавно за DURATION мс
+          // Рисуем плавно за DURATION мс — точно как картины
           const startTime = performance.now();
           let sIdx = 0;
           const draw = (now: number) => {
@@ -2489,12 +2489,10 @@ function MapLoader() {
             const target = Math.min(Math.floor((elapsed / DURATION) * strokes.length), strokes.length);
             while (sIdx < target) {
               const s = strokes[sIdx++];
+              if (s.length < 2) continue;
               ctx.beginPath();
               ctx.moveTo(s[0].x, s[0].y);
-              for (let i = 1; i < s.length; i++) {
-                const mx = (s[i - 1].x + s[i].x) / 2, my = (s[i - 1].y + s[i].y) / 2;
-                ctx.quadraticCurveTo(s[i - 1].x, s[i - 1].y, mx, my);
-              }
+              for (let i = 1; i < s.length; i++) ctx.lineTo(s[i].x, s[i].y);
               ctx.stroke();
             }
             if (label && elapsed > DURATION - 1200) {
