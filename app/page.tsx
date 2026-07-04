@@ -942,7 +942,7 @@ function generate3DShapePoints(
   }
   if (shapeType === 4) {
     // Аттрактор Халворсена + узел — плотная органическая форма
-    const a = makeHalvorsenAttractor(); const b = makeTorusKnot(5, 3);
+    const a = makeRosslerAttractor(); const b = makeTorusKnot(5, 3);
     return scaleAndProject([...a, { x: NaN, y: NaN, z: NaN }, ...b], Math.min(W, H) * 0.14);
   }
   if (shapeType === 5) return scaleAndProject(makeLissajous3D(3, 4, 5, rng() * Math.PI), Math.min(W, H) * 0.20);
@@ -997,7 +997,7 @@ function generate3DShapePoints(
     return scaleAndProject([...a, { x: NaN, y: NaN, z: NaN }, ...b, { x: NaN, y: NaN, z: NaN }, ...c], Math.min(W, H) * 0.14);
   }
   // Fallback — Халворсен + спираль
-  const a = makeHalvorsenAttractor(); const b = makeTorusSpiral(1.5, 0.6, 9, 13);
+  const a = makeRosslerAttractor(); const b = makeTorusSpiral(1.5, 0.6, 9, 13);
   return scaleAndProject([...a, { x: NaN, y: NaN, z: NaN }, ...b], Math.min(W, H) * 0.15);
 }
 
