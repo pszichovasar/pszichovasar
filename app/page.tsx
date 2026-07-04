@@ -597,7 +597,7 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
       // На мобильных используем больший масштаб для точных контуров
       const isMob = W <= 768;
       const dpr = window.devicePixelRatio || 1;
-      const SCALE = Math.min(0.7 * dpr, 1.4); // учитываем retina дисплей
+      const SCALE = Math.min(0.9 * dpr, 1.6); // высокое разрешение
       const cW = Math.round(W * SCALE), cH = Math.round(H * SCALE);
       const imgScale = Math.min(cW / img.width, cH / img.height) * 0.90;
       const sw = Math.round(img.width * imgScale);
@@ -633,10 +633,10 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
         }
       }
 
-      const threshold = maxMag * 0.22;
+      const threshold = maxMag * 0.16;
       const strong = edgePts.filter(p => p.m > threshold);
       strong.sort((a, b) => b.m - a.m);
-      const top = strong.slice(0, 60000);
+      const top = strong.slice(0, 90000);
 
       console.log('[Artwork] cW:', cW, 'cH:', cH, 'strong:', strong.length, 'top:', top.length, 'maxMag:', maxMag.toFixed(0));
 
@@ -685,7 +685,7 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
           s.push(stroke[stroke.length - 1]);
           result.push(...s, { x: NaN, y: NaN });
         }
-        if (result.length > 80000) break;
+        if (result.length > 120000) break;
       }
 
       console.log('[Artwork] result pts:', result.length);
@@ -2417,7 +2417,7 @@ function MapLoader() {
       const img = new Image();
       img.onload = () => {
         const dpr2 = window.devicePixelRatio || 1;
-        const SCALE = Math.min(0.7 * dpr2, 1.4); // retina
+        const SCALE = Math.min(0.9 * dpr2, 1.6); // то же разрешение что и у картин
         const cW = Math.round(W * SCALE), cH = Math.round(H * SCALE);
         const inv = 1 / SCALE;
         const sc = Math.min(W / img.width, H / img.height) * 0.92;
@@ -2453,10 +2453,10 @@ function MapLoader() {
           if (rowY < cH - S) { requestAnimationFrame(sobelChunk); return; }
 
           // Строим штрихи
-          const threshold = maxMag * 0.08;
+          const threshold = maxMag * 0.16;
           const strong = edgePts.filter(p => p.m > threshold);
           strong.sort((a, b) => b.m - a.m);
-          const top = strong.slice(0, 120000);
+          const top = strong.slice(0, 90000);
           const grid = new Map<string, number>();
           top.forEach((p, i) => grid.set(`${Math.round(p.x / S)},${Math.round(p.y / S)}`, i));
           const used = new Set<number>();
@@ -2478,7 +2478,7 @@ function MapLoader() {
               cur = bestM > 0 ? next : -1;
             }
             if (stroke.length >= 3) strokes.push(stroke);
-            if (strokes.length > 8000) break;
+            if (strokes.length > 4000) break;
           }
 
           // Рисуем плавно за DURATION мс — точно как картины
