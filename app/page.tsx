@@ -633,10 +633,10 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
         }
       }
 
-      const threshold = maxMag * 0.16;
+      const threshold = maxMag * 0.10;
       const strong = edgePts.filter(p => p.m > threshold);
       strong.sort((a, b) => b.m - a.m);
-      const top = strong.slice(0, 90000);
+      const top = strong.slice(0, 250000);
 
       console.log('[Artwork] cW:', cW, 'cH:', cH, 'strong:', strong.length, 'top:', top.length, 'maxMag:', maxMag.toFixed(0));
 
@@ -685,7 +685,7 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
           s.push(stroke[stroke.length - 1]);
           result.push(...s, { x: NaN, y: NaN });
         }
-        if (result.length > 120000) break;
+        if (result.length > 350000) break;
       }
 
       console.log('[Artwork] result pts:', result.length);
@@ -2417,7 +2417,7 @@ function MapLoader() {
       const img = new Image();
       img.onload = () => {
         const dpr2 = window.devicePixelRatio || 1;
-        const SCALE = Math.min(0.9 * dpr2, 1.6); // то же разрешение что и у картин
+        const SCALE = 0.4; // фиксированный — быстрый Sobel, не лагает
         const cW = Math.round(W * SCALE), cH = Math.round(H * SCALE);
         const inv = 1 / SCALE;
         const sc = Math.min(W / img.width, H / img.height) * 0.92;
@@ -2438,7 +2438,7 @@ function MapLoader() {
         let rowY = S;
 
         const sobelChunk = () => {
-          const end = Math.min(rowY + 30 * S, cH - S);
+          const end = Math.min(rowY + 8 * S, cH - S);
           for (let y = rowY; y < end; y += S) {
             for (let x = S; x < cW - S; x += S) {
               const g = (px: number, py: number) => { const o = (Math.min(py, cH - 1) * cW + Math.min(px, cW - 1)) * 4; return data[o] * 0.299 + data[o + 1] * 0.587 + data[o + 2] * 0.114; };
@@ -2456,7 +2456,7 @@ function MapLoader() {
           const threshold = maxMag * 0.16;
           const strong = edgePts.filter(p => p.m > threshold);
           strong.sort((a, b) => b.m - a.m);
-          const top = strong.slice(0, 90000);
+          const top = strong.slice(0, 30000);
           const grid = new Map<string, number>();
           top.forEach((p, i) => grid.set(`${Math.round(p.x / S)},${Math.round(p.y / S)}`, i));
           const used = new Set<number>();
@@ -2478,7 +2478,7 @@ function MapLoader() {
               cur = bestM > 0 ? next : -1;
             }
             if (stroke.length >= 3) strokes.push(stroke);
-            if (strokes.length > 4000) break;
+            if (strokes.length > 2000) break;
           }
 
           // Рисуем плавно за DURATION мс — точно как картины
