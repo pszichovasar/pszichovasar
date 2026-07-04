@@ -123,7 +123,7 @@ function buildColoredMosaic(
     return canvas.toDataURL("image/png");
   }
 
-  ctx.fillStyle = "#111";
+  ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, w, h);
 
   // Рисуем разделители с учётом NaN разрывов и quadratic curves
@@ -179,7 +179,7 @@ function buildColoredMosaic(
       Math.max(2, Math.round(2 * scale));
 
   // Точки в каждой вершине — закрывают зазоры между рёбрами
-  ctx.fillStyle = "#111";
+  ctx.fillStyle = "#333";
   trails.forEach(trail => {
     trail.forEach(p => {
       if (isNaN(p.x)) return;
@@ -191,11 +191,11 @@ function buildColoredMosaic(
     });
   });
 
-  // Линии
-  drawTrails("#111", sepW);
+  // Линии разделителей
+  drawTrails("#333", sepW);
 
-  // Закрашиваем края canvas чёрным
-  ctx.fillStyle = "#111";
+  // Края canvas
+  ctx.fillStyle = "#333";
   const bw = Math.max(3, Math.round(3 * scale));
   ctx.fillRect(0, 0, w, bw); ctx.fillRect(0, h - bw, w, bw);
   ctx.fillRect(0, 0, bw, h); ctx.fillRect(w - bw, 0, bw, h);
@@ -203,7 +203,7 @@ function buildColoredMosaic(
   const imgData = ctx.getImageData(0, 0, w, h);
   const data = imgData.data;
   const n = w * h;
-  const isBorder = (i: number) => data[i * 4] > 10;
+  const isBorder = (i: number) => data[i * 4] > 25;
   const visited = new Uint8Array(n);
   const queue = new Int32Array(n);
   const recentColors: number[] = [];
@@ -234,7 +234,7 @@ function buildColoredMosaic(
   ctx.putImageData(imgData, 0, 0);
 
   // Тонкие чёрные линии поверх — точный контур
-  drawTrails("#000", Math.max(0.5, 0.5 * scale));
+  drawTrails("#000", Math.max(0.4, 0.4 * scale));
 
   return canvas.toDataURL("image/png");
 }
@@ -2430,8 +2430,8 @@ function MapLoader() {
     const DURATION = 4000;
     const images = [
       { src: "/map.jpg", label: null as string | null },
-      { src: "/montreal.jpg", label: "Montréal" },
-      { src: "/kyiv.jpg", label: "Kyiv" },
+      { src: "/montreal.jpg", label: null },
+      { src: "/kyiv.jpg", label: null },
     ];
 
     // Sobel + трассировка для одного изображения
@@ -2444,7 +2444,7 @@ function MapLoader() {
 
       const img = new Image();
       img.onload = () => {
-        const SCALE = 0.5;
+        const SCALE = 0.7; // высокое разрешение на всех устройствах
         const cW = Math.round(W * SCALE), cH = Math.round(H * SCALE);
         const inv = 1 / SCALE;
         const sc = Math.min(W / img.width, H / img.height) * 0.92;
