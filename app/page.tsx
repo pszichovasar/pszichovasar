@@ -1042,6 +1042,192 @@ function makeLissajousStar(n: number): { x: number, y: number, z: number }[] {
   return pts;
 }
 
+// Инь-Ян в 3D
+function makeYinYang(): { x: number, y: number, z: number }[] {
+  const pts = [];
+  // Внешняя окружность
+  for (let i = 0; i <= 80; i++) { const a = i / 80 * Math.PI * 2; pts.push({ x: Math.cos(a), y: Math.sin(a), z: 0 }); }
+  pts.push({ x: NaN, y: NaN, z: NaN });
+  // Правая S-кривая (большая)
+  for (let i = 0; i <= 60; i++) { const a = i / 60 * Math.PI - Math.PI / 2; pts.push({ x: 0.5 * Math.cos(a), y: 0.5 * Math.sin(a) + 0.5, z: 0.1 * Math.sin(a * 2) }); }
+  pts.push({ x: NaN, y: NaN, z: NaN });
+  // Левая S-кривая
+  for (let i = 0; i <= 60; i++) { const a = i / 60 * Math.PI + Math.PI / 2; pts.push({ x: 0.5 * Math.cos(a), y: 0.5 * Math.sin(a) - 0.5, z: 0.1 * Math.sin(a * 2) }); }
+  pts.push({ x: NaN, y: NaN, z: NaN });
+  // Малые окружности
+  for (const [cx, cy] of [[0, 0.5], [0, -0.5]]) { for (let i = 0; i <= 40; i++) { const a = i / 40 * Math.PI * 2; pts.push({ x: cx + 0.25 * Math.cos(a), y: cy + 0.25 * Math.sin(a), z: 0.05 }); } pts.push({ x: NaN, y: NaN, z: NaN }); }
+  return pts;
+}
+
+// Звезда Давида / Гексаграмма
+function makeStarOfDavid(): { x: number, y: number, z: number }[] {
+  const pts = [];
+  // Два треугольника
+  for (const offset of [0, Math.PI]) {
+    const tri = [];
+    for (let i = 0; i <= 3; i++) { const a = i / 3 * Math.PI * 2 + offset; tri.push({ x: Math.cos(a), y: Math.sin(a), z: 0.1 * Math.sin(a * 2) }); }
+    pts.push(...tri, { x: NaN, y: NaN, z: NaN });
+  }
+  // Внутренний гексагон
+  for (let i = 0; i <= 6; i++) { const a = i / 6 * Math.PI * 2 + Math.PI / 6; pts.push({ x: 0.577 * Math.cos(a), y: 0.577 * Math.sin(a), z: 0 }); }
+  pts.push({ x: NaN, y: NaN, z: NaN });
+  return pts;
+}
+
+// Пентаграмма с окружностью
+function makePentagram(): { x: number, y: number, z: number }[] {
+  const pts = [];
+  // Звезда
+  const idx = [0, 2, 4, 1, 3, 0];
+  const verts = Array.from({ length: 5 }, (_, i) => ({ x: Math.cos(i / 5 * Math.PI * 2 - Math.PI / 2), y: Math.sin(i / 5 * Math.PI * 2 - Math.PI / 2), z: 0 }));
+  for (let i = 0; i < idx.length; i++)pts.push({ ...verts[idx[i]], z: 0.08 * Math.sin(i / idx.length * Math.PI * 2) });
+  pts.push({ x: NaN, y: NaN, z: NaN });
+  // Окружность
+  for (let i = 0; i <= 60; i++) { const a = i / 60 * Math.PI * 2; pts.push({ x: Math.cos(a), y: Math.sin(a), z: 0 }); }
+  pts.push({ x: NaN, y: NaN, z: NaN });
+  return pts;
+}
+
+// Бесконечность (∞) в 3D — лемниската Бернулли
+function makeLemniscate(): { x: number, y: number, z: number }[] {
+  const pts = [];
+  for (let i = 0; i <= 400; i++) {
+    const t = i / 400 * Math.PI * 2;
+    const r = Math.sqrt(Math.abs(Math.cos(2 * t)));
+    pts.push({ x: r * Math.cos(t), y: r * Math.sin(t) * 0.6, z: 0.25 * Math.sin(4 * t) });
+  }
+  return pts;
+}
+
+// Сердце в 3D
+function makeHeart3D(): { x: number, y: number, z: number }[] {
+  const pts = [];
+  for (let i = 0; i <= 200; i++) {
+    const t = i / 200 * Math.PI * 2;
+    const x = 16 * Math.pow(Math.sin(t), 3) / 16;
+    const y = (13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t)) / 16;
+    pts.push({ x, y, z: 0.15 * Math.sin(2 * t) });
+  }
+  // Контур
+  pts.push({ x: NaN, y: NaN, z: NaN });
+  // 3D объём — несколько слоёв
+  for (let s = 0.6; s <= 1; s += 0.2) {
+    for (let i = 0; i <= 60; i++) {
+      const t = i / 60 * Math.PI * 2;
+      pts.push({ x: s * 16 * Math.pow(Math.sin(t), 3) / 16, y: s * (13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t)) / 16, z: 0.1 * Math.sin(3 * t) });
+    }
+    pts.push({ x: NaN, y: NaN, z: NaN });
+  }
+  return pts;
+}
+
+// Om / Ohm символ — спираль в 3D
+function makeOmSymbol(): { x: number, y: number, z: number }[] {
+  const pts = [];
+  // Главная спираль
+  for (let i = 0; i <= 300; i++) {
+    const t = i / 300 * Math.PI * 6;
+    const r = 0.3 + t / 20;
+    pts.push({ x: r * Math.cos(t), y: r * Math.sin(t) * 0.8, z: 0.2 * Math.sin(t * 0.7) });
+  }
+  pts.push({ x: NaN, y: NaN, z: NaN });
+  // Дуга сверху
+  for (let i = 0; i <= 40; i++) { const a = i / 40 * Math.PI + 0.2; pts.push({ x: 0.6 * Math.cos(a), y: 0.6 * Math.sin(a) + 0.8, z: 0 }); }
+  pts.push({ x: NaN, y: NaN, z: NaN });
+  return pts;
+}
+
+// Сакральная геометрия — Цветок жизни
+function makeFlowerOfLife(): { x: number, y: number, z: number }[] {
+  const pts = [];
+  const r = 0.5;
+  const centers = [[0, 0], [...([0, 1, 2, 3, 4, 5].map(i => [r * Math.cos(i / 6 * Math.PI * 2), r * Math.sin(i / 6 * Math.PI * 2)]))).flat()].reduce((a, v, i) => i % 2 === 0 ? [...a, [v]] : ((a[a.length - 1].push(v)), a), [])].flat(2);
+  const allCenters = [[0, 0], ...Array.from({ length: 6 }, (_, i) => [r * Math.cos(i / 6 * Math.PI * 2), r * Math.sin(i / 6 * Math.PI * 2)])];
+  allCenters.forEach(([cx, cy]) => {
+    for (let i = 0; i <= 60; i++) { const a = i / 60 * Math.PI * 2; pts.push({ x: cx + r * Math.cos(a), y: cy + r * Math.sin(a), z: 0.05 * Math.sin(a * 3) }); }
+    pts.push({ x: NaN, y: NaN, z: NaN });
+  });
+  return pts;
+}
+
+// Вихрь Фибоначчи / Золотая спираль
+function makeGoldenSpiral(): { x: number, y: number, z: number }[] {
+  const pts = [];
+  const phi = (1 + Math.sqrt(5)) / 2;
+  for (let i = 0; i <= 500; i++) {
+    const t = i / 500 * Math.PI * 8;
+    const r = Math.pow(phi, t / Math.PI * 0.5) * 0.05;
+    pts.push({ x: r * Math.cos(t), y: r * Math.sin(t), z: r * 0.3 * Math.sin(t * 2) });
+  }
+  return pts;
+}
+
+// Звезда в 3D (8-конечная)
+function makeStar8(): { x: number, y: number, z: number }[] {
+  const pts = [];
+  const n = 8;
+  for (let i = 0; i <= n * 2; i++) {
+    const a = i / (n * 2) * Math.PI * 2;
+    const r = i % 2 === 0 ? 1 : 0.45;
+    pts.push({ x: r * Math.cos(a), y: r * Math.sin(a), z: 0.1 * Math.sin(a * n * 0.5) });
+  }
+  pts.push({ x: NaN, y: NaN, z: NaN });
+  // Внутренние линии
+  for (let i = 0; i < n; i++) {
+    const a = i / n * Math.PI * 2;
+    pts.push({ x: 0, y: 0, z: 0 }, { x: Math.cos(a), y: Math.sin(a), z: 0.1 }, { x: NaN, y: NaN, z: NaN });
+  }
+  return pts;
+}
+
+// Атом — орбитали электронов
+function makeAtom(n: number): { x: number, y: number, z: number }[] {
+  const pts = [];
+  for (let orbit = 0; orbit < n; orbit++) {
+    const tilt = orbit / n * Math.PI;
+    for (let i = 0; i <= 80; i++) {
+      const a = i / 80 * Math.PI * 2;
+      pts.push({
+        x: Math.cos(a),
+        y: Math.sin(a) * Math.cos(tilt),
+        z: Math.sin(a) * Math.sin(tilt),
+      });
+    }
+    pts.push({ x: NaN, y: NaN, z: NaN });
+  }
+  // Ядро
+  for (let i = 0; i <= 40; i++) { const a = i / 40 * Math.PI * 2; pts.push({ x: 0.1 * Math.cos(a), y: 0.1 * Math.sin(a), z: 0 }); }
+  pts.push({ x: NaN, y: NaN, z: NaN });
+  return pts;
+}
+
+// Мандала — концентрические геометрические узоры
+function makeMandala(layers: number): { x: number, y: number, z: number }[] {
+  const pts = [];
+  for (let l = 1; l <= layers; l++) {
+    const n = l * 6;
+    for (let i = 0; i <= n; i++) {
+      const a = i / n * Math.PI * 2;
+      const r = l / (layers + 1);
+      pts.push({ x: r * Math.cos(a), y: r * Math.sin(a), z: 0.05 * Math.sin(a * l) });
+    }
+    pts.push({ x: NaN, y: NaN, z: NaN });
+    // Лепестки
+    if (l % 2 === 0) {
+      for (let i = 0; i < l * 3; i++) {
+        const a0 = i / (l * 3) * Math.PI * 2;
+        const r = l / (layers + 1);
+        for (let j = 0; j <= 20; j++) {
+          const t = j / 20 * Math.PI;
+          pts.push({ x: r * Math.cos(a0) + 0.08 * Math.cos(a0 + t), y: r * Math.sin(a0) + 0.08 * Math.sin(a0 + t), z: 0.02 * j / 20 });
+        }
+        pts.push({ x: NaN, y: NaN, z: NaN });
+      }
+    }
+  }
+  return pts;
+}
+
 function generate3DShapePoints(
   seed: number,
   W: number, H: number,
@@ -1053,7 +1239,7 @@ function generate3DShapePoints(
   const cx = W * 0.5, cy = H * 0.5;
   const rotX = rng() * Math.PI * 2;
   const rotY = rng() * Math.PI * 2;
-  const shapeType = Math.floor(rng() * 28); // 28 типов
+  const shapeType = Math.floor(rng() * 40); // 40 типов
 
   if (shapeType === 0) return scaleAndProject(makeThomasAttractor(), Math.min(W, H) * 0.18);
   if (shapeType === 1) return scaleAndProject(makeDNAHelix(), Math.min(W, H) * 0.18);
@@ -1080,7 +1266,20 @@ function generate3DShapePoints(
   if (shapeType === 24) return withNaN(makeSteinerSurface(), Math.min(W, H) * 0.30);
   if (shapeType === 25) return scaleAndProject(makeLissajousStar(3), Math.min(W, H) * 0.22);
   if (shapeType === 26) return scaleAndProject(makeLissajousStar(5), Math.min(W, H) * 0.22);
-  if (shapeType === 27) return withNaN(makeHopfFibration(8), Math.min(W, H) * 0.28); // 16 типов
+  if (shapeType === 27) return withNaN(makeHopfFibration(8), Math.min(W, H) * 0.28);
+  // Иконические символы и формы
+  if (shapeType === 28) return scaleAndProject(makeYinYang(), Math.min(W, H) * 0.32);
+  if (shapeType === 29) return scaleAndProject(makeStarOfDavid(), Math.min(W, H) * 0.32);
+  if (shapeType === 30) return scaleAndProject(makePentagram(), Math.min(W, H) * 0.30);
+  if (shapeType === 31) return scaleAndProject(makeLemniscate(), Math.min(W, H) * 0.38);
+  if (shapeType === 32) return scaleAndProject(makeHeart3D(), Math.min(W, H) * 0.28);
+  if (shapeType === 33) return scaleAndProject(makeGoldenSpiral(), Math.min(W, H) * 0.32);
+  if (shapeType === 34) return scaleAndProject(makeStar8(), Math.min(W, H) * 0.30);
+  if (shapeType === 35) return scaleAndProject(makeAtom(5), Math.min(W, H) * 0.28);
+  if (shapeType === 36) return scaleAndProject(makeAtom(8), Math.min(W, H) * 0.28);
+  if (shapeType === 37) return scaleAndProject(makeMandala(5), Math.min(W, H) * 0.26);
+  if (shapeType === 38) return withNaN(makeFlowerOfLife(), Math.min(W, H) * 0.22);
+  if (shapeType === 39) return scaleAndProject(makeOmSymbol(), Math.min(W, H) * 0.28); // 16 типов
 
   // Непрерывные кривые — проецируем напрямую
   // Автоматически масштабирует и центрирует точки по экрану
