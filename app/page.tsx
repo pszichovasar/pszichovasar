@@ -1048,7 +1048,6 @@ export default function Home() {
     }, fadeStart);
     return () => clearTimeout(t);
   }, []);
-  const [overlayOpacity, setOverlayOpacity] = useState(1); // чёрный оверлей при загрузке
   const [videoOpacity, setVideoOpacity] = useState(0);
 
   const floatingRefs = useRef<(HTMLDivElement | null)[]>(Array(IMG_COUNT).fill(null));
