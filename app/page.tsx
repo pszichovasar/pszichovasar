@@ -205,7 +205,7 @@ function buildColoredMosaic(
   ctx.putImageData(imgData, 0, 0);
 
   // Тонкие чёрные линии поверх — точный контур
-  drawTrails("#000", Math.max(0.4, 0.4 * scale));
+  drawTrails("#000", Math.max(0.3, 0.3 * scale));
 
   return canvas.toDataURL("image/png");
 }
@@ -633,10 +633,10 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
         }
       }
 
-      const threshold = maxMag * 0.08;
+      const threshold = maxMag * 0.22;
       const strong = edgePts.filter(p => p.m > threshold);
       strong.sort((a, b) => b.m - a.m);
-      const top = strong.slice(0, 240000);
+      const top = strong.slice(0, 60000);
 
       console.log('[Artwork] cW:', cW, 'cH:', cH, 'strong:', strong.length, 'top:', top.length, 'maxMag:', maxMag.toFixed(0));
 
@@ -685,7 +685,7 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
           s.push(stroke[stroke.length - 1]);
           result.push(...s, { x: NaN, y: NaN });
         }
-        if (result.length > 360000) break;
+        if (result.length > 80000) break;
       }
 
       console.log('[Artwork] result pts:', result.length);
