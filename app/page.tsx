@@ -1238,7 +1238,39 @@ function generate3DShapePoints(
   const cx = W * 0.5, cy = H * 0.5;
   const rotX = rng() * Math.PI * 2;
   const rotY = rng() * Math.PI * 2;
-  const shapeType = Math.floor(rng() * 40); // 40 типов
+
+  // Вспомогательные функции — объявляем ДО использования
+  const fitToScreen = (pts: { x: number, y: number }[]) => {
+    const valid = pts.filter(p => !isNaN(p.x));
+    if (valid.length === 0) return pts;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    valid.forEach(p => { if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x; if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y; });
+    const fw = maxX - minX || 1, fh = maxY - minY || 1;
+    const scale = Math.min(W / fw, H / fh);
+    const ox = cx - (minX + fw / 2) * scale;
+    const oy = cy - (minY + fh / 2) * scale;
+    return pts.map(p => isNaN(p.x) ? p : { x: p.x * scale + ox, y: p.y * scale + oy });
+  };
+
+  const scaleAndProject = (pts3d: { x: number, y: number, z: number }[], sc: number) => {
+    return fitToScreen(project3DPoints(pts3d.filter(p => !isNaN(p.x)), rotX, rotY, sc, cx, cy));
+  };
+
+  const withNaN = (pts3d: { x: number, y: number, z: number }[], sc: number) => {
+    const result: { x: number, y: number }[] = [];
+    for (const p of pts3d) {
+      if (isNaN(p.x)) { result.push({ x: NaN, y: NaN }); continue; }
+      const cosY = Math.cos(rotY), sinY = Math.sin(rotY);
+      const x1 = p.x * cosY - p.z * sinY, z1 = p.x * sinY + p.z * cosY;
+      const cosX = Math.cos(rotX), sinX = Math.sin(rotX);
+      const y1 = p.y * cosX - z1 * sinX, z2 = p.y * sinX + z1 * cosX;
+      const fov = 5 / (5 + z2);
+      result.push({ x: cx + x1 * sc * fov, y: cy + y1 * sc * fov });
+    }
+    return fitToScreen(result);
+  };
+
+  const shapeType = Math.floor(rng() * 40);
 
   if (shapeType === 0) return scaleAndProject(makeThomasAttractor(), Math.min(W, H) * 0.18);
   if (shapeType === 1) return scaleAndProject(makeDNAHelix(), Math.min(W, H) * 0.18);
