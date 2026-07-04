@@ -1092,13 +1092,6 @@ export default function Home() {
   const scrollRef = useRef(0);
   const touchStartRef = useRef(0);
   const [pinkOpacity, setPinkOpacity] = useState(1);
-  const [isLoading, setIsLoading] = useState(true);
-
-  // Экран загрузки — 10 секунд, потом плавно скрываем
-  useEffect(() => {
-    const t = setTimeout(() => setIsLoading(false), 14000);
-    return () => clearTimeout(t);
-  }, []);
   const [videoOpacity, setVideoOpacity] = useState(0);
 
   const floatingRefs = useRef<(HTMLDivElement | null)[]>(Array(IMG_COUNT).fill(null));
@@ -2134,9 +2127,8 @@ export default function Home() {
     return () => { window.removeEventListener("mousemove", onMM); if (ov) ov.removeEventListener("click", onClick); };
   }, [showContact, selectedImg]);
 
-  // Автоскролл — единоразово, только после экрана загрузки
+  // Автоскролл — единоразово
   useEffect(() => {
-    if (isLoading) return; // ждём конца загрузки
     let fired = false;
     const timer = setTimeout(() => {
       if (fired) return;
@@ -2160,7 +2152,7 @@ export default function Home() {
       }
     }, 50000);
     return () => { clearTimeout(timer); fired = true; };
-  }, [isLoading]);
+  }, []);
 
   useEffect(() => {
     const vw = window.innerWidth, rw = getRowWidth();
@@ -2370,19 +2362,7 @@ export default function Home() {
       <div ref={cursorRef} style={{ position: "fixed", top: 0, left: 0, width: "240px", height: "240px", pointerEvents: "none", zIndex: 999999, opacity: 0, willChange: "transform", transform: "translate(-9999px,-9999px)", marginLeft: "-120px", marginTop: "-120px", display: "none" }} className="cursor-el">
         <img src="/cursor.png" alt="" style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} />
       </div>
-      {/* Экран загрузки — карта мира отрисовывается контурами */}
-      {isLoading && (
-        <div style={{
-          position: "fixed", inset: 0, background: "#000", zIndex: 9999,
-          display: "flex", alignItems: "center", justifyContent: "center",
-          animation: "loadingFadeOut 0.8s ease forwards",
-          animationDelay: "13.2s",
-        }}>
-          <style>{`@keyframes loadingFadeOut { from { opacity:1 } to { opacity:0; pointer-events:none } }`}</style>
-          <canvas id="map-loading-canvas" style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} />
-          <MapLoader />
-        </div>
-      )}
+      {/* Экран загрузки убран */}
     </>
   );
 }
@@ -2390,65 +2370,6 @@ export default function Home() {
 // ThumbItem: position:absolute внутри thumbContainerRef.
 // imgRef позволяет обновить src без перемонтирования когда мозаика готова.
 // MapLoader — рисует карту мира контурами как картины при загрузке
-function MapLoader() {
-  useEffect(() => {
-    const canvas = document.getElementById("map-loading-canvas") as HTMLCanvasElement;
-    if (!canvas) return;
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-    const ctx = canvas.getContext("2d")!;
-    const W = canvas.width, H = canvas.height;
-
-    const DURATION = 4000;
-    const images = [
-      "/map.jpg",
-      "/montreal.jpg",
-      "/kyiv.jpg",
-    ];
-
-    const showNext = (idx: number) => {
-      if (idx >= images.length) return;
-      const img = new Image();
-      img.onload = () => {
-        const sc = Math.min(W / img.width, H / img.height);
-        const sw = img.width * sc, sh = img.height * sc;
-        const ox = (W - sw) / 2, oy = (H - sh) / 2;
-        const startTime = performance.now();
-
-        const draw = (now: number) => {
-          const elapsed = now - startTime;
-          const alpha = Math.min(1, elapsed / 600);
-          ctx.clearRect(0, 0, W, H);
-          ctx.globalAlpha = alpha;
-          ctx.drawImage(img, ox, oy, sw, sh);
-          ctx.globalAlpha = 1;
-          if (elapsed < DURATION) requestAnimationFrame(draw);
-          else {
-            // fade out
-            const t0 = performance.now();
-            const fade = (n: number) => {
-              ctx.clearRect(0, 0, W, H);
-              ctx.globalAlpha = Math.max(0, 1 - (n - t0) / 400);
-              ctx.drawImage(img, ox, oy, sw, sh);
-              ctx.globalAlpha = 1;
-              if (n - t0 < 400) requestAnimationFrame(fade);
-              else showNext(idx + 1);
-            };
-            requestAnimationFrame(fade);
-          }
-        };
-        requestAnimationFrame(draw);
-      };
-      img.onerror = () => showNext(idx + 1);
-      img.src = images[idx];
-    };
-
-    showNext(0);
-  }, []);
-  return null;
-}
-
-
 function ThumbItem({ thumb }: { thumb: Thumbnail }) {
   const ref = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
