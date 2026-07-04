@@ -1242,8 +1242,8 @@ export default function Home() {
         if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
       });
       if (!isFinite(minX)) return;
-      const W = window.innerWidth, H = window.innerHeight;
-      const minSide = Math.min(W, H);
+      const VW = window.innerWidth, VH = window.innerHeight;
+      const minSide = Math.min(VW, VH);
       const pad = 10;
       minX = Math.max(0, minX - pad); minY = Math.max(0, minY - pad);
       maxX += pad; maxY += pad;
@@ -1252,8 +1252,8 @@ export default function Home() {
         const centerX = (minX + maxX) / 2, centerY = (minY + maxY) / 2;
         minX = Math.max(0, centerX - minSide / 2);
         minY = Math.max(0, centerY - minSide / 2);
-        maxX = Math.min(W, centerX + minSide / 2);
-        maxY = Math.min(H, centerY + minSide / 2);
+        maxX = Math.min(VW, centerX + minSide / 2);
+        maxY = Math.min(VH, centerY + minSide / 2);
       }
       const cropW = Math.max(1, maxX - minX);
       const cropH = Math.max(1, maxY - minY);
@@ -1264,53 +1264,42 @@ export default function Home() {
       const ctx2 = crop.getContext("2d");
       if (ctx2) ctx2.drawImage(snap, minX * dpr, minY * dpr, cropW * dpr, cropH * dpr, 0, 0, crop.width, crop.height);
       const src = crop.toDataURL("image/png");
-      const W = window.innerWidth, H = window.innerHeight;
+      const SW = window.innerWidth, SH = window.innerHeight;
       const tyPx = getCurrentTyPx();
-      const isMobile = W <= 768;
+      const isMobile = SW <= 768;
       const DST_SIZE = isMobile ? 57 : 170;
-      const GAP = 8; // минимальный зазор между мозаиками
-
-      // Сетка ячеек — занимаем первую свободную, иначе заменяем самую старую
+      const GAP = 8;
       const cellW = DST_SIZE + GAP, cellH = DST_SIZE + GAP;
-      const cols = Math.floor(W / cellW);
-      const rows = Math.floor(H / cellH);
+      const cols = Math.floor(SW / cellW);
+      const rows = Math.floor(SH / cellH);
       const totalCells = Math.max(1, cols * rows);
 
       thumbIdRef.current++;
       const newId = thumbIdRef.current;
 
       setThumbnails(prev => {
-        // Строим занятые ячейки
         const occupied = new Set<number>();
         prev.forEach(t => {
           const col = Math.round((t.dstX) / cellW);
           const row = Math.round((t.dstY + tyPx) / cellH);
           occupied.add(row * cols + col);
         });
-
-        // Ищем свободную ячейку
         let freeCell = -1;
         for (let i = 0; i < totalCells; i++) {
           if (!occupied.has(i)) { freeCell = i; break; }
         }
-
         let dstX: number, dstY: number;
         let nextPrev = prev;
-
         if (freeCell >= 0) {
-          // Есть свободное место
           const col = freeCell % cols;
           const row = Math.floor(freeCell / cols);
           dstX = col * cellW + GAP / 2;
           dstY = row * cellH + GAP / 2 - tyPx;
         } else {
-          // Мест нет — заменяем самую старую (минимальный id)
           const oldest = prev.reduce((a, b) => a.id < b.id ? a : b);
-          dstX = oldest.dstX;
-          dstY = oldest.dstY;
+          dstX = oldest.dstX; dstY = oldest.dstY;
           nextPrev = prev.filter(t => t.id !== oldest.id);
         }
-
         return [...nextPrev, { id: newId, src, srcX: minX, srcY: minY - tyPx, srcW: cropW, srcH: cropH, dstX, dstY, dstSize: DST_SIZE, offsetY: 0 }];
       });
       const mosaicSrc = buildColoredMosaic([pts], minX, minY, cropW, cropH);
