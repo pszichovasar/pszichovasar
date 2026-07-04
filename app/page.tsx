@@ -619,7 +619,7 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
       // Sobel синхронно
       const sobelChunk = () => {
         const endY = cH - S;
-        for (let y = rowY; y < endY; y += S) {
+        for (let y = S; y < endY; y += S) {
           for (let x = S; x < cW - S; x += S) {
             const g = (px: number, py: number) => {
               const o = (Math.min(py, cH - 1) * cW + Math.min(px, cW - 1)) * 4;
