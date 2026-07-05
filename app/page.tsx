@@ -1061,29 +1061,29 @@ export default function Home() {
       "what", "they", "create."
     ];
 
+    const TOTAL = 10000;
+    const FADE = 600;
+
     const interval = (TOTAL - FADE) / allWords.length;
     let idx = 0;
     const timer = setInterval(() => {
       if (idx < allWords.length) {
         setOverlayWord(allWords[idx]);
         idx++;
-      } else {
-        clearInterval(timer);
       }
     }, interval);
 
-    // Fade out через 10 сек
     const fadeTimer = setTimeout(() => {
+      setOverlayWord(""); // убираем последнее слово сразу при старте fade
       const start = performance.now();
       const fade = (now: number) => {
         const elapsed = now - start;
         const opacity = Math.max(0, 1 - elapsed / FADE);
         setOverlayOpacity(opacity);
         if (opacity > 0) requestAnimationFrame(fade);
-        else setOverlayWord("");
       };
       requestAnimationFrame(fade);
-    }, TOTAL);
+    }, TOTAL - FADE); // начинаем fade чуть раньше чтобы не было паузы
 
     return () => { clearInterval(timer); clearTimeout(fadeTimer); };
   }, []);
@@ -2376,7 +2376,7 @@ export default function Home() {
             }}>{overlayWord}</span>
           </div>
         )}
-        <div ref={iDoDesignRef} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", zIndex: 5, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", pointerEvents: "none", willChange: "transform,opacity", visibility: overlayOpacity > 0 ? "hidden" : "visible" }}>
+        <div ref={iDoDesignRef} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", zIndex: 5, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", pointerEvents: "none", willChange: "transform,opacity", visibility: overlayOpacity > 0.05 ? "hidden" : "visible" }}>
           <div style={{ position: "relative", display: "inline-flex", flexDirection: "column", alignItems: "center" }}>
             <div ref={iDoDesignTextRef} style={{ position: "relative", fontFamily: "'Arial Black',Arial,sans-serif", fontWeight: 900, fontSize: "clamp(14px,3.5vw,48px)", letterSpacing: "-0.04em", color: "white", lineHeight: 0.95, whiteSpace: "nowrap", textAlign: "center" }}>
               I DO DESIGN
