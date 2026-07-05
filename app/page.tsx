@@ -1061,10 +1061,10 @@ export default function Home() {
       "what", "they", "create."
     ];
 
-    const TOTAL = 10000;
-    const FADE = 600;
+    const OVERLAY_TOTAL = 10000;
+    const OVERLAY_FADE = 600;
 
-    const interval = (TOTAL - FADE) / allWords.length;
+    const interval = (OVERLAY_TOTAL - OVERLAY_FADE) / allWords.length;
     let idx = 0;
     const timer = setInterval(() => {
       if (idx < allWords.length) {
@@ -1078,12 +1078,12 @@ export default function Home() {
       const start = performance.now();
       const fade = (now: number) => {
         const elapsed = now - start;
-        const opacity = Math.max(0, 1 - elapsed / FADE);
+        const opacity = Math.max(0, 1 - elapsed / OVERLAY_FADE);
         setOverlayOpacity(opacity);
         if (opacity > 0) requestAnimationFrame(fade);
       };
       requestAnimationFrame(fade);
-    }, TOTAL - FADE); // начинаем fade чуть раньше чтобы не было паузы
+    }, OVERLAY_TOTAL - OVERLAY_FADE);
 
     return () => { clearInterval(timer); clearTimeout(fadeTimer); };
   }, []);
