@@ -1065,13 +1065,22 @@ export default function Home() {
     const OVERLAY_FADE = 600;
 
     const interval = (OVERLAY_TOTAL - OVERLAY_FADE) / allWords.length;
-    let idx = 0;
-    const timer = setInterval(() => {
-      if (idx < allWords.length) {
+    const startTime = performance.now();
+    let lastIdx = -1;
+    let rafId: number;
+
+    const tick = (now: number) => {
+      const elapsed = now - startTime;
+      const idx = Math.min(Math.floor(elapsed / interval), allWords.length - 1);
+      if (idx !== lastIdx && idx < allWords.length) {
+        lastIdx = idx;
         setOverlayWord(allWords[idx]);
-        idx++;
       }
-    }, interval);
+      if (elapsed < OVERLAY_TOTAL - OVERLAY_FADE) {
+        rafId = requestAnimationFrame(tick);
+      }
+    };
+    rafId = requestAnimationFrame(tick);
 
     const fadeTimer = setTimeout(() => {
       setOverlayWord(""); // убираем последнее слово сразу при старте fade
@@ -1085,7 +1094,7 @@ export default function Home() {
       requestAnimationFrame(fade);
     }, OVERLAY_TOTAL - OVERLAY_FADE);
 
-    return () => { clearInterval(timer); clearTimeout(fadeTimer); };
+    return () => { cancelAnimationFrame(rafId); clearTimeout(fadeTimer); };
   }, []);
   const [videoOpacity, setVideoOpacity] = useState(0);
 
