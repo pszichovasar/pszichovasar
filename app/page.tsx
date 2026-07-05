@@ -1030,23 +1030,62 @@ export default function Home() {
   const touchStartRef = useRef(0);
   const [pinkOpacity, setPinkOpacity] = useState(1);
   const [overlayOpacity, setOverlayOpacity] = useState(1);
+  const [overlayWord, setOverlayWord] = useState(""); // текущее слово на экране загрузки
 
   useEffect(() => {
-    // Загружаем всё тяжёлое пока оверлей закрывает экран
-    const fadeStart = 10000;
-    const fadeDuration = 1000;
-    const t = setTimeout(() => {
-      // Плавный fade out
+    const TOTAL = 10000; // 10 сек
+    const FADE = 800;    // fade out
+
+    // Все слова: "I DO DESIGN" + биография
+    const allWords = [
+      "I", "DO", "DESIGN",
+      "Hi!", "My", "name", "is", "Artem.", "I'm", "here", "to", "create",
+      "unique", "illustrations", "and", "visual", "design", "for", "any",
+      "of", "your", "creative", "needs.", "I", "work", "across",
+      "illustration,", "3D", "design,", "video", "editing,", "visual",
+      "effects,", "concept", "art,", "motion", "design,", "cartoons,",
+      "music,", "theatre,", "film,", "and", "stop-motion", "animation.",
+      "I've", "had", "a", "camera", "in", "my", "hands", "for", "as",
+      "long", "as", "I", "can", "remember", "—", "since", "I", "was",
+      "around", "5", "years", "old.", "Creating", "visuals", "and",
+      "telling", "stories", "has", "always", "been", "a", "natural",
+      "part", "of", "my", "life.", "I'm", "a", "truly", "dedicated",
+      "artist", "who", "lives", "through", "creativity,", "visual",
+      "expression,", "and", "filmmaking.", "Every", "project", "is",
+      "an", "opportunity", "to", "build", "something", "original,",
+      "memorable,", "and", "crafted", "with", "attention", "to", "detail.",
+      "Don't", "hesitate", "to", "contact", "me", "—", "I'll", "bring",
+      "your", "ideas", "to", "life", "and", "deliver", "unique,",
+      "high-quality", "work", "with", "the", "dedication", "and",
+      "professionalism", "of", "someone", "who", "genuinely", "loves",
+      "what", "they", "create."
+    ];
+
+    const interval = (TOTAL - FADE) / allWords.length;
+    let idx = 0;
+    const timer = setInterval(() => {
+      if (idx < allWords.length) {
+        setOverlayWord(allWords[idx]);
+        idx++;
+      } else {
+        clearInterval(timer);
+      }
+    }, interval);
+
+    // Fade out через 10 сек
+    const fadeTimer = setTimeout(() => {
       const start = performance.now();
       const fade = (now: number) => {
         const elapsed = now - start;
-        const opacity = Math.max(0, 1 - elapsed / fadeDuration);
+        const opacity = Math.max(0, 1 - elapsed / FADE);
         setOverlayOpacity(opacity);
         if (opacity > 0) requestAnimationFrame(fade);
+        else setOverlayWord("");
       };
       requestAnimationFrame(fade);
-    }, fadeStart);
-    return () => clearTimeout(t);
+    }, TOTAL);
+
+    return () => { clearInterval(timer); clearTimeout(fadeTimer); };
   }, []);
   const [videoOpacity, setVideoOpacity] = useState(0);
 
@@ -2322,11 +2361,22 @@ export default function Home() {
         </div>
 
         {/* I DO DESIGN + биография */}
-        {/* Чёрный оверлей загрузки — исчезает через 10 сек, текст остаётся */}
+        {/* Экран загрузки — слова по центру */}
         {overlayOpacity > 0 && (
-          <div style={{ position: "fixed", inset: 0, background: "#000", zIndex: 4, pointerEvents: overlayOpacity > 0.01 ? "all" : "none", opacity: overlayOpacity }} />
+          <div style={{ position: "fixed", inset: 0, background: "#000", zIndex: 4, pointerEvents: overlayOpacity > 0.01 ? "all" : "none", opacity: overlayOpacity, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <span style={{
+              fontFamily: "'Arial Black', Arial, sans-serif",
+              fontWeight: 900,
+              fontSize: "clamp(48px, 10vw, 144px)",
+              color: "#fff",
+              letterSpacing: "-0.04em",
+              textTransform: "uppercase",
+              userSelect: "none",
+              transition: "opacity 0.08s",
+            }}>{overlayWord}</span>
+          </div>
         )}
-        <div ref={iDoDesignRef} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", zIndex: 5, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", pointerEvents: "none", willChange: "transform,opacity", }}>
+        <div ref={iDoDesignRef} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", zIndex: 5, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", pointerEvents: "none", willChange: "transform,opacity", visibility: overlayOpacity > 0 ? "hidden" : "visible" }}>
           <div style={{ position: "relative", display: "inline-flex", flexDirection: "column", alignItems: "center" }}>
             <div ref={iDoDesignTextRef} style={{ position: "relative", fontFamily: "'Arial Black',Arial,sans-serif", fontWeight: 900, fontSize: "clamp(14px,3.5vw,48px)", letterSpacing: "-0.04em", color: "white", lineHeight: 0.95, whiteSpace: "nowrap", textAlign: "center" }}>
               I DO DESIGN
