@@ -599,8 +599,7 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
-      const isMob = W <= 768;
-      const SCALE = isMob ? 1.0 : 0.7;
+      const SCALE = 1.0; // максимальное разрешение — pixel-perfect контуры
       const cW = Math.round(W * SCALE), cH = Math.round(H * SCALE);
       const imgScale = Math.min(cW / img.width, cH / img.height) * 0.90;
       const sw = Math.round(img.width * imgScale);
@@ -623,7 +622,7 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
 
       // Sobel по чанкам — не блокируем UI во время загрузки
       let rowY = S;
-      const ROWS_PER_CHUNK = 30; // 30 строк за кадр — быстро, не блокирует
+      const ROWS_PER_CHUNK = 20; // меньше строк — не блокируем при высоком разрешении
 
       const sobelChunk = () => {
         const endY = Math.min(rowY + ROWS_PER_CHUNK, cH - S);
@@ -646,10 +645,10 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
           return;
         }
         // Sobel готов — строим штрихи
-        const threshold = maxMag * 0.10;
+        const threshold = maxMag * 0.06; // низкий порог — максимум деталей
         const strong = edgePts.filter(p => p.m > threshold);
         strong.sort((a, b) => b.m - a.m);
-        const top = strong.slice(0, 80000);
+        const top = strong.slice(0, 150000); // больше точек — точнее контуры
 
         if (top.length < 10) { resolve([]); return; }
 
@@ -671,7 +670,7 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
             stroke.push({ x: top[cur].x * invScale + offX, y: top[cur].y * invScale + offY });
             let next = -1, bestD = Infinity;
             const gx0 = Math.round(top[cur].x / STEP), gy0 = Math.round(top[cur].y / STEP);
-            for (let dr = -2; dr <= 2; dr++) for (let dc = -2; dc <= 2; dc++) {
+            for (let dr = -3; dr <= 3; dr++) for (let dc = -3; dc <= 3; dc++) {
               if (!dr && !dc) continue;
               const ni = grid.get((gx0 + dc) + ',' + (gy0 + dr));
               if (ni !== undefined && !used.has(ni)) {
@@ -679,10 +678,10 @@ async function generateArtworkPoints(url: string, W: number, H: number): Promise
                 if (d < bestD) { bestD = d; next = ni; }
               }
             }
-            cur = bestD < (STEP * 3) ** 2 ? next : -1;
+            cur = bestD < (STEP * 4) ** 2 ? next : -1; // шире поиск — длиннее штрихи
           }
           if (stroke.length >= 3) result.push(...stroke, { x: NaN, y: NaN });
-          if (result.length > 120000) break;
+          if (result.length > 250000) break;
         }
         resolve(result);
       };
