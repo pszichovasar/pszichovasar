@@ -1274,8 +1274,8 @@ export default function Home() {
       const SW = window.innerWidth, SH = window.innerHeight;
       const tyPx = getCurrentTyPx(); // смещение контейнера — нужно для правильного позиционирования
       const isMobile = SW <= 768;
-      const DST_SIZE = isMobile ? 57 : 170;
-      const GAP = 8;
+      const DST_SIZE = isMobile ? 57 : 140; // как в цветной сетке
+      const GAP = 20; // как в цветной сетке
       const cellW = DST_SIZE + GAP, cellH = DST_SIZE + GAP;
       const cols = Math.floor(SW / cellW);
       const rows = Math.floor(SH / cellH);
@@ -1353,8 +1353,8 @@ export default function Home() {
       const W = window.innerWidth, H = window.innerHeight;
       const tyPx2 = getCurrentTyPx();
       const isMobile = W <= 768;
-      const DST_SIZE = isMobile ? 57 : 170;
-      const GAP2 = 8;
+      const DST_SIZE = isMobile ? 57 : 140; // как в цветной сетке
+      const GAP2 = 20; // как в цветной сетке
       const cellW2 = DST_SIZE + GAP2, cellH2 = DST_SIZE + GAP2;
       const cols2 = Math.floor(W / cellW2);
       const rows2 = Math.floor(H / cellH2);
@@ -2470,7 +2470,7 @@ function ThumbItem({ thumb }: { thumb: Thumbnail }) {
         ref.current.style.top = `${thumb.dstY}px`;
         ref.current.style.width = `${thumb.dstSize}px`;
         ref.current.style.height = `${thumb.dstSize}px`;
-        ref.current.style.borderRadius = "16px";
+        ref.current.style.borderRadius = "12px";
       });
       return () => cancelAnimationFrame(r2);
     });
@@ -2486,7 +2486,7 @@ function ThumbItem({ thumb }: { thumb: Thumbnail }) {
         top: `${thumb.srcY}px`,
         width: `${thumb.srcW}px`,
         height: `${thumb.srcH}px`,
-        borderRadius: "0px",
+        borderRadius: "12px",
         overflow: "hidden",
         opacity: 1,
         pointerEvents: "none",
