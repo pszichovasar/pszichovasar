@@ -1274,9 +1274,8 @@ export default function Home() {
       const SW = window.innerWidth, SH = window.innerHeight;
       const tyPx = getCurrentTyPx(); // смещение контейнера — нужно для правильного позиционирования
       const isMobile = SW <= 768;
-      // Точно как в цветной сетке: tileSize = floor((H - GAP*6) / 5), GAP = 20
-      const DST_SIZE = isMobile ? 57 : Math.floor((SH - 20 * 6) / 5);
-      const GAP = 20;
+      const DST_SIZE = isMobile ? 57 : 170;
+      const GAP = 8;
       const cellW = DST_SIZE + GAP, cellH = DST_SIZE + GAP;
       const cols = Math.floor(SW / cellW);
       const rows = Math.floor(SH / cellH);
@@ -1354,9 +1353,8 @@ export default function Home() {
       const W = window.innerWidth, H = window.innerHeight;
       const tyPx2 = getCurrentTyPx();
       const isMobile = W <= 768;
-      // Точно как в цветной сетке
-      const DST_SIZE = isMobile ? 57 : Math.floor((H - 20 * 6) / 5);
-      const GAP2 = 20;
+      const DST_SIZE = isMobile ? 57 : 170;
+      const GAP2 = 8;
       const cellW2 = DST_SIZE + GAP2, cellH2 = DST_SIZE + GAP2;
       const cols2 = Math.floor(W / cellW2);
       const rows2 = Math.floor(H / cellH2);
@@ -2472,7 +2470,7 @@ function ThumbItem({ thumb }: { thumb: Thumbnail }) {
         ref.current.style.top = `${thumb.dstY}px`;
         ref.current.style.width = `${thumb.dstSize}px`;
         ref.current.style.height = `${thumb.dstSize}px`;
-        ref.current.style.borderRadius = "12px";
+        ref.current.style.borderRadius = "16px";
       });
       return () => cancelAnimationFrame(r2);
     });
@@ -2488,7 +2486,7 @@ function ThumbItem({ thumb }: { thumb: Thumbnail }) {
         top: `${thumb.srcY}px`,
         width: `${thumb.srcW}px`,
         height: `${thumb.srcH}px`,
-        borderRadius: "12px",
+        borderRadius: "0px",
         overflow: "hidden",
         opacity: 1,
         pointerEvents: "none",
