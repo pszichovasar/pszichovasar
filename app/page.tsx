@@ -101,9 +101,15 @@ function buildColoredMosaic(
   cropW: number, cropH: number
 ): string | null {
   const SIZE = 400;
-  const scale = Math.min(SIZE / Math.max(cropW, cropH, 1), 4);
-  const w = Math.max(4, Math.round(cropW * scale));
-  const h = Math.max(4, Math.round(cropH * scale));
+  const PAD_RATIO = 0.12; // 12% отступ с каждой стороны
+  const scale = Math.min(SIZE / Math.max(cropW, cropH, 1), 4) * (1 - PAD_RATIO * 2);
+  const padPx = Math.round(SIZE * PAD_RATIO);
+  const w = Math.max(4, Math.round(cropW * scale) + padPx * 2);
+  const h = Math.max(4, Math.round(cropH * scale) + padPx * 2);
+
+  // Сдвигаем minX/minY чтобы контент был по центру с отступами
+  const adjMinX = minX - padPx / scale;
+  const adjMinY = minY - padPx / scale;
 
   const ALL: [number, number, number][] = [
     [255, 0, 60], [255, 80, 0], [255, 200, 0], [180, 255, 0],
@@ -143,8 +149,8 @@ function buildColoredMosaic(
           if (penDown) { ctx.stroke(); ctx.beginPath(); penDown = false; }
           continue;
         }
-        const sx = (p.x - minX) * scale;
-        const sy = (p.y - minY) * scale;
+        const sx = (p.x - adjMinX) * scale;
+        const sy = (p.y - adjMinY) * scale;
         if (!penDown) {
           ctx.moveTo(sx, sy);
           prevX = sx; prevY = sy;
@@ -1417,7 +1423,7 @@ export default function Home() {
       autoDrawActiveRef.current = true;
       physState.current.forEach(s => { s.trail = []; });
       clearCanvas();
-      const totalDuration = 4000;
+      const totalDuration = 20000;
       const startTime = performance.now();
       let idx = 0;
 
@@ -1496,7 +1502,7 @@ export default function Home() {
         clearCanvas();
         makeMosaic(trails);
         schedTimer = setTimeout(runPhase1, 100); // → геометрия
-      }, 4000);
+      }, 20000);
     };
 
     // Фаза 1: 3D/4D фигура 4 сек → трейлы
@@ -2485,7 +2491,7 @@ function ThumbItem({ thumb }: { thumb: Thumbnail }) {
         pointerEvents: "none",
       }}
     >
-      <img ref={imgRef} src={thumb.src} alt="" style={{ width: "100%", height: "100%", display: "block", objectFit: "cover" }} />
+      <img ref={imgRef} src={thumb.src} alt="" style={{ width: "100%", height: "100%", display: "block", objectFit: "cover", padding: "12%", boxSizing: "border-box", background: "#000" }} />
     </div>
   );
 }
