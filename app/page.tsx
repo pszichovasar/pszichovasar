@@ -1417,7 +1417,7 @@ export default function Home() {
     loadNextArtwork(0);
 
     // Общая функция отрисовки любого набора точек → мозаика → следующая фаза
-    const runDrawPhase = (pts: { x: number; y: number }[], onDone: () => void, durationMs = 20000) => {
+    const runDrawPhase = (pts: { x: number; y: number }[], onDone: () => void, durationMs = 5000) => {
       if (!activeRef.current || pts.length === 0) { onDone(); return; }
       autoDrawActiveRef.current = true;
       physState.current.forEach(s => { s.trail = []; });
@@ -1501,7 +1501,7 @@ export default function Home() {
         clearCanvas();
         makeMosaic(trails);
         schedTimer = setTimeout(runPhase1, 100); // → геометрия
-      }, 20000);
+      }, 5000);
     };
 
     // Фаза 1: 3D/4D фигура 4 сек → трейлы
@@ -1554,7 +1554,7 @@ export default function Home() {
       runPhase3();
     };
     // Запускаем после загрузочного экрана
-    schedTimer = setTimeout(waitAndStart, 14500);
+    schedTimer = setTimeout(waitAndStart, 500);
 
     const onMouseMove = (e: MouseEvent) => { mousePosRef.current = { x: e.clientX, y: e.clientY }; };
     window.addEventListener("mousemove", onMouseMove);
@@ -2492,7 +2492,7 @@ function ThumbItem({ thumb }: { thumb: Thumbnail }) {
         pointerEvents: "none",
       }}
     >
-      <img ref={imgRef} src={thumb.src} alt="" style={{ width: "100%", height: "100%", display: "block", objectFit: "cover", padding: "12%", boxSizing: "border-box", background: "#000" }} />
+      <img ref={imgRef} src={thumb.src} alt="" style={{ width: "100%", height: "100%", display: "block", objectFit: "cover", padding: "12%", boxSizing: "border-box" }} />
     </div>
   );
 }
