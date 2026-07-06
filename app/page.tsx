@@ -1417,12 +1417,12 @@ export default function Home() {
     loadNextArtwork(0);
 
     // Общая функция отрисовки любого набора точек → мозаика → следующая фаза
-    const runDrawPhase = (pts: { x: number; y: number }[], onDone: () => void) => {
+    const runDrawPhase = (pts: { x: number; y: number }[], onDone: () => void, durationMs = 20000) => {
       if (!activeRef.current || pts.length === 0) { onDone(); return; }
       autoDrawActiveRef.current = true;
       physState.current.forEach(s => { s.trail = []; });
       clearCanvas();
-      const totalDuration = 20000;
+      const totalDuration = durationMs;
       const startTime = performance.now();
       let idx = 0;
 
@@ -1525,7 +1525,9 @@ export default function Home() {
         if (!activeRef.current) return;
         const onDone = artworkIdx < ARTWORKS.length ? runPhase3 : runPhase0;
         if (pts.length < 3) { onDone(); return; }
-        runDrawPhase(pts, onDone);
+        // Все 10 картин за 20 сек → каждая 2 сек
+        const artDuration = Math.round(20000 / ARTWORKS.length);
+        runDrawPhase(pts, onDone, artDuration);
       };
 
       const cached = preloadedArtworks[idx];
