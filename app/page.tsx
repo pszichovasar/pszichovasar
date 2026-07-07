@@ -1977,7 +1977,7 @@ export default function Home() {
 
   // Сухарик — отдельный физический объект с полной физикой
   const sugRef = useRef<HTMLImageElement>(null);
-  const sugPhys = useRef({ x: 0, y: 0, vx: 180, vy: -220, ang: 0, rotSpeed: 2.5, initialized: false, size: 80 });
+  const sugPhys = useRef({ x: 0, y: 0, vx: 180, vy: -220, ang: 0, rotSpeed: 2.5, initialized: false, size: 320 });
 
   // Через 20 секунд текстовый блок становится большим кубиком с той же физикой
   useEffect(() => {
@@ -2459,23 +2459,25 @@ export default function Home() {
               <img src={cfg.src} alt="" />
             </div>
           ))}
-          {/* Сухарик */}
-          <img
-            ref={sugRef}
-            src="/sug.png"
-            alt=""
-            style={{
-              position: "absolute",
-              width: `${sugPhys.current.size}px`,
-              height: `${sugPhys.current.size}px`,
-              objectFit: "contain",
-              pointerEvents: "none",
-              willChange: "transform,left,top",
-              transformOrigin: "center center",
-              filter: "drop-shadow(0 4px 12px rgba(0,0,0,0.4))",
-            }}
-          />
         </div>
+
+        {/* Сухарик — всегда видим, на всех секциях */}
+        <img
+          ref={sugRef}
+          src="/sug.png"
+          alt=""
+          style={{
+            position: "fixed",
+            width: `${sugPhys.current.size}px`,
+            height: `${sugPhys.current.size}px`,
+            objectFit: "contain",
+            pointerEvents: "none",
+            willChange: "transform,left,top",
+            transformOrigin: "center center",
+            zIndex: 9,
+            filter: "drop-shadow(0 4px 12px rgba(0,0,0,0.4))",
+          }}
+        />
 
         {/* I DO DESIGN + биография */}
         {/* Экран загрузки — слова по центру */}
