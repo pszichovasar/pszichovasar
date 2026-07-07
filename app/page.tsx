@@ -1147,6 +1147,18 @@ export default function Home() {
       wp.vy += (dy / sd) * force * (1 / 16);
       wp.rotSpeed += ((Math.random() - 0.5) * 4) * t;
     });
+    // Мышь толкает сухарик
+    const sg = sugPhys.current;
+    const sdx = sg.x - px, sdy = sg.y - py;
+    const sdist = Math.sqrt(sdx * sdx + sdy * sdy);
+    if (sdist < radius) {
+      const t = 1 - sdist / radius;
+      const force = maxForce * t * t;
+      const sd2 = Math.max(sdist, 1);
+      sg.vx += (sdx / sd2) * force * (1 / 16);
+      sg.vy += (sdy / sd2) * force * (1 / 16);
+      sg.rotSpeed += ((Math.random() - 0.5) * 8) * t;
+    }
   };
 
   const GAP = 20;
@@ -1796,7 +1808,82 @@ export default function Home() {
       }
 
 
-      const trailCanvas = trailCanvasRef.current;
+      // ===== СУХАРИК — полная физика =====
+      const sg = sugPhys.current;
+      const sugEl = sugRef.current;
+      if (sugEl) {
+        if (!sg.initialized) {
+          sg.x = W * 0.3; sg.y = H * 0.4;
+          sg.initialized = true;
+        }
+        const sh = sg.size / 2;
+
+        // Физика
+        sg.vx *= DAMPING; sg.vy *= DAMPING;
+        const ssp = Math.sqrt(sg.vx * sg.vx + sg.vy * sg.vy);
+        if (ssp > MAX_SPEED) { sg.vx = sg.vx / ssp * MAX_SPEED; sg.vy = sg.vy / ssp * MAX_SPEED; }
+        sg.rotSpeed *= ROT_DAMPING;
+        sg.x += sg.vx * dt; sg.y += sg.vy * dt;
+        sg.ang += sg.rotSpeed * dt;
+
+        // Границы экрана
+        if (sg.x < sh) { sg.x = sh; sg.vx = Math.abs(sg.vx) * BOUNCE; sg.rotSpeed += 2; }
+        if (sg.x > W - sh) { sg.x = W - sh; sg.vx = -Math.abs(sg.vx) * BOUNCE; sg.rotSpeed -= 2; }
+        if (sg.y < sh) { sg.y = sh; sg.vy = Math.abs(sg.vy) * BOUNCE; sg.rotSpeed += 1; }
+        if (sg.y > H - sh) { sg.y = H - sh; sg.vy = -Math.abs(sg.vy) * BOUNCE; sg.rotSpeed -= 1; }
+
+        // Коллизии с кубиками (OBB)
+        for (let i = 0; i < IMG_COUNT; i++) {
+          const s = states[i]; if (!s.initialized) continue;
+          const dx = sg.x - s.x, dy = sg.y - s.y;
+          const minD = sh + S / 2;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < minD && dist > 0) {
+            const nx = dx / dist, ny = dy / dist;
+            const relVn = (sg.vx - s.vx) * nx + (sg.vy - s.vy) * ny;
+            if (relVn < 0) {
+              const imp = -(1 + BOUNCE) * relVn / 2;
+              sg.vx += imp * nx; sg.vy += imp * ny;
+              s.vx -= imp * nx; s.vy -= imp * ny;
+              sg.rotSpeed += (nx - ny) * imp * 0.04;
+              s.rotSpeed -= (nx - ny) * imp * 0.04;
+            }
+            const ov = minD - dist;
+            sg.x += nx * ov * 0.6; sg.y += ny * ov * 0.6;
+            s.x -= nx * ov * 0.4; s.y -= ny * ov * 0.4;
+          }
+        }
+
+        // Коллизии со словами
+        wordPhysRef.current.forEach(wp => {
+          const pw = wp.el.offsetWidth / 2 || 30, ph = wp.el.offsetHeight / 2 || 10;
+          const dx = sg.x - wp.x, dy = sg.y - wp.y;
+          const minD = sh + Math.max(pw, ph);
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < minD && dist > 0) {
+            const nx = dx / dist, ny = dy / dist;
+            const relVn = (sg.vx - wp.vx) * nx + (sg.vy - wp.vy) * ny;
+            if (relVn < 0) {
+              const imp = -(1 + BOUNCE) * relVn / 2;
+              sg.vx += imp * nx * 0.6; sg.vy += imp * ny * 0.6;
+              wp.vx -= imp * nx; wp.vy -= imp * ny;
+              sg.rotSpeed += imp * 0.03; wp.rotSpeed += imp * 0.05;
+            }
+            const ov = minD - dist;
+            sg.x += nx * ov * 0.5; sg.y += ny * ov * 0.5;
+            wp.x -= nx * ov * 0.5; wp.y -= ny * ov * 0.5;
+          }
+        });
+
+        // Гироскоп на мобильных
+        sg.vx += gyroRef.current.gx * dt;
+        sg.vy += gyroRef.current.gy * dt;
+
+        // Рендер
+        sugEl.style.left = `${sg.x - sh}px`;
+        sugEl.style.top = `${sg.y - sh}px`;
+        sugEl.style.transform = `rotate(${sg.ang}rad)`;
+      }
       if (trailCanvas && !autoDrawActiveRef.current) {
         const ctx = trailCanvas.getContext("2d");
         if (ctx) {
@@ -1886,6 +1973,10 @@ export default function Home() {
   const textRafRef = useRef<number>(0);
   type WordPhys = { el: HTMLElement; x: number; y: number; vx: number; vy: number; ang: number; rotSpeed: number };
   const wordPhysRef = useRef<WordPhys[]>([]);
+
+  // Сухарик — отдельный физический объект с полной физикой
+  const sugRef = useRef<HTMLImageElement>(null);
+  const sugPhys = useRef({ x: 0, y: 0, vx: 180, vy: -220, ang: 0, rotSpeed: 2.5, initialized: false, size: 80 });
 
   // Через 20 секунд текстовый блок становится большим кубиком с той же физикой
   useEffect(() => {
@@ -2093,10 +2184,12 @@ export default function Home() {
       physState.current.forEach(s => { if (!s.initialized) return; s.vy -= Math.min(deltaY * 18, 900); s.rotSpeed += (Math.random() - 0.5) * 4; });
       if (textPhysRef.current.active) { textPhysRef.current.vy -= Math.min(deltaY * 18, 900); }
       wordPhysRef.current.forEach(wp => { wp.vy -= Math.min(deltaY * 18, 900); wp.rotSpeed += (Math.random() - 0.5) * 4; });
+      sugPhys.current.vy -= Math.min(deltaY * 14, 700); sugPhys.current.rotSpeed += (Math.random() - 0.5) * 3;
     } else if (deltaY < 0 && unit < 0.9) {
       physState.current.forEach(s => { if (!s.initialized) return; s.vy += Math.min(Math.abs(deltaY) * 18, 900); s.rotSpeed += (Math.random() - 0.5) * 4; });
       if (textPhysRef.current.active) { textPhysRef.current.vy += Math.min(Math.abs(deltaY) * 18, 900); }
       wordPhysRef.current.forEach(wp => { wp.vy += Math.min(Math.abs(deltaY) * 18, 900); wp.rotSpeed += (Math.random() - 0.5) * 4; });
+      sugPhys.current.vy += Math.min(Math.abs(deltaY) * 14, 700); sugPhys.current.rotSpeed += (Math.random() - 0.5) * 3;
     }
     const vw = window.innerWidth, rw = getRowWidth();
     trackRefs.current.forEach((track, i) => {
@@ -2365,6 +2458,22 @@ export default function Home() {
               <img src={cfg.src} alt="" />
             </div>
           ))}
+          {/* Сухарик */}
+          <img
+            ref={sugRef}
+            src="/sug.png"
+            alt=""
+            style={{
+              position: "absolute",
+              width: `${sugPhys.current.size}px`,
+              height: `${sugPhys.current.size}px`,
+              objectFit: "contain",
+              pointerEvents: "none",
+              willChange: "transform,left,top",
+              transformOrigin: "center center",
+              filter: "drop-shadow(0 4px 12px rgba(0,0,0,0.4))",
+            }}
+          />
         </div>
 
         {/* I DO DESIGN + биография */}
