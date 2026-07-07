@@ -1808,6 +1808,7 @@ export default function Home() {
       }
 
 
+      const trailCanvas = trailCanvasRef.current;
       // ===== СУХАРИК — полная физика =====
       const sg = sugPhys.current;
       const sugEl = sugRef.current;
