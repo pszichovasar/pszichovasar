@@ -1157,7 +1157,7 @@ export default function Home() {
       const sd2 = Math.max(sdist, 1);
       sg.vx += (sdx / sd2) * force * (1 / 16);
       sg.vy += (sdy / sd2) * force * (1 / 16);
-      sg.rotSpeed += ((Math.random() - 0.5) * 8) * t;
+      sg.rotSpeed += ((Math.random() - 0.5) * 0.8) * t;
     }
   };
 
@@ -1824,13 +1824,15 @@ export default function Home() {
         const ssp = Math.sqrt(sg.vx * sg.vx + sg.vy * sg.vy);
         if (ssp > MAX_SPEED) { sg.vx = sg.vx / ssp * MAX_SPEED; sg.vy = sg.vy / ssp * MAX_SPEED; }
         sg.rotSpeed *= ROT_DAMPING;
+        if (sg.rotSpeed > 1.5) sg.rotSpeed = 1.5;
+        if (sg.rotSpeed < -1.5) sg.rotSpeed = -1.5;
         sg.x += sg.vx * dt; sg.y += sg.vy * dt;
         sg.ang += sg.rotSpeed * dt;
 
         // Границы экрана
-        if (sg.x < sh) { sg.x = sh; sg.vx = Math.abs(sg.vx) * BOUNCE; sg.rotSpeed += 2; }
+        if (sg.x < sh) { sg.x = sh; sg.vx = Math.abs(sg.vx) * BOUNCE; sg.rotSpeed += 0.3; }
         if (sg.x > W - sh) { sg.x = W - sh; sg.vx = -Math.abs(sg.vx) * BOUNCE; sg.rotSpeed -= 2; }
-        if (sg.y < sh) { sg.y = sh; sg.vy = Math.abs(sg.vy) * BOUNCE; sg.rotSpeed += 1; }
+        if (sg.y < sh) { sg.y = sh; sg.vy = Math.abs(sg.vy) * BOUNCE; sg.rotSpeed += 0.15; }
         if (sg.y > H - sh) { sg.y = H - sh; sg.vy = -Math.abs(sg.vy) * BOUNCE; sg.rotSpeed -= 1; }
 
         // Коллизии с кубиками (OBB)
@@ -1846,7 +1848,7 @@ export default function Home() {
               const imp = -(1 + BOUNCE) * relVn / 2;
               sg.vx += imp * nx; sg.vy += imp * ny;
               s.vx -= imp * nx; s.vy -= imp * ny;
-              sg.rotSpeed += (nx - ny) * imp * 0.04;
+              sg.rotSpeed += (nx - ny) * imp * 0.005;
               s.rotSpeed -= (nx - ny) * imp * 0.04;
             }
             const ov = minD - dist;
@@ -1868,7 +1870,7 @@ export default function Home() {
               const imp = -(1 + BOUNCE) * relVn / 2;
               sg.vx += imp * nx * 0.6; sg.vy += imp * ny * 0.6;
               wp.vx -= imp * nx; wp.vy -= imp * ny;
-              sg.rotSpeed += imp * 0.03; wp.rotSpeed += imp * 0.05;
+              sg.rotSpeed += imp * 0.004; wp.rotSpeed += imp * 0.05;
             }
             const ov = minD - dist;
             sg.x += nx * ov * 0.5; sg.y += ny * ov * 0.5;
@@ -1977,7 +1979,7 @@ export default function Home() {
 
   // Сухарик — отдельный физический объект с полной физикой
   const sugRef = useRef<HTMLImageElement>(null);
-  const sugPhys = useRef({ x: 0, y: 0, vx: 180, vy: -220, ang: 0, rotSpeed: 2.5, initialized: false, size: 320 });
+  const sugPhys = useRef({ x: 0, y: 0, vx: 180, vy: -220, ang: 0, rotSpeed: 0.3, initialized: false, size: 320 });
 
   // Через 20 секунд текстовый блок становится большим кубиком с той же физикой
   useEffect(() => {
@@ -2185,12 +2187,12 @@ export default function Home() {
       physState.current.forEach(s => { if (!s.initialized) return; s.vy -= Math.min(deltaY * 18, 900); s.rotSpeed += (Math.random() - 0.5) * 4; });
       if (textPhysRef.current.active) { textPhysRef.current.vy -= Math.min(deltaY * 18, 900); }
       wordPhysRef.current.forEach(wp => { wp.vy -= Math.min(deltaY * 18, 900); wp.rotSpeed += (Math.random() - 0.5) * 4; });
-      sugPhys.current.vy -= Math.min(deltaY * 14, 700); sugPhys.current.rotSpeed += (Math.random() - 0.5) * 3;
+      sugPhys.current.vy -= Math.min(deltaY * 14, 700); sugPhys.current.rotSpeed += (Math.random() - 0.5) * 0.4;
     } else if (deltaY < 0 && unit < 0.9) {
       physState.current.forEach(s => { if (!s.initialized) return; s.vy += Math.min(Math.abs(deltaY) * 18, 900); s.rotSpeed += (Math.random() - 0.5) * 4; });
       if (textPhysRef.current.active) { textPhysRef.current.vy += Math.min(Math.abs(deltaY) * 18, 900); }
       wordPhysRef.current.forEach(wp => { wp.vy += Math.min(Math.abs(deltaY) * 18, 900); wp.rotSpeed += (Math.random() - 0.5) * 4; });
-      sugPhys.current.vy += Math.min(Math.abs(deltaY) * 14, 700); sugPhys.current.rotSpeed += (Math.random() - 0.5) * 3;
+      sugPhys.current.vy += Math.min(Math.abs(deltaY) * 14, 700); sugPhys.current.rotSpeed += (Math.random() - 0.5) * 0.4;
     }
     const vw = window.innerWidth, rw = getRowWidth();
     trackRefs.current.forEach((track, i) => {
