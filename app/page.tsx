@@ -1035,6 +1035,8 @@ export default function Home() {
   const touchStartRef = useRef(0);
   const [pinkOpacity, setPinkOpacity] = useState(1);
   const [overlayOpacity, setOverlayOpacity] = useState(1);
+  const [yopOpacity, setYopOpacity] = useState(0); // видео yop.mp4 через ячейки
+  const yopVideoRef = useRef<HTMLVideoElement>(null);
   const [overlayWord, setOverlayWord] = useState(""); // текущее слово на экране загрузки
 
   useEffect(() => {
@@ -1819,64 +1821,35 @@ export default function Home() {
         }
         const sh = sg.size / 2;
 
-        // Физика
-        sg.vx *= DAMPING; sg.vy *= DAMPING;
-        const ssp = Math.sqrt(sg.vx * sg.vx + sg.vy * sg.vy);
-        if (ssp > MAX_SPEED) { sg.vx = sg.vx / ssp * MAX_SPEED; sg.vy = sg.vy / ssp * MAX_SPEED; }
-        sg.rotSpeed *= ROT_DAMPING;
-        if (sg.rotSpeed > 1.5) sg.rotSpeed = 1.5;
-        if (sg.rotSpeed < -1.5) sg.rotSpeed = -1.5;
-        sg.x += sg.vx * dt; sg.y += sg.vy * dt;
+        // Физика — естественная, почти без затухания
+        sg.vx *= 0.995;
+        sg.vy *= 0.995;
+        sg.rotSpeed *= 0.999; // вращение очень медленно замедляется
+        sg.x += sg.vx * dt;
+        sg.y += sg.vy * dt;
         sg.ang += sg.rotSpeed * dt;
 
-        // Границы экрана
-        if (sg.x < sh) { sg.x = sh; sg.vx = Math.abs(sg.vx) * BOUNCE; sg.rotSpeed += 0.3; }
-        if (sg.x > W - sh) { sg.x = W - sh; sg.vx = -Math.abs(sg.vx) * BOUNCE; sg.rotSpeed -= 2; }
-        if (sg.y < sh) { sg.y = sh; sg.vy = Math.abs(sg.vy) * BOUNCE; sg.rotSpeed += 0.15; }
-        if (sg.y > H - sh) { sg.y = H - sh; sg.vy = -Math.abs(sg.vy) * BOUNCE; sg.rotSpeed -= 1; }
-
-        // Коллизии с кубиками (OBB)
-        for (let i = 0; i < IMG_COUNT; i++) {
-          const s = states[i]; if (!s.initialized) continue;
-          const dx = sg.x - s.x, dy = sg.y - s.y;
-          const minD = sh + S / 2;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist < minD && dist > 0) {
-            const nx = dx / dist, ny = dy / dist;
-            const relVn = (sg.vx - s.vx) * nx + (sg.vy - s.vy) * ny;
-            if (relVn < 0) {
-              const imp = -(1 + BOUNCE) * relVn / 2;
-              sg.vx += imp * nx; sg.vy += imp * ny;
-              s.vx -= imp * nx; s.vy -= imp * ny;
-              sg.rotSpeed += (nx - ny) * imp * 0.005;
-              s.rotSpeed -= (nx - ny) * imp * 0.04;
-            }
-            const ov = minD - dist;
-            sg.x += nx * ov * 0.6; sg.y += ny * ov * 0.6;
-            s.x -= nx * ov * 0.4; s.y -= ny * ov * 0.4;
-          }
+        // Отскок от краёв с передачей момента вращения (torque)
+        if (sg.x < sh) {
+          sg.x = sh;
+          sg.vx = Math.abs(sg.vx) * 0.75;
+          sg.rotSpeed += sg.vy * 0.004;
         }
-
-        // Коллизии со словами
-        wordPhysRef.current.forEach(wp => {
-          const pw = wp.el.offsetWidth / 2 || 30, ph = wp.el.offsetHeight / 2 || 10;
-          const dx = sg.x - wp.x, dy = sg.y - wp.y;
-          const minD = sh + Math.max(pw, ph);
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist < minD && dist > 0) {
-            const nx = dx / dist, ny = dy / dist;
-            const relVn = (sg.vx - wp.vx) * nx + (sg.vy - wp.vy) * ny;
-            if (relVn < 0) {
-              const imp = -(1 + BOUNCE) * relVn / 2;
-              sg.vx += imp * nx * 0.6; sg.vy += imp * ny * 0.6;
-              wp.vx -= imp * nx; wp.vy -= imp * ny;
-              sg.rotSpeed += imp * 0.004; wp.rotSpeed += imp * 0.05;
-            }
-            const ov = minD - dist;
-            sg.x += nx * ov * 0.5; sg.y += ny * ov * 0.5;
-            wp.x -= nx * ov * 0.5; wp.y -= ny * ov * 0.5;
-          }
-        });
+        if (sg.x > W - sh) {
+          sg.x = W - sh;
+          sg.vx = -Math.abs(sg.vx) * 0.75;
+          sg.rotSpeed -= sg.vy * 0.004;
+        }
+        if (sg.y < sh) {
+          sg.y = sh;
+          sg.vy = Math.abs(sg.vy) * 0.75;
+          sg.rotSpeed += sg.vx * 0.004;
+        }
+        if (sg.y > H - sh) {
+          sg.y = H - sh;
+          sg.vy = -Math.abs(sg.vy) * 0.75;
+          sg.rotSpeed -= sg.vx * 0.004;
+        }
 
         // Гироскоп на мобильных
         sg.vx += gyroRef.current.gx * dt;
@@ -1979,7 +1952,8 @@ export default function Home() {
 
   // Сухарик — отдельный физический объект с полной физикой
   const sugRef = useRef<HTMLImageElement>(null);
-  const sugPhys = useRef({ x: 0, y: 0, vx: 180, vy: -220, ang: 0, rotSpeed: 0.3, initialized: false, size: 320 });
+  const [sugOpacity, setSugOpacity] = useState(1);
+  const sugPhys = useRef({ x: 0, y: 0, vx: 180, vy: -220, ang: 0, rotSpeed: 0.3, initialized: false, size: typeof window !== 'undefined' && window.innerWidth <= 768 ? 160 : 320 });
 
   // Через 20 секунд текстовый блок становится большим кубиком с той же физикой
   useEffect(() => {
@@ -2281,6 +2255,84 @@ export default function Home() {
     return () => { window.removeEventListener("mousemove", onMM); if (ov) ov.removeEventListener("click", onClick); };
   }, [showContact, selectedImg]);
 
+  // Сухарик исчезает через 30 секунд
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const start = performance.now();
+      const fade = (now: number) => {
+        const elapsed = now - start;
+        const progress = Math.min(elapsed / 1500, 1);
+        setSugOpacity(1 - progress);
+        if (progress < 1) requestAnimationFrame(fade);
+      };
+      requestAnimationFrame(fade);
+    }, 30000);
+    return () => clearTimeout(t);
+  }, []);
+
+  // yop.mp4 появляется через 40 сек через ячейки мозаик
+  const thumbnailsRef = useRef<Thumbnail[]>([]);
+  useEffect(() => { thumbnailsRef.current = thumbnails; }, [thumbnails]);
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const vid = yopVideoRef.current;
+      if (!vid) return;
+      vid.play().catch(() => { });
+
+      const start = performance.now();
+      let opacity = 0;
+      // Fade in
+      const fadeIn = (now: number) => {
+        const elapsed = now - start;
+        opacity = Math.min(elapsed / 1200, 1);
+        setYopOpacity(opacity);
+        if (opacity < 1) requestAnimationFrame(fadeIn);
+        else startDraw();
+      };
+      requestAnimationFrame(fadeIn);
+
+      // Рисуем видео на canvas через ячейки — GPU-accelerated
+      let rafId: number;
+      const startDraw = () => {
+        const canvas = document.getElementById("yop-canvas") as HTMLCanvasElement;
+        if (!canvas) return;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+
+        const draw = () => {
+          const W = window.innerWidth, H = window.innerHeight;
+          if (canvas.width !== W || canvas.height !== H) {
+            canvas.width = W; canvas.height = H;
+          }
+          ctx.clearRect(0, 0, W, H);
+          const cells = thumbnailsRef.current;
+          if (!cells.length || vid.readyState < 2) { rafId = requestAnimationFrame(draw); return; }
+
+          // Рисуем одно видео в каждую ячейку — только ctx операции, никаких DOM
+          const r = 12;
+          cells.forEach(cell => {
+            ctx.save();
+            ctx.beginPath();
+            ctx.roundRect(cell.dstX, cell.dstY, cell.dstSize, cell.dstSize, r);
+            ctx.clip();
+            // Видео вписываем cover в ячейку
+            const vw = vid.videoWidth || 1, vh = vid.videoHeight || 1;
+            const scale = Math.max(cell.dstSize / vw, cell.dstSize / vh);
+            const sw = vw * scale, sh = vh * scale;
+            const sx = cell.dstX + (cell.dstSize - sw) / 2;
+            const sy = cell.dstY + (cell.dstSize - sh) / 2;
+            ctx.drawImage(vid, sx, sy, sw, sh);
+            ctx.restore();
+          });
+          rafId = requestAnimationFrame(draw);
+        };
+        draw();
+      };
+    }, 40000);
+    return () => clearTimeout(t);
+  }, []);
+
   // Автоскролл — единоразово, только после экрана загрузки
   useEffect(() => {
     let fired = false;
@@ -2453,6 +2505,21 @@ export default function Home() {
           ))}
         </div>
 
+        {/* yop.mp4 — видео через ячейки, рисуется на canvas для производительности */}
+        <canvas id="yop-canvas" style={{
+          position: "fixed", inset: 0, zIndex: 3,
+          width: "100%", height: "100%",
+          pointerEvents: "none",
+          opacity: yopOpacity * pinkOpacity,
+          display: yopOpacity > 0 ? "block" : "none",
+        }} />
+        <video
+          ref={yopVideoRef}
+          src="/yop.mp4"
+          muted loop playsInline
+          style={{ display: "none" }}
+        />
+
         {/* КУБИКИ — поверх картинок и узоров */}
         <div style={{ position: "absolute", inset: 0, zIndex: 4, opacity: pinkOpacity, pointerEvents: "none" }}>
           {FLOATING_INIT.map((cfg, i) => (
@@ -2477,7 +2544,9 @@ export default function Home() {
             willChange: "transform,left,top",
             transformOrigin: "center center",
             zIndex: 9,
-            filter: "drop-shadow(0 4px 12px rgba(0,0,0,0.4))",
+            opacity: sugOpacity,
+            filter: `drop-shadow(0 4px 12px rgba(0,0,0,0.4)) blur(${(1 - sugOpacity) * 8}px)`,
+            transition: "opacity 0.05s, filter 0.05s",
           }}
         />
 
