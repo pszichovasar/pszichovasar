@@ -1327,7 +1327,7 @@ export default function Home() {
           dstX = oldest.dstX; dstY = oldest.dstY;
           nextPrev = prev.filter(t => t.id !== oldest.id);
         }
-        return [...nextPrev, { id: newId, src, srcX: minX, srcY: minY - tyPx, srcW: cropW, srcH: cropH, dstX, dstY, dstSize: DST_SIZE, offsetY: 0 }];
+        return [...nextPrev, { id: newId, src, srcX: minX, srcY: minY - tyPx, srcW: cropW, srcH: cropH, dstX, dstY, dstSize: DST_SIZE }];
       });
       const mosaicSrc = buildColoredMosaic([pts], minX, minY, cropW, cropH);
       if (mosaicSrc) setThumbnails(prev => prev.map(t => t.id === newId ? { ...t, src: mosaicSrc } : t));
@@ -1403,7 +1403,7 @@ export default function Home() {
           dstX = oldest.dstX; dstY = oldest.dstY;
           nextPrev2 = prev.filter(t => t.id !== oldest.id);
         }
-        return [...nextPrev2, { id: newId, src, srcX: minX, srcY: minY - tyPx2, srcW: cropW, srcH: cropH, dstX, dstY, dstSize: DST_SIZE, offsetY: 0 }];
+        return [...nextPrev2, { id: newId, src, srcX: minX, srcY: minY - tyPx2, srcW: cropW, srcH: cropH, dstX, dstY, dstSize: DST_SIZE }];
       });
       const mosaicSrc = buildColoredMosaic(trails, minX, minY, cropW, cropH);
       if (mosaicSrc) setThumbnails(prev => prev.map(t => t.id === newId ? { ...t, src: mosaicSrc } : t));
@@ -1557,7 +1557,7 @@ export default function Home() {
     };
 
     // Старт: сначала все картины (art1→art10), потом трейлы и геометрия
-    // Ждём окончания экрана загрузки (14 сек) + первая картина должна быть готова
+    // Ждём окончания экрана загрузки (10.6 сек, см. OVERLAY_TOTAL/OVERLAY_FADE ниже) + первая картина должна быть готова
     const waitAndStart = () => {
       if (!activeRef.current) return;
       if (!preloadedArtworks[0] || preloadedArtworks[0].length < 3) {
@@ -1567,8 +1567,9 @@ export default function Home() {
       }
       runPhase3();
     };
-    // Запускаем после загрузочного экрана
-    schedTimer = setTimeout(waitAndStart, 500);
+    // Запускаем ровно когда гаснет экран загрузки (OVERLAY_TOTAL 10000 + OVERLAY_FADE 600),
+    // иначе первые картины/трейлы прокручиваются невидимо под чёрной шторкой
+    schedTimer = setTimeout(waitAndStart, 10600);
 
     const onMouseMove = (e: MouseEvent) => { mousePosRef.current = { x: e.clientX, y: e.clientY }; };
     window.addEventListener("mousemove", onMouseMove);
@@ -1639,42 +1640,10 @@ export default function Home() {
         }
       });
 
-      // Текстовый блок — тот же физический объект только большой, включается через 20 сек
-      if (textPhysRef.current.active) {
-        const p = textPhysRef.current;
-        const el = iDoDesignRef.current;
-        if (!el) return;
-        const TW = (p as any).w || el.offsetWidth || 300;
-        const TH = (p as any).h || el.offsetHeight || 150;
-        // Та же физика что и кубики
-        // Чистая инерция — никаких внешних сил, только затухание
-        p.vx *= DAMPING; p.vy *= DAMPING;
-        const tsp = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
-        if (tsp > MAX_SPEED) { p.vx = p.vx / tsp * MAX_SPEED; p.vy = p.vy / tsp * MAX_SPEED; }
-        p.rotSpeed = 0; p.angle = 0;
-        p.x += p.vx * dt; p.y += p.vy * dt;
-        // Границы экрана — исчезает (не отбивается как кубики)
-        const hw = TW / 2, hh = TH / 2;
-        if (p.x + hw < 0 || p.x - hw > W || p.y + hh < 0 || p.y - hh > H) {
-          p.active = false;
-          if (el) { el.style.display = "none"; }
-        } else if (el) {
-          el.style.left = `${p.x - hw}px`;
-          el.style.top = `${p.y - hh}px`;
-          el.style.transform = "none";
-          // Коллизии с кубиками (AABB)
-          for (let i = 0; i < IMG_COUNT; i++) {
-            const s = states[i]; if (!s.initialized) continue;
-            if (s.x < p.x - hw || s.x > p.x + hw || s.y < p.y - hh || s.y > p.y + hh) continue;
-            const dL = s.x - (p.x - hw), dR = (p.x + hw) - s.x, dT = s.y - (p.y - hh), dB = (p.y + hh) - s.y;
-            const md = Math.min(dL, dR, dT, dB); let nx = 0, ny = 0;
-            if (md === dL) nx = -1; else if (md === dR) nx = 1; else if (md === dT) ny = -1; else ny = 1;
-            s.x += nx * (md + 0.5); s.y += ny * (md + 0.5);
-            const vn = (s.vx - p.vx) * nx + (s.vy - p.vy) * ny;
-            if (vn < 0) { const imp = -(1 + BOUNCE) * vn / 2; s.vx += imp * nx; s.vy += imp * ny; p.vx -= imp * nx * 0.08; p.vy -= imp * ny * 0.08; }
-          }
-        }
-      }
+      // (физика "текст как большой кубик" убрана — textPhysRef.x/y никогда не
+      // инициализировались позицией заголовка, только .active, поэтому это был
+      // невидимый коллайдер в районе (0,0), толкавший кубики в углу экрана;
+      // сам взрыв букв/слов работает независимо через letters/wordPhysRef ниже)
 
       // Слова биографии с физикой кубиков
       wordPhysRef.current = wordPhysRef.current.filter(wp => {
@@ -1943,8 +1912,6 @@ export default function Home() {
   const getRowWidth = () => (calcTileSize() + GAP) * ALL_IMAGES.length + GAP;
 
   const iDoDesignRef = useRef<HTMLDivElement>(null);
-  // Физика текстового блока — объявляем ДО useEffect который их использует
-  const textPhysRef = useRef({ active: false, x: 0, y: 0, vx: 0, vy: 0, angle: 0, rotSpeed: 0 });
   const textFallTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const textRafRef = useRef<number>(0);
   type WordPhys = { el: HTMLElement; x: number; y: number; vx: number; vy: number; ang: number; rotSpeed: number };
@@ -1955,14 +1922,15 @@ export default function Home() {
   const [sugOpacity, setSugOpacity] = useState(1);
   const sugPhys = useRef({ x: 0, y: 0, vx: 180, vy: -220, ang: 0, rotSpeed: 0.3, initialized: false, size: typeof window !== 'undefined' && window.innerWidth <= 768 ? 160 : 320 });
 
-  // Через 20 секунд текстовый блок становится большим кубиком с той же физикой
+  // Через 11 секунд после монтирования — взрыв текста (буквы/слова разлетаются).
+  // Раньше это ждало window.onload + 11с, что на медленной сети рассинхронизировалось
+  // с загрузочным экраном (тот всегда гаснет на 10.6с от монтирования); теперь оба
+  // используют одну и ту же точку отсчёта — момент монтирования компонента.
   useEffect(() => {
-    // Стартуем таймер только после полной загрузки страницы
     const startExplosionTimer = () => {
-      // Только после экрана загрузки (10 сек уже прошло)
       textFallTimerRef.current = setTimeout(() => {
         // Защита от двойного вызова (React StrictMode)
-        if (wordPhysRef.current.length > 0 || textPhysRef.current.active) {
+        if (wordPhysRef.current.length > 0) {
           // Очищаем старые элементы перед повторным запуском
           wordPhysRef.current.forEach(wp => wp.el.remove());
           wordPhysRef.current = [];
@@ -1993,12 +1961,12 @@ export default function Home() {
         let curX = titleRect.left;
         text.split("").forEach((ch, i) => {
           const tmp = document.createElement("span");
-          tmp.textContent = ch === " " ? " " : ch;
+          tmp.textContent = ch === " " ? " " : ch;
           measure.appendChild(tmp);
           const r = tmp.getBoundingClientRect();
 
           const span = document.createElement("span");
-          span.textContent = ch === " " ? " " : ch;
+          span.textContent = ch === " " ? " " : ch;
           span.style.cssText = `position:fixed;left:${r.left}px;top:${r.top}px;font-family:'Arial Black',Arial,sans-serif;font-weight:900;font-size:${fs}px;letter-spacing:-0.04em;color:white;white-space:nowrap;pointer-events:none;z-index:10;transform-origin:center center;`;
           overlay.appendChild(span);
 
@@ -2099,16 +2067,10 @@ export default function Home() {
           else overlay.innerHTML = "";
         };
         requestAnimationFrame(step);
-        textPhysRef.current.active = true;
       }, 11000);
     }; // end startExplosionTimer
 
-    // Ждём полной загрузки страницы, потом запускаем таймер
-    if (document.readyState === 'complete') {
-      startExplosionTimer();
-    } else {
-      window.addEventListener('load', startExplosionTimer, { once: true });
-    }
+    startExplosionTimer();
 
     return () => {
       if (textFallTimerRef.current) clearTimeout(textFallTimerRef.current);
@@ -2140,7 +2102,7 @@ export default function Home() {
       const wordOp = Math.max(0, 1 - Math.max(0, (unit - 0.3) / 0.3));
       wordPhysRef.current.forEach(wp => { wp.el.style.opacity = String(wordOp); });
     }
-    if (iDoDesignRef.current && !textPhysRef.current.active) {
+    if (iDoDesignRef.current) {
       iDoDesignRef.current.style.transform = `translateY(${unit <= 0 ? 0 : unit <= 0.35 ? -(unit / 0.35) * 110 : -110
         }vh)`;
       iDoDesignRef.current.style.opacity = unit > 0.5 ? "0" : "1";
@@ -2159,12 +2121,10 @@ export default function Home() {
     }
     if (deltaY > 0 && unit < 0.9) {
       physState.current.forEach(s => { if (!s.initialized) return; s.vy -= Math.min(deltaY * 18, 900); s.rotSpeed += (Math.random() - 0.5) * 4; });
-      if (textPhysRef.current.active) { textPhysRef.current.vy -= Math.min(deltaY * 18, 900); }
       wordPhysRef.current.forEach(wp => { wp.vy -= Math.min(deltaY * 18, 900); wp.rotSpeed += (Math.random() - 0.5) * 4; });
       sugPhys.current.vy -= Math.min(deltaY * 14, 700); sugPhys.current.rotSpeed += (Math.random() - 0.5) * 0.4;
     } else if (deltaY < 0 && unit < 0.9) {
       physState.current.forEach(s => { if (!s.initialized) return; s.vy += Math.min(Math.abs(deltaY) * 18, 900); s.rotSpeed += (Math.random() - 0.5) * 4; });
-      if (textPhysRef.current.active) { textPhysRef.current.vy += Math.min(Math.abs(deltaY) * 18, 900); }
       wordPhysRef.current.forEach(wp => { wp.vy += Math.min(Math.abs(deltaY) * 18, 900); wp.rotSpeed += (Math.random() - 0.5) * 4; });
       sugPhys.current.vy += Math.min(Math.abs(deltaY) * 14, 700); sugPhys.current.rotSpeed += (Math.random() - 0.5) * 0.4;
     }
@@ -2309,19 +2269,24 @@ export default function Home() {
           const cells = thumbnailsRef.current;
           if (!cells.length || vid.readyState < 2) { rafId = requestAnimationFrame(draw); return; }
 
+          // Тот же вертикальный сдвиг, что и у контейнера мозаик (thumbContainerRef/thumbPatternRef),
+          // иначе ячейки остаются в локальных координатах контейнера и уезжают за экран
+          const ty = getCurrentTyPx();
+
           // Рисуем одно видео в каждую ячейку — только ctx операции, никаких DOM
           const r = 12;
           cells.forEach(cell => {
+            const cellY = cell.dstY + ty;
             ctx.save();
             ctx.beginPath();
-            ctx.roundRect(cell.dstX, cell.dstY, cell.dstSize, cell.dstSize, r);
+            ctx.roundRect(cell.dstX, cellY, cell.dstSize, cell.dstSize, r);
             ctx.clip();
             // Видео вписываем cover в ячейку
             const vw = vid.videoWidth || 1, vh = vid.videoHeight || 1;
             const scale = Math.max(cell.dstSize / vw, cell.dstSize / vh);
             const sw = vw * scale, sh = vh * scale;
             const sx = cell.dstX + (cell.dstSize - sw) / 2;
-            const sy = cell.dstY + (cell.dstSize - sh) / 2;
+            const sy = cellY + (cell.dstSize - sh) / 2;
             ctx.drawImage(vid, sx, sy, sw, sh);
             ctx.restore();
           });
