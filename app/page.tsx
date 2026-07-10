@@ -101,15 +101,15 @@ function buildColoredMosaic(
   cropW: number, cropH: number
 ): string | null {
   const SIZE = 400;
-  const PAD_RATIO = 0.12; // 12% отступ с каждой стороны
-  const scale = Math.min(SIZE / Math.max(cropW, cropH, 1), 4) * (1 - PAD_RATIO * 2);
-  const padPx = Math.round(SIZE * PAD_RATIO);
-  const w = Math.max(4, Math.round(cropW * scale) + padPx * 2);
-  const h = Math.max(4, Math.round(cropH * scale) + padPx * 2);
+  const scale = Math.min(SIZE / Math.max(cropW, cropH, 1), 4);
+  const w = Math.max(4, Math.round(cropW * scale));
+  const h = Math.max(4, Math.round(cropH * scale));
 
-  // Сдвигаем minX/minY чтобы контент был по центру с отступами
-  const adjMinX = minX - padPx / scale;
-  const adjMinY = minY - padPx / scale;
+  // Узор занимает весь канвас как есть — без отступа. Уменьшение до размера
+  // ячейки происходит отдельно, плавным CSS-переходом width/height в ThumbItem,
+  // пока миниатюра летит на своё место в сетке.
+  const adjMinX = minX;
+  const adjMinY = minY;
 
   const ALL: [number, number, number][] = [
     [255, 0, 60], [255, 80, 0], [255, 200, 0], [180, 255, 0],
@@ -593,106 +593,10 @@ function generateTextPoints(text: string, W: number, H: number): { x: number; y:
   return pts;
 }
 
-// Знаменитые картины как векторные контуры — нормализованные координаты [0..1]
-// Каждый массив — один непрерывный путь пера
-async function generateArtworkPoints(url: string, W: number, H: number): Promise<{ x: number, y: number }[]> {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => {
-      const SCALE = 1.0; // максимальное разрешение — pixel-perfect контуры
-      const cW = Math.round(W * SCALE), cH = Math.round(H * SCALE);
-      const imgScale = Math.min(cW / img.width, cH / img.height) * 0.90;
-      const sw = Math.round(img.width * imgScale);
-      const sh = Math.round(img.height * imgScale);
-      const ox = Math.round((cW - sw) / 2);
-      const oy = Math.round((cH - sh) / 2);
-
-      const canvas = document.createElement("canvas");
-      canvas.width = cW; canvas.height = cH;
-      const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
-      ctx.fillStyle = "#000";
-      ctx.fillRect(0, 0, cW, cH);
-      ctx.drawImage(img, ox, oy, sw, sh);
-      const { data } = ctx.getImageData(0, 0, cW, cH);
-
-      const S = 1;
-      type Pt = { x: number, y: number, m: number };
-      const edgePts: Pt[] = [];
-      let maxMag = 0;
-
-      // Sobel по чанкам — не блокируем UI во время загрузки
-      let rowY = S;
-      const ROWS_PER_CHUNK = 20; // меньше строк — не блокируем при высоком разрешении
-
-      const sobelChunk = () => {
-        const endY = Math.min(rowY + ROWS_PER_CHUNK, cH - S);
-        for (let y = rowY; y < endY; y += S) {
-          for (let x = S; x < cW - S; x += S) {
-            const g = (px: number, py: number) => {
-              const o = (Math.min(py, cH - 1) * cW + Math.min(px, cW - 1)) * 4;
-              return data[o] * 0.299 + data[o + 1] * 0.587 + data[o + 2] * 0.114;
-            };
-            const gx = -g(x - S, y - S) - 2 * g(x - S, y) - g(x - S, y + S) + g(x + S, y - S) + 2 * g(x + S, y) + g(x + S, y + S);
-            const gy = -g(x - S, y - S) - 2 * g(x, y - S) - g(x + S, y - S) + g(x - S, y + S) + 2 * g(x, y + S) + g(x + S, y + S);
-            const m = Math.sqrt(gx * gx + gy * gy);
-            if (m > maxMag) maxMag = m;
-            edgePts.push({ x, y, m });
-          }
-        }
-        rowY = endY;
-        if (rowY < cH - S) {
-          requestAnimationFrame(sobelChunk);
-          return;
-        }
-        // Sobel готов — строим штрихи
-        const threshold = maxMag * 0.06; // низкий порог — максимум деталей
-        const strong = edgePts.filter(p => p.m > threshold);
-        strong.sort((a, b) => b.m - a.m);
-        const top = strong.slice(0, 150000); // больше точек — точнее контуры
-
-        if (top.length < 10) { resolve([]); return; }
-
-        const STEP = S;
-        const grid = new Map<string, number>();
-        top.forEach((p, i) => grid.set(Math.round(p.x / STEP) + ',' + Math.round(p.y / STEP), i));
-        const used = new Set<number>();
-        const result: { x: number, y: number }[] = [];
-        const invScale = 1 / SCALE;
-        const offX = (W - cW * invScale) / 2;
-        const offY = (H - cH * invScale) / 2;
-
-        for (let si = 0; si < top.length; si++) {
-          if (used.has(si)) continue;
-          const stroke: { x: number, y: number }[] = [];
-          let cur = si;
-          while (cur !== -1 && !used.has(cur)) {
-            used.add(cur);
-            stroke.push({ x: top[cur].x * invScale + offX, y: top[cur].y * invScale + offY });
-            let next = -1, bestD = Infinity;
-            const gx0 = Math.round(top[cur].x / STEP), gy0 = Math.round(top[cur].y / STEP);
-            for (let dr = -3; dr <= 3; dr++) for (let dc = -3; dc <= 3; dc++) {
-              if (!dr && !dc) continue;
-              const ni = grid.get((gx0 + dc) + ',' + (gy0 + dr));
-              if (ni !== undefined && !used.has(ni)) {
-                const d = (top[ni].x - top[cur].x) ** 2 + (top[ni].y - top[cur].y) ** 2;
-                if (d < bestD) { bestD = d; next = ni; }
-              }
-            }
-            cur = bestD < (STEP * 4) ** 2 ? next : -1; // шире поиск — длиннее штрихи
-          }
-          if (stroke.length >= 3) result.push(...stroke, { x: NaN, y: NaN });
-          if (result.length > 250000) break;
-        }
-        resolve(result);
-      };
-
-      requestAnimationFrame(sobelChunk);
-    };
-    img.onerror = () => resolve([]);
-    img.src = url;
-  });
-}
-const ARTWORKS = ["/art1.png", "/art2.png", "/art3.png", "/art4.png", "/art5.png", "/art6.png", "/art7.png", "/art8.png", "/art9.png", "/art10.png"];
+// (generateArtworkPoints и ARTWORKS убраны — Sobel-контуры картин art1..art10
+// были главным источником лагов: полное разрешение (SCALE=1.0), до 150000
+// точек на картину, плюс негруженный по RAF этап построения штрихов. Если
+// решим вернуть картины позже — делать это через Web Worker, не на main thread.
 
 // Спираль на торе — линия обвивает бублик p раз по большому кругу и q по малому
 function makeTorusSpiral(R: number, r: number, p: number, q: number): { x: number, y: number, z: number }[] {
@@ -1035,8 +939,6 @@ export default function Home() {
   const touchStartRef = useRef(0);
   const [pinkOpacity, setPinkOpacity] = useState(1);
   const [overlayOpacity, setOverlayOpacity] = useState(1);
-  const [yopOpacity, setYopOpacity] = useState(0); // видео yop.mp4 через ячейки
-  const yopVideoRef = useRef<HTMLVideoElement>(null);
   const [overlayWord, setOverlayWord] = useState(""); // текущее слово на экране загрузки
 
   useEffect(() => {
@@ -1286,10 +1188,10 @@ export default function Home() {
       if (ctx2) ctx2.drawImage(snap, minX * dpr, minY * dpr, cropW * dpr, cropH * dpr, 0, 0, crop.width, crop.height);
       const src = crop.toDataURL("image/png");
       const SW = window.innerWidth, SH = window.innerHeight;
-      const tyPx = getCurrentTyPx(); // смещение контейнера — нужно для правильного позиционирования
+      const tyPx = getBaseTyPx(); // фиксированная точка отсчёта — сетка не плывёт от скролла
       const isMobile = SW <= 768;
-      const DST_SIZE = isMobile ? 57 : Math.floor((SH - 20 * 6) / 5);
-      const GAP = 20;
+      const DST_SIZE = isMobile ? 57 : 170;
+      const GAP = 8;
       const cellW = DST_SIZE + GAP, cellH = DST_SIZE + GAP;
       const cols = Math.floor(SW / cellW);
       const rows = Math.floor(SH / cellH);
@@ -1365,10 +1267,10 @@ export default function Home() {
       if (ctx2) ctx2.drawImage(c, minX * dpr, minY * dpr, cropW * dpr, cropH * dpr, 0, 0, crop.width, crop.height);
       const src = crop.toDataURL("image/png");
       const W = window.innerWidth, H = window.innerHeight;
-      const tyPx2 = getCurrentTyPx();
+      const tyPx2 = getBaseTyPx(); // фиксированная точка отсчёта — сетка не плывёт от скролла
       const isMobile = W <= 768;
-      const DST_SIZE = isMobile ? 57 : Math.floor((H - 20 * 6) / 5);
-      const GAP2 = 20;
+      const DST_SIZE = isMobile ? 57 : 170;
+      const GAP2 = 8;
       const cellW2 = DST_SIZE + GAP2, cellH2 = DST_SIZE + GAP2;
       const cols2 = Math.floor(W / cellW2);
       const rows2 = Math.floor(H / cellH2);
@@ -1409,26 +1311,10 @@ export default function Home() {
       if (mosaicSrc) setThumbnails(prev => prev.map(t => t.id === newId ? { ...t, src: mosaicSrc } : t));
     };
 
-    // Фаза 0: собираем трейлы кубиков → мозаика, затем через 10 сек фаза 1
-    // Фаза 1: рисуем 3D фигуру 10 сек → мозаика, затем через 10 сек фаза 0
+    // Фаза 0: собираем трейлы кубиков → мозаика, затем фаза 1
+    // Фаза 1: рисуем 3D фигуру → мозаика, затем снова фаза 0
     let schedTimer: ReturnType<typeof setTimeout> | null = null;
     const activeRef = { current: true };
-    let artworkIdx = 0;
-    // Предзагружаем все картины сразу — чтобы в runPhase3 не было async задержки
-    const preloadedArtworks: ({ x: number; y: number }[])[] = new Array(ARTWORKS.length).fill(null);
-    // Грузим по одной — не блокируем друг друга
-    // Загружаем картины последовательно с задержкой — не перегружаем UI
-    const loadNextArtwork = (i: number) => {
-      if (i >= ARTWORKS.length) return;
-      const delay = i === 0 ? 100 : 0; // первую через 100мс, остальные сразу после предыдущей
-      setTimeout(() => {
-        generateArtworkPoints(ARTWORKS[i], window.innerWidth, window.innerHeight).then(pts => {
-          preloadedArtworks[i] = pts;
-          loadNextArtwork(i + 1);
-        }).catch(() => loadNextArtwork(i + 1));
-      }, delay);
-    };
-    loadNextArtwork(0);
 
     // Общая функция отрисовки любого набора точек → мозаика → следующая фаза
     const runDrawPhase = (pts: { x: number; y: number }[], onDone: () => void, durationMs = 5000) => {
@@ -1503,8 +1389,7 @@ export default function Home() {
       requestAnimationFrame(drawNext);
     };
 
-    // Фаза 0: трейлы кубиков 10 сек → мозаика → картина
-    // Фаза 0: трейлы кубиков 4 сек → мозаика → геометрия
+    // Фаза 0: трейлы кубиков 5 сек → мозаика → геометрия
     const runPhase0 = () => {
       if (!activeRef.current) return;
       autoDrawActiveRef.current = false;
@@ -1518,7 +1403,7 @@ export default function Home() {
       }, 5000);
     };
 
-    // Фаза 1: 3D/4D фигура 4 сек → трейлы
+    // Фаза 1: 3D/4D фигура → трейлы
     const runPhase1 = () => {
       if (!activeRef.current) return;
       const W = window.innerWidth, H = window.innerHeight;
@@ -1526,50 +1411,9 @@ export default function Home() {
       runDrawPhase(pts, runPhase0); // → трейлы
     };
 
-    // Фаза 3: одна картина 4 сек → следующая картина, после всех → трейлы+геометрия
-    const runPhase3 = () => {
-      if (!activeRef.current) return;
-      const W = window.innerWidth, H = window.innerHeight;
-      const idx = artworkIdx;
-      artworkIdx++;
-      if (idx >= ARTWORKS.length) { runPhase0(); return; } // все картины показаны — переходим
-      const url = ARTWORKS[idx];
-
-      const startDraw = (pts: { x: number; y: number }[]) => {
-        if (!activeRef.current) return;
-        const onDone = artworkIdx < ARTWORKS.length ? runPhase3 : runPhase0;
-        if (pts.length < 3) { onDone(); return; }
-        // Все 10 картин за 20 сек → каждая 2 сек
-        const artDuration = Math.round(20000 / ARTWORKS.length);
-        runDrawPhase(pts, onDone, artDuration);
-      };
-
-      const cached = preloadedArtworks[idx];
-      if (cached && cached.length > 10) {
-        startDraw(cached);
-      } else {
-        generateArtworkPoints(url, W, H).then(pts => {
-          if (!activeRef.current) return;
-          preloadedArtworks[idx] = pts;
-          startDraw(pts);
-        });
-      }
-    };
-
-    // Старт: сначала все картины (art1→art10), потом трейлы и геометрия
-    // Ждём окончания экрана загрузки (10.6 сек, см. OVERLAY_TOTAL/OVERLAY_FADE ниже) + первая картина должна быть готова
-    const waitAndStart = () => {
-      if (!activeRef.current) return;
-      if (!preloadedArtworks[0] || preloadedArtworks[0].length < 3) {
-        // Первая картина ещё не готова — ждём
-        schedTimer = setTimeout(waitAndStart, 200);
-        return;
-      }
-      runPhase3();
-    };
-    // Запускаем ровно когда гаснет экран загрузки (OVERLAY_TOTAL 10000 + OVERLAY_FADE 600),
-    // иначе первые картины/трейлы прокручиваются невидимо под чёрной шторкой
-    schedTimer = setTimeout(waitAndStart, 10600);
+    // Старт — ровно когда гаснет экран загрузки (OVERLAY_TOTAL 10000 + OVERLAY_FADE 600),
+    // иначе первые трейлы прокручиваются невидимо под чёрной шторкой
+    schedTimer = setTimeout(runPhase0, 10600);
 
     const onMouseMove = (e: MouseEvent) => { mousePosRef.current = { x: e.clientX, y: e.clientY }; };
     window.addEventListener("mousemove", onMouseMove);
@@ -1917,9 +1761,10 @@ export default function Home() {
   type WordPhys = { el: HTMLElement; x: number; y: number; vx: number; vy: number; ang: number; rotSpeed: number };
   const wordPhysRef = useRef<WordPhys[]>([]);
 
-  // Сухарик — отдельный физический объект с полной физикой
+  // Сухарик — отдельный физический объект с полной физикой.
+  // Видим только пока идёт экран загрузки — исчезает вместе с ним (через overlayOpacity),
+  // без отдельного таймера/состояния.
   const sugRef = useRef<HTMLImageElement>(null);
-  const [sugOpacity, setSugOpacity] = useState(1);
   const sugPhys = useRef({ x: 0, y: 0, vx: 180, vy: -220, ang: 0, rotSpeed: 0.3, initialized: false, size: typeof window !== 'undefined' && window.innerWidth <= 768 ? 160 : 320 });
 
   // Через 11 секунд после монтирования — взрыв текста (буквы/слова разлетаются).
@@ -2089,6 +1934,16 @@ export default function Home() {
     return ty / 100 * window.innerHeight;
   };
 
+  // Фиксированная точка отсчёта ДЛЯ РАСКЛАДКИ МОЗАИК В СЕТКЕ — совпадает с
+  // getCurrentTyPx() при scrollRef.current === 0, но НЕ зависит от текущего
+  // скролла. Если брать живой getCurrentTyPx() в момент каждого нового
+  // захвата, сетка "плывёт": скролл — величина непрерывная, а не кратная
+  // высоте ячейки, поэтому мозаики, созданные до и после скролла, перестают
+  // совпадать по рядам/колонкам и накладываются друг на друга. Сам контейнер
+  // (thumbContainerRef/thumbPatternRef) по-прежнему двигается со скроллом
+  // как единое целое — меняется только опорная точка для раскладки.
+  const getBaseTyPx = () => 110 / 100 * window.innerHeight;
+
   const applyAnimations = (scrollY: number, deltaY = 0) => {
     const unit = scrollY / SCROLL_PER_UNIT;
     setPinkOpacity(Math.max(0, 1 - Math.max(0, (unit - 0.8) / 0.4)));
@@ -2214,89 +2069,6 @@ export default function Home() {
     const ov = overlayRef.current; if (ov) ov.addEventListener("click", onClick);
     return () => { window.removeEventListener("mousemove", onMM); if (ov) ov.removeEventListener("click", onClick); };
   }, [showContact, selectedImg]);
-
-  // Сухарик исчезает через 30 секунд
-  useEffect(() => {
-    const t = setTimeout(() => {
-      const start = performance.now();
-      const fade = (now: number) => {
-        const elapsed = now - start;
-        const progress = Math.min(elapsed / 1500, 1);
-        setSugOpacity(1 - progress);
-        if (progress < 1) requestAnimationFrame(fade);
-      };
-      requestAnimationFrame(fade);
-    }, 30000);
-    return () => clearTimeout(t);
-  }, []);
-
-  // yop.mp4 появляется через 40 сек через ячейки мозаик
-  const thumbnailsRef = useRef<Thumbnail[]>([]);
-  useEffect(() => { thumbnailsRef.current = thumbnails; }, [thumbnails]);
-
-  useEffect(() => {
-    const t = setTimeout(() => {
-      const vid = yopVideoRef.current;
-      if (!vid) return;
-      vid.play().catch(() => { });
-
-      const start = performance.now();
-      let opacity = 0;
-      // Fade in
-      const fadeIn = (now: number) => {
-        const elapsed = now - start;
-        opacity = Math.min(elapsed / 1200, 1);
-        setYopOpacity(opacity);
-        if (opacity < 1) requestAnimationFrame(fadeIn);
-        else startDraw();
-      };
-      requestAnimationFrame(fadeIn);
-
-      // Рисуем видео на canvas через ячейки — GPU-accelerated
-      let rafId: number;
-      const startDraw = () => {
-        const canvas = document.getElementById("yop-canvas") as HTMLCanvasElement;
-        if (!canvas) return;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return;
-
-        const draw = () => {
-          const W = window.innerWidth, H = window.innerHeight;
-          if (canvas.width !== W || canvas.height !== H) {
-            canvas.width = W; canvas.height = H;
-          }
-          ctx.clearRect(0, 0, W, H);
-          const cells = thumbnailsRef.current;
-          if (!cells.length || vid.readyState < 2) { rafId = requestAnimationFrame(draw); return; }
-
-          // Тот же вертикальный сдвиг, что и у контейнера мозаик (thumbContainerRef/thumbPatternRef),
-          // иначе ячейки остаются в локальных координатах контейнера и уезжают за экран
-          const ty = getCurrentTyPx();
-
-          // Рисуем одно видео в каждую ячейку — только ctx операции, никаких DOM
-          const r = 12;
-          cells.forEach(cell => {
-            const cellY = cell.dstY + ty;
-            ctx.save();
-            ctx.beginPath();
-            ctx.roundRect(cell.dstX, cellY, cell.dstSize, cell.dstSize, r);
-            ctx.clip();
-            // Видео вписываем cover в ячейку
-            const vw = vid.videoWidth || 1, vh = vid.videoHeight || 1;
-            const scale = Math.max(cell.dstSize / vw, cell.dstSize / vh);
-            const sw = vw * scale, sh = vh * scale;
-            const sx = cell.dstX + (cell.dstSize - sw) / 2;
-            const sy = cellY + (cell.dstSize - sh) / 2;
-            ctx.drawImage(vid, sx, sy, sw, sh);
-            ctx.restore();
-          });
-          rafId = requestAnimationFrame(draw);
-        };
-        draw();
-      };
-    }, 40000);
-    return () => clearTimeout(t);
-  }, []);
 
   // Автоскролл — единоразово, только после экрана загрузки
   useEffect(() => {
@@ -2470,21 +2242,6 @@ export default function Home() {
           ))}
         </div>
 
-        {/* yop.mp4 — видео через ячейки, рисуется на canvas для производительности */}
-        <canvas id="yop-canvas" style={{
-          position: "fixed", inset: 0, zIndex: 3,
-          width: "100%", height: "100%",
-          pointerEvents: "none",
-          opacity: yopOpacity * pinkOpacity,
-          display: yopOpacity > 0 ? "block" : "none",
-        }} />
-        <video
-          ref={yopVideoRef}
-          src="/yop.mp4"
-          muted loop playsInline
-          style={{ display: "none" }}
-        />
-
         {/* КУБИКИ — поверх картинок и узоров */}
         <div style={{ position: "absolute", inset: 0, zIndex: 4, opacity: pinkOpacity, pointerEvents: "none" }}>
           {FLOATING_INIT.map((cfg, i) => (
@@ -2495,25 +2252,27 @@ export default function Home() {
           ))}
         </div>
 
-        {/* Сухарик — всегда видим, на всех секциях */}
-        <img
-          ref={sugRef}
-          src="/sug.png"
-          alt=""
-          style={{
-            position: "fixed",
-            width: `${sugPhys.current.size}px`,
-            height: `${sugPhys.current.size}px`,
-            objectFit: "contain",
-            pointerEvents: "none",
-            willChange: "transform,left,top",
-            transformOrigin: "center center",
-            zIndex: 9,
-            opacity: sugOpacity,
-            filter: `drop-shadow(0 4px 12px rgba(0,0,0,0.4)) blur(${(1 - sugOpacity) * 8}px)`,
-            transition: "opacity 0.05s, filter 0.05s",
-          }}
-        />
+        {/* Сухарик — только на время экрана загрузки, исчезает вместе с ним */}
+        {overlayOpacity > 0 && (
+          <img
+            ref={sugRef}
+            src="/sug.png"
+            alt=""
+            style={{
+              position: "fixed",
+              width: `${sugPhys.current.size}px`,
+              height: `${sugPhys.current.size}px`,
+              objectFit: "contain",
+              pointerEvents: "none",
+              willChange: "transform,left,top",
+              transformOrigin: "center center",
+              zIndex: 9,
+              opacity: overlayOpacity,
+              filter: `drop-shadow(0 4px 12px rgba(0,0,0,0.4)) blur(${(1 - overlayOpacity) * 8}px)`,
+              transition: "opacity 0.05s, filter 0.05s",
+            }}
+          />
+        )}
 
         {/* I DO DESIGN + биография */}
         {/* Экран загрузки — слова по центру */}
@@ -2618,7 +2377,7 @@ function ThumbItem({ thumb }: { thumb: Thumbnail }) {
         ref.current.style.top = `${thumb.dstY}px`;
         ref.current.style.width = `${thumb.dstSize}px`;
         ref.current.style.height = `${thumb.dstSize}px`;
-        ref.current.style.borderRadius = "12px";
+        ref.current.style.borderRadius = "16px";
       });
       return () => cancelAnimationFrame(r2);
     });
@@ -2640,7 +2399,7 @@ function ThumbItem({ thumb }: { thumb: Thumbnail }) {
         pointerEvents: "none",
       }}
     >
-      <img ref={imgRef} src={thumb.src} alt="" style={{ width: "100%", height: "100%", display: "block", objectFit: "cover", padding: "12%", boxSizing: "border-box" }} />
+      <img ref={imgRef} src={thumb.src} alt="" style={{ width: "100%", height: "100%", display: "block", objectFit: "cover" }} />
     </div>
   );
 }
