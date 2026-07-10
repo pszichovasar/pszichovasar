@@ -91,6 +91,7 @@ type Thumbnail = {
   src: string;
   srcX: number; srcY: number; srcW: number; srcH: number;
   dstX: number; dstY: number; dstSize: number;
+  bgColor?: string; // цвет из самой мозаики — виден в отступе при лёгком уменьшении узора в ячейке
 };
 
 // Заливка как в Paint: линии-разделители создают области, flood-fill заливает каждую ярким цветом.
@@ -99,15 +100,15 @@ function buildColoredMosaic(
   trails: { x: number; y: number }[][],
   minX: number, minY: number,
   cropW: number, cropH: number
-): string | null {
+): { src: string; bgColor: string } | null {
   const SIZE = 400;
   const scale = Math.min(SIZE / Math.max(cropW, cropH, 1), 4);
   const w = Math.max(4, Math.round(cropW * scale));
   const h = Math.max(4, Math.round(cropH * scale));
 
-  // Узор занимает весь канвас как есть — без отступа. Уменьшение до размера
-  // ячейки происходит отдельно, плавным CSS-переходом width/height в ThumbItem,
-  // пока миниатюра летит на своё место в сетке.
+  // Узор занимает весь канвас как есть — без отступа при захвате. Уменьшение
+  // до размера ячейки, и лёгкий цветной отступ вокруг узора — отдельно,
+  // плавной анимацией в ThumbItem, пока миниатюра летит на своё место в сетке.
   const adjMinX = minX;
   const adjMinY = minY;
 
@@ -126,7 +127,7 @@ function buildColoredMosaic(
   if (!trails.length || trails.every(t => t.length < 2)) {
     ctx.fillStyle = `rgb(${COLORS[0].join(',')})`;
     ctx.fillRect(0, 0, w, h);
-    return canvas.toDataURL("image/png");
+    return { src: canvas.toDataURL("image/png"), bgColor: `rgb(${COLORS[0].join(',')})` };
   }
 
   ctx.fillStyle = "#111";
@@ -184,6 +185,7 @@ function buildColoredMosaic(
   const visited = new Uint8Array(n);
   const queue = new Int32Array(n);
   const recentColors: number[] = [];
+  let bgColor: [number, number, number] | null = null; // цвет первой (обычно самой крупной/фоновой) залитой области
 
   for (let start = 0; start < n; start++) {
     if (visited[start] || isBorder(start)) continue;
@@ -194,6 +196,7 @@ function buildColoredMosaic(
     }
     recentColors.push(ci); if (recentColors.length > 4) recentColors.shift();
     const [cr, cg, cb] = COLORS[ci];
+    if (!bgColor) bgColor = [cr, cg, cb];
     let qH = 0, qT = 0;
     queue[qT++] = start; visited[start] = 1;
     while (qH < qT) {
@@ -213,7 +216,7 @@ function buildColoredMosaic(
   // Тонкие чёрные линии поверх — точный контур
   drawTrails("#000", Math.max(0.8, 0.8 * scale));
 
-  return canvas.toDataURL("image/png");
+  return { src: canvas.toDataURL("image/png"), bgColor: bgColor ? `rgb(${bgColor.join(',')})` : "#333" };
 }
 
 // Реальные созвездия — нормализованные координаты [0..1] и линии между звёздами
@@ -1166,18 +1169,13 @@ export default function Home() {
       });
       if (!isFinite(minX)) return;
       const VW = window.innerWidth, VH = window.innerHeight;
-      const minSide = Math.min(VW, VH);
       const pad = 10;
       minX = Math.max(0, minX - pad); minY = Math.max(0, minY - pad);
-      maxX += pad; maxY += pad;
-      // Если фигура маленькая — расширяем crop до minSide
-      if ((maxX - minX) < minSide || (maxY - minY) < minSide) {
-        const centerX = (minX + maxX) / 2, centerY = (minY + maxY) / 2;
-        minX = Math.max(0, centerX - minSide / 2);
-        minY = Math.max(0, centerY - minSide / 2);
-        maxX = Math.min(VW, centerX + minSide / 2);
-        maxY = Math.min(VH, centerY + minSide / 2);
-      }
+      maxX = Math.min(VW, maxX + pad); maxY = Math.min(VH, maxY + pad);
+      // Никогда не форсим квадрат minSide×minSide — это раньше могло СЖИМАТЬ
+      // (обрезать) вытянутый узор, если он был шире/выше minSide только по
+      // одной оси. Захват всегда точно по фактической рамке узора; лёгкое
+      // "уменьшение с отступом" — отдельно, при анимации перелёта в ThumbItem.
       const cropW = Math.max(1, maxX - minX);
       const cropH = Math.max(1, maxY - minY);
       const dpr = window.devicePixelRatio || 1;
@@ -1188,29 +1186,31 @@ export default function Home() {
       if (ctx2) ctx2.drawImage(snap, minX * dpr, minY * dpr, cropW * dpr, cropH * dpr, 0, 0, crop.width, crop.height);
       const src = crop.toDataURL("image/png");
       const SW = window.innerWidth, SH = window.innerHeight;
-      const tyPx = getBaseTyPx(); // фиксированная точка отсчёта — сетка не плывёт от скролла
       const isMobile = SW <= 768;
       const DST_SIZE = isMobile ? 57 : 170;
       const GAP = 8;
       const cellW = DST_SIZE + GAP, cellH = DST_SIZE + GAP;
       const cols = Math.floor(SW / cellW);
       const rows = Math.floor(SH / cellH);
-      const totalCells = Math.max(1, cols * rows);
 
       thumbIdRef.current++;
       const newId = thumbIdRef.current;
 
       setThumbnails(prev => {
-        // Сравниваем в экранных координатах (dstY + tyPx = экранная Y)
+        // Контейнер сетки больше НЕ уезжает со скроллом (см. JSX/applyAnimations) —
+        // локальные координаты ячейки ВСЕГДА совпадают с экранными, поэтому dstY
+        // ничего не вычитает и всегда в пределах активного экрана.
         const occupied = new Set<number>();
         prev.forEach(t => {
-          const col = Math.round(t.dstX / cellW);
-          const row = Math.round((t.dstY + tyPx) / cellH);
+          const col = Math.round((t.dstX - GAP / 2) / cellW);
+          const row = Math.round((t.dstY - GAP / 2) / cellH);
           occupied.add(row * cols + col);
         });
         const freeCells: number[] = [];
-        for (let i = 0; i < totalCells; i++) {
-          if (!occupied.has(i)) freeCells.push(i);
+        for (let row = 0; row < rows; row++) {
+          for (let col = 0; col < cols; col++) {
+            if (!occupied.has(row * cols + col)) freeCells.push(row * cols + col);
+          }
         }
         for (let i = freeCells.length - 1; i > 0; i--) {
           const j = Math.floor(Math.random() * (i + 1));
@@ -1223,16 +1223,16 @@ export default function Home() {
           const col = freeCell % cols;
           const row = Math.floor(freeCell / cols);
           dstX = col * cellW + GAP / 2;
-          dstY = row * cellH + GAP / 2 - tyPx; // переводим из экранных в координаты контейнера
+          dstY = row * cellH + GAP / 2;
         } else {
           const oldest = prev.reduce((a, b) => a.id < b.id ? a : b);
           dstX = oldest.dstX; dstY = oldest.dstY;
           nextPrev = prev.filter(t => t.id !== oldest.id);
         }
-        return [...nextPrev, { id: newId, src, srcX: minX, srcY: minY - tyPx, srcW: cropW, srcH: cropH, dstX, dstY, dstSize: DST_SIZE }];
+        return [...nextPrev, { id: newId, src, srcX: minX, srcY: minY, srcW: cropW, srcH: cropH, dstX, dstY, dstSize: DST_SIZE }];
       });
-      const mosaicSrc = buildColoredMosaic([pts], minX, minY, cropW, cropH);
-      if (mosaicSrc) setThumbnails(prev => prev.map(t => t.id === newId ? { ...t, src: mosaicSrc } : t));
+      const mosaic = buildColoredMosaic([pts], minX, minY, cropW, cropH);
+      if (mosaic) setThumbnails(prev => prev.map(t => t.id === newId ? { ...t, src: mosaic.src, bgColor: mosaic.bgColor } : t));
     };
 
     const makeMosaic = (trails: { x: number, y: number }[][], _snap?: HTMLCanvasElement) => {
@@ -1246,17 +1246,11 @@ export default function Home() {
       }));
       if (!isFinite(minX)) return;
       const WW = window.innerWidth, HH = window.innerHeight;
-      const minSide2 = Math.min(WW, HH);
       const pad = 10;
       minX = Math.max(0, minX - pad); minY = Math.max(0, minY - pad);
-      maxX += pad; maxY += pad;
-      if ((maxX - minX) < minSide2 || (maxY - minY) < minSide2) {
-        const centerX = (minX + maxX) / 2, centerY = (minY + maxY) / 2;
-        minX = Math.max(0, centerX - minSide2 / 2);
-        minY = Math.max(0, centerY - minSide2 / 2);
-        maxX = Math.min(WW, centerX + minSide2 / 2);
-        maxY = Math.min(HH, centerY + minSide2 / 2);
-      }
+      maxX = Math.min(WW, maxX + pad); maxY = Math.min(HH, maxY + pad);
+      // Тот же принцип, что и в makeMosaicFromSnap — без форс-квадрата minSide,
+      // который мог обрезать вытянутые трейлы.
       const cropW = Math.max(1, maxX - minX);
       const cropH = Math.max(1, maxY - minY);
       const dpr = window.devicePixelRatio || 1;
@@ -1267,26 +1261,28 @@ export default function Home() {
       if (ctx2) ctx2.drawImage(c, minX * dpr, minY * dpr, cropW * dpr, cropH * dpr, 0, 0, crop.width, crop.height);
       const src = crop.toDataURL("image/png");
       const W = window.innerWidth, H = window.innerHeight;
-      const tyPx2 = getBaseTyPx(); // фиксированная точка отсчёта — сетка не плывёт от скролла
       const isMobile = W <= 768;
       const DST_SIZE = isMobile ? 57 : 170;
       const GAP2 = 8;
       const cellW2 = DST_SIZE + GAP2, cellH2 = DST_SIZE + GAP2;
       const cols2 = Math.floor(W / cellW2);
       const rows2 = Math.floor(H / cellH2);
-      const totalCells2 = Math.max(1, cols2 * rows2);
       thumbIdRef.current++;
       const newId = thumbIdRef.current;
       setThumbnails(prev => {
+        // См. makeMosaicFromSnap — контейнер сетки больше не двигается со
+        // скроллом, локальные координаты всегда совпадают с экранными.
         const occupied2 = new Set<number>();
         prev.forEach(t => {
-          const col = Math.round(t.dstX / cellW2);
-          const row = Math.round((t.dstY + tyPx2) / cellH2);
+          const col = Math.round((t.dstX - GAP2 / 2) / cellW2);
+          const row = Math.round((t.dstY - GAP2 / 2) / cellH2);
           occupied2.add(row * cols2 + col);
         });
         const freeCells2: number[] = [];
-        for (let i = 0; i < totalCells2; i++) {
-          if (!occupied2.has(i)) freeCells2.push(i);
+        for (let row = 0; row < rows2; row++) {
+          for (let col = 0; col < cols2; col++) {
+            if (!occupied2.has(row * cols2 + col)) freeCells2.push(row * cols2 + col);
+          }
         }
         for (let i = freeCells2.length - 1; i > 0; i--) {
           const j = Math.floor(Math.random() * (i + 1));
@@ -1299,16 +1295,16 @@ export default function Home() {
           const col = freeCell2 % cols2;
           const row = Math.floor(freeCell2 / cols2);
           dstX = col * cellW2 + GAP2 / 2;
-          dstY = row * cellH2 + GAP2 / 2 - tyPx2;
+          dstY = row * cellH2 + GAP2 / 2;
         } else {
           const oldest = prev.reduce((a, b) => a.id < b.id ? a : b);
           dstX = oldest.dstX; dstY = oldest.dstY;
           nextPrev2 = prev.filter(t => t.id !== oldest.id);
         }
-        return [...nextPrev2, { id: newId, src, srcX: minX, srcY: minY - tyPx2, srcW: cropW, srcH: cropH, dstX, dstY, dstSize: DST_SIZE }];
+        return [...nextPrev2, { id: newId, src, srcX: minX, srcY: minY, srcW: cropW, srcH: cropH, dstX, dstY, dstSize: DST_SIZE }];
       });
-      const mosaicSrc = buildColoredMosaic(trails, minX, minY, cropW, cropH);
-      if (mosaicSrc) setThumbnails(prev => prev.map(t => t.id === newId ? { ...t, src: mosaicSrc } : t));
+      const mosaic = buildColoredMosaic(trails, minX, minY, cropW, cropH);
+      if (mosaic) setThumbnails(prev => prev.map(t => t.id === newId ? { ...t, src: mosaic.src, bgColor: mosaic.bgColor } : t));
     };
 
     // Фаза 0: собираем трейлы кубиков → мозаика, затем фаза 1
@@ -1635,7 +1631,16 @@ export default function Home() {
           sg.x = W * 0.3; sg.y = H * 0.4;
           sg.initialized = true;
         }
-        const sh = sg.size / 2;
+        const halfBox = sg.size / 2; // половина квадратного контейнера — только для позиционирования
+        // Полу-ширина/высота ОСЕВОГО прямоугольника, описывающего повёрнутый силуэт.
+        // renderW/renderH — реальные (обрезанные по альфа-каналу) размеры картинки;
+        // при повороте на угол sg.ang их проекция на оси экрана растёт (макс. на
+        // диагонали ~45°) — без этого пересчёта отскок не совпадал бы с тем,
+        // что видно на экране, когда сухарик повёрнут.
+        const hw0 = sg.renderW / 2, hh0 = sg.renderH / 2;
+        const cosA = Math.abs(Math.cos(sg.ang)), sinA = Math.abs(Math.sin(sg.ang));
+        const shX = hw0 * cosA + hh0 * sinA;
+        const shY = hw0 * sinA + hh0 * cosA;
 
         // Физика — естественная, почти без затухания
         sg.vx *= 0.995;
@@ -1645,24 +1650,24 @@ export default function Home() {
         sg.y += sg.vy * dt;
         sg.ang += sg.rotSpeed * dt;
 
-        // Отскок от краёв с передачей момента вращения (torque)
-        if (sg.x < sh) {
-          sg.x = sh;
+        // Отскок от краёв с передачей момента вращения (torque) — по размерам самой картинки
+        if (sg.x < shX) {
+          sg.x = shX;
           sg.vx = Math.abs(sg.vx) * 0.75;
           sg.rotSpeed += sg.vy * 0.004;
         }
-        if (sg.x > W - sh) {
-          sg.x = W - sh;
+        if (sg.x > W - shX) {
+          sg.x = W - shX;
           sg.vx = -Math.abs(sg.vx) * 0.75;
           sg.rotSpeed -= sg.vy * 0.004;
         }
-        if (sg.y < sh) {
-          sg.y = sh;
+        if (sg.y < shY) {
+          sg.y = shY;
           sg.vy = Math.abs(sg.vy) * 0.75;
           sg.rotSpeed += sg.vx * 0.004;
         }
-        if (sg.y > H - sh) {
-          sg.y = H - sh;
+        if (sg.y > H - shY) {
+          sg.y = H - shY;
           sg.vy = -Math.abs(sg.vy) * 0.75;
           sg.rotSpeed -= sg.vx * 0.004;
         }
@@ -1671,9 +1676,9 @@ export default function Home() {
         sg.vx += gyroRef.current.gx * dt;
         sg.vy += gyroRef.current.gy * dt;
 
-        // Рендер
-        sugEl.style.left = `${sg.x - sh}px`;
-        sugEl.style.top = `${sg.y - sh}px`;
+        // Рендер — квадратный контейнер по-прежнему центрируем по halfBox
+        sugEl.style.left = `${sg.x - halfBox}px`;
+        sugEl.style.top = `${sg.y - halfBox}px`;
         sugEl.style.transform = `rotate(${sg.ang}rad)`;
       }
       if (trailCanvas && !autoDrawActiveRef.current) {
@@ -1768,7 +1773,13 @@ export default function Home() {
   // Видим только пока идёт экран загрузки — исчезает вместе с ним (через overlayOpacity),
   // без отдельного таймера/состояния.
   const sugRef = useRef<HTMLImageElement>(null);
-  const sugPhys = useRef({ x: 0, y: 0, vx: 180, vy: -220, ang: 0, rotSpeed: 0.3, initialized: false, size: typeof window !== 'undefined' && window.innerWidth <= 768 ? 160 : 320 });
+  const sugPhys = useRef((() => {
+    const s = typeof window !== 'undefined' && window.innerWidth <= 768 ? 160 : 320;
+    // renderW/renderH — реальные размеры картинки внутри квадратного контейнера
+    // (с учётом object-fit:contain и её собственного aspect ratio). Уточняются
+    // в onLoad на <img>; до загрузки — считаем квадратом (как сейчас).
+    return { x: 0, y: 0, vx: 180, vy: -220, ang: 0, rotSpeed: 0.3, initialized: false, size: s, renderW: s, renderH: s };
+  })());
 
   // Через 11 секунд после монтирования — взрыв текста (буквы/слова разлетаются).
   // Раньше это ждало window.onload + 11с, что на медленной сети рассинхронизировалось
@@ -1927,26 +1938,6 @@ export default function Home() {
   const thumbContainerRef = useRef<HTMLDivElement>(null);
   const thumbPatternRef = useRef<HTMLDivElement>(null);
 
-  // Текущий сдвиг iDoDesignRef в пикселях (нужен для корректировки координат)
-  const getCurrentTyPx = () => {
-    const unit = scrollRef.current / SCROLL_PER_UNIT;
-    let ty: number;
-    if (unit <= 0.35) ty = (1 - unit / 0.35) * 110;
-    else if (unit <= 0.75) ty = -((unit - 0.35) / 0.4) * 110;
-    else ty = -110;
-    return ty / 100 * window.innerHeight;
-  };
-
-  // Фиксированная точка отсчёта ДЛЯ РАСКЛАДКИ МОЗАИК В СЕТКЕ — совпадает с
-  // getCurrentTyPx() при scrollRef.current === 0, но НЕ зависит от текущего
-  // скролла. Если брать живой getCurrentTyPx() в момент каждого нового
-  // захвата, сетка "плывёт": скролл — величина непрерывная, а не кратная
-  // высоте ячейки, поэтому мозаики, созданные до и после скролла, перестают
-  // совпадать по рядам/колонкам и накладываются друг на друга. Сам контейнер
-  // (thumbContainerRef/thumbPatternRef) по-прежнему двигается со скроллом
-  // как единое целое — меняется только опорная точка для раскладки.
-  const getBaseTyPx = () => 110 / 100 * window.innerHeight;
-
   const applyAnimations = (scrollY: number, deltaY = 0) => {
     const unit = scrollY / SCROLL_PER_UNIT;
     setPinkOpacity(Math.max(0, 1 - Math.max(0, (unit - 0.8) / 0.4)));
@@ -1964,18 +1955,6 @@ export default function Home() {
       iDoDesignRef.current.style.transform = `translateY(${unit <= 0 ? 0 : unit <= 0.35 ? -(unit / 0.35) * 110 : -110
         }vh)`;
       iDoDesignRef.current.style.opacity = unit > 0.5 ? "0" : "1";
-    }
-    // thumbContainer двигается вместе с iDoDesignRef (тот же translateY)
-    if (thumbContainerRef.current) {
-      const unit2 = scrollY / SCROLL_PER_UNIT;
-      let ty2: number;
-      if (unit2 <= 0.35) ty2 = (1 - unit2 / 0.35) * 110;
-      else if (unit2 <= 0.75) ty2 = -((unit2 - 0.35) / 0.4) * 110;
-      else ty2 = -110;
-      thumbContainerRef.current.style.transform = `translateY(${ty2}vh)`;
-      if (thumbPatternRef.current) {
-        thumbPatternRef.current.style.transform = `translateY(${ty2}vh)`;
-      }
     }
     if (deltaY > 0 && unit < 0.9) {
       physState.current.forEach(s => { if (!s.initialized) return; s.vy -= Math.min(deltaY * 18, 900); s.rotSpeed += (Math.random() - 0.5) * 4; });
@@ -2233,13 +2212,15 @@ export default function Home() {
           <div ref={overlayRef} style={{ position: "absolute", inset: 0, zIndex: 10, pointerEvents: (showContact || !!selectedImg) ? "none" : "auto", cursor: "none" }} />
         </div>
 
-        {/* Картинки и узоры — ниже кубиков */}
-        {/* Картинки — полностью непрозрачные, исчезают только со скроллом */}
-        <div ref={thumbContainerRef} style={{ position: "absolute", inset: 0, zIndex: 3, pointerEvents: "none", transform: "translateY(110vh)", willChange: "transform", opacity: pinkOpacity }}>
+        {/* Картинки и узоры — ниже кубиков. Контейнер НЕ уезжает со скроллом
+            (раньше двигался вместе с iDoDesignRef и почти всё время был выше/ниже
+            экрана, из-за чего новые мозаики попадали в невидимую область) —
+            теперь всегда на месте, угасает вместе с кубиками через pinkOpacity */}
+        <div ref={thumbContainerRef} style={{ position: "absolute", inset: 0, zIndex: 3, pointerEvents: "none", opacity: pinkOpacity }}>
         </div>
 
         {/* Узоры — 50% прозрачность */}
-        <div ref={thumbPatternRef} style={{ position: "absolute", inset: 0, zIndex: 3, pointerEvents: "none", transform: "translateY(110vh)", willChange: "transform", opacity: pinkOpacity * 0.5 }}>
+        <div ref={thumbPatternRef} style={{ position: "absolute", inset: 0, zIndex: 3, pointerEvents: "none", opacity: pinkOpacity * 0.5 }}>
           {thumbnails.map(t => (
             <ThumbItem key={t.id} thumb={t} />
           ))}
@@ -2261,6 +2242,46 @@ export default function Home() {
             ref={sugRef}
             src="/sug.png"
             alt=""
+            onLoad={(e) => {
+              // Точные видимые размеры картинки — обрезаем прозрачные поля по
+              // альфа-каналу (в PNG может быть лишний прозрачный отступ вокруг
+              // самого силуэта), а не берём naturalWidth/naturalHeight как есть.
+              // Отскок от стен считается именно по этому силуэту, не по всему
+              // квадратному контейнеру size×size.
+              const img = e.currentTarget;
+              const nw = img.naturalWidth || 1, nh = img.naturalHeight || 1;
+              const s = sugPhys.current.size;
+              const fallback = () => {
+                const aspect = nw / nh;
+                if (aspect >= 1) { sugPhys.current.renderW = s; sugPhys.current.renderH = s / aspect; }
+                else { sugPhys.current.renderH = s; sugPhys.current.renderW = s * aspect; }
+              };
+              try {
+                const off = document.createElement("canvas");
+                off.width = nw; off.height = nh;
+                const octx = off.getContext("2d", { willReadFrequently: true });
+                if (!octx) { fallback(); return; }
+                octx.drawImage(img, 0, 0, nw, nh);
+                const { data } = octx.getImageData(0, 0, nw, nh);
+                const ALPHA_THRESHOLD = 10;
+                let minX = nw, minY = nh, maxX = -1, maxY = -1;
+                for (let y = 0; y < nh; y++) {
+                  for (let x = 0; x < nw; x++) {
+                    if (data[(y * nw + x) * 4 + 3] > ALPHA_THRESHOLD) {
+                      if (x < minX) minX = x; if (x > maxX) maxX = x;
+                      if (y < minY) minY = y; if (y > maxY) maxY = y;
+                    }
+                  }
+                }
+                if (maxX < minX || maxY < minY) { fallback(); return; }
+                const visW = maxX - minX + 1, visH = maxY - minY + 1;
+                const scale = Math.min(s / nw, s / nh); // тот же масштаб, что даёт object-fit:contain
+                sugPhys.current.renderW = visW * scale;
+                sugPhys.current.renderH = visH * scale;
+              } catch (_) {
+                fallback(); // CORS/canvas недоступен — используем пропорции всего файла
+              }
+            }}
             style={{
               position: "fixed",
               width: `${sugPhys.current.size}px`,
@@ -2381,6 +2402,13 @@ function ThumbItem({ thumb }: { thumb: Thumbnail }) {
         ref.current.style.width = `${thumb.dstSize}px`;
         ref.current.style.height = `${thumb.dstSize}px`;
         ref.current.style.borderRadius = "16px";
+        // Сам узор чуть "садится" внутрь ячейки той же анимацией, что и перелёт —
+        // получается небольшой цветной отступ по краям (виден bgColor контейнера,
+        // а не пустота/чернота), а не резкая одномоментная усадка при capture.
+        if (imgRef.current) {
+          imgRef.current.style.transition = "transform 1.4s cubic-bezier(0.65,0,0.35,1)";
+          imgRef.current.style.transform = "scale(0.9)";
+        }
       });
       return () => cancelAnimationFrame(r2);
     });
@@ -2400,9 +2428,10 @@ function ThumbItem({ thumb }: { thumb: Thumbnail }) {
         overflow: "hidden",
         opacity: 1,
         pointerEvents: "none",
+        backgroundColor: thumb.bgColor || "transparent",
       }}
     >
-      <img ref={imgRef} src={thumb.src} alt="" style={{ width: "100%", height: "100%", display: "block", objectFit: "cover" }} />
+      <img ref={imgRef} src={thumb.src} alt="" style={{ width: "100%", height: "100%", display: "block", objectFit: "contain", transformOrigin: "center center" }} />
     </div>
   );
 }
