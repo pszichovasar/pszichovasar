@@ -1566,9 +1566,12 @@ export default function Home() {
         }
       } // end iter
 
-      // Коллизия с "I DO DESIGN" swept AABB
+      // Коллизия с "I DO DESIGN" swept AABB — только пока текст реально виден
+      // (после взрыва opacity ставится в "0", но getBoundingClientRect() всё
+      // равно возвращает полный прежний прямоугольник — без этой проверки
+      // кубики продолжают биться об уже невидимый текст)
       const textEl = iDoDesignTextRef.current;
-      if (textEl) {
+      if (textEl && textEl.style.opacity !== "0") {
         const r = textEl.getBoundingClientRect();
         const prev = prevTextRectRef.current;
         const vis = r.width > 10 && r.height > 10 && r.top < H && r.bottom > 0 && r.left < W && r.right > 0;
@@ -1594,9 +1597,9 @@ export default function Home() {
         prevTextRectRef.current = vis ? r : null;
       }
 
-      // Коллизия с текстом биографии под "I DO DESIGN"
+      // Коллизия с текстом биографии под "I DO DESIGN" — только пока виден
       const bioEl = bioTextRef.current;
-      if (bioEl) {
+      if (bioEl && bioEl.style.opacity !== "0") {
         const r = bioEl.getBoundingClientRect();
         const prev = prevBioRectRef.current;
         const vis = r.width > 10 && r.height > 10 && r.top < H && r.bottom > 0 && r.left < W && r.right > 0;
