@@ -94,6 +94,20 @@ type Thumbnail = {
   bgColor?: string; // цвет из самой мозаики — виден в отступе при лёгком уменьшении узора в ячейке
 };
 
+// Вертикальный сдвиг контейнера сетки мозаик (в vh) по unit-скроллу — сетка
+// едет со скроллом (появляется, потом уезжает), как и раньше. Вынесена в
+// отдельную функцию модуля, т.к. нужна и для реального CSS-transform
+// контейнера (applyAnimations), и для перевода экранных координат в локальные
+// координаты контейнера при размещении новых мозаик (makeMosaicFromSnap/makeMosaic).
+function gridTyVh(unit: number): number {
+  if (unit <= 0.35) return (1 - unit / 0.35) * 110;
+  if (unit <= 0.75) return -((unit - 0.35) / 0.4) * 110;
+  return -110;
+}
+function gridTyPx(unit: number): number {
+  return gridTyVh(unit) / 100 * (typeof window !== "undefined" ? window.innerHeight : 0);
+}
+
 // Заливка как в Paint: линии-разделители создают области, flood-fill заливает каждую ярким цветом.
 // Фон тоже получает случайный цвет. Белого и серого нет.
 function buildColoredMosaic(
@@ -1008,6 +1022,11 @@ export default function Home() {
   // Накопленные миниатюры узоров
   const [thumbnails, setThumbnails] = useState<Thumbnail[]>([]);
   const thumbIdRef = useRef(0);
+  // Положение сетки (в px, см. gridTyPx) на МОМЕНТ НАЧАЛА текущей фазы рисования
+  // (трейлы или фигура) — используется для размещения итоговой мозаики, чтобы
+  // не зависеть от того, сколько успели проскроллить, пока фигура рисовалась
+  // несколько секунд. Обновляется в начале runPhase0/runDrawPhase.
+  const phaseStartTyPxRef = useRef(0);
   const captureCountRef = useRef(0);
   const mousePosRef = useRef({ x: 0, y: 0 });
   const autoTrailRef = useRef<{ x: number; y: number }[]>([]);
@@ -1186,6 +1205,10 @@ export default function Home() {
       if (ctx2) ctx2.drawImage(snap, minX * dpr, minY * dpr, cropW * dpr, cropH * dpr, 0, 0, crop.width, crop.height);
       const src = crop.toDataURL("image/png");
       const SW = window.innerWidth, SH = window.innerHeight;
+      // Живое положение экрана ПРЯМО СЕЙЧАС — нужно (а) перевести экранную
+      // srcY захвата в локальные координаты контейнера и (б) честно проверить,
+      // где СЕЙЧАС физически находятся уже существующие плитки (см. ниже).
+      const liveTyPx = gridTyPx(scrollRef.current / SCROLL_PER_UNIT);
       const isMobile = SW <= 768;
       const DST_SIZE = isMobile ? 57 : 170;
       const GAP = 8;
@@ -1197,19 +1220,28 @@ export default function Home() {
       const newId = thumbIdRef.current;
 
       setThumbnails(prev => {
-        // Контейнер сетки больше НЕ уезжает со скроллом (см. JSX/applyAnimations) —
-        // локальные координаты ячейки ВСЕГДА совпадают с экранными, поэтому dstY
-        // ничего не вычитает и всегда в пределах активного экрана.
-        const occupied = new Set<number>();
-        prev.forEach(t => {
-          const col = Math.round((t.dstX - GAP / 2) / cellW);
-          const row = Math.round((t.dstY - GAP / 2) / cellH);
-          occupied.add(row * cols + col);
-        });
+        // Локальный dstY нового кандидата считаем относительно СТАРТА этой фазы
+        // рисования (phaseStartTyPxRef) — так итоговая позиция не прыгает от
+        // того, сколько успели проскроллить за секунды, пока фигура рисовалась.
+        // А вот занятость ячейки проверяем по ЖИВОЙ ТЕКУЩЕЙ экранной позиции —
+        // и кандидата, и уже существующих плиток, приведённых к ОДНОМУ и тому
+        // же моменту (liveTyPx) — иначе сравнение "врёт" и наложение проходит
+        // незамеченным (округление до номера ряда одной и той же плитки может
+        // дать разный "ряд" до и после скролла).
+        const MARGIN = 2;
         const freeCells: number[] = [];
         for (let row = 0; row < rows; row++) {
           for (let col = 0; col < cols; col++) {
-            if (!occupied.has(row * cols + col)) freeCells.push(row * cols + col);
+            const candDstX = col * cellW + GAP / 2;
+            const candDstY = row * cellH + GAP / 2 - phaseStartTyPxRef.current;
+            const candScreenY0 = candDstY + liveTyPx;
+            const candScreenY1 = candScreenY0 + DST_SIZE;
+            const overlaps = prev.some(t => {
+              if (Math.round(t.dstX / cellW) !== Math.round(candDstX / cellW)) return false;
+              const tY0 = t.dstY + liveTyPx, tY1 = tY0 + t.dstSize;
+              return candScreenY0 < tY1 + MARGIN && candScreenY1 + MARGIN > tY0;
+            });
+            if (!overlaps) freeCells.push(row * cols + col);
           }
         }
         for (let i = freeCells.length - 1; i > 0; i--) {
@@ -1223,13 +1255,13 @@ export default function Home() {
           const col = freeCell % cols;
           const row = Math.floor(freeCell / cols);
           dstX = col * cellW + GAP / 2;
-          dstY = row * cellH + GAP / 2;
+          dstY = row * cellH + GAP / 2 - phaseStartTyPxRef.current;
         } else {
           const oldest = prev.reduce((a, b) => a.id < b.id ? a : b);
           dstX = oldest.dstX; dstY = oldest.dstY;
           nextPrev = prev.filter(t => t.id !== oldest.id);
         }
-        return [...nextPrev, { id: newId, src, srcX: minX, srcY: minY, srcW: cropW, srcH: cropH, dstX, dstY, dstSize: DST_SIZE }];
+        return [...nextPrev, { id: newId, src, srcX: minX, srcY: minY - liveTyPx, srcW: cropW, srcH: cropH, dstX, dstY, dstSize: DST_SIZE }];
       });
       const mosaic = buildColoredMosaic([pts], minX, minY, cropW, cropH);
       if (mosaic) setThumbnails(prev => prev.map(t => t.id === newId ? { ...t, src: mosaic.src, bgColor: mosaic.bgColor } : t));
@@ -1261,6 +1293,7 @@ export default function Home() {
       if (ctx2) ctx2.drawImage(c, minX * dpr, minY * dpr, cropW * dpr, cropH * dpr, 0, 0, crop.width, crop.height);
       const src = crop.toDataURL("image/png");
       const W = window.innerWidth, H = window.innerHeight;
+      const liveTyPx2 = gridTyPx(scrollRef.current / SCROLL_PER_UNIT);
       const isMobile = W <= 768;
       const DST_SIZE = isMobile ? 57 : 170;
       const GAP2 = 8;
@@ -1270,18 +1303,23 @@ export default function Home() {
       thumbIdRef.current++;
       const newId = thumbIdRef.current;
       setThumbnails(prev => {
-        // См. makeMosaicFromSnap — контейнер сетки больше не двигается со
-        // скроллом, локальные координаты всегда совпадают с экранными.
-        const occupied2 = new Set<number>();
-        prev.forEach(t => {
-          const col = Math.round((t.dstX - GAP2 / 2) / cellW2);
-          const row = Math.round((t.dstY - GAP2 / 2) / cellH2);
-          occupied2.add(row * cols2 + col);
-        });
+        // См. makeMosaicFromSnap — dstY кандидата привязан к старту фазы
+        // (phaseStartTyPxRef), занятость проверяется по живому текущему
+        // положению (liveTyPx2), приведённому к одному моменту для всех.
+        const MARGIN2 = 2;
         const freeCells2: number[] = [];
         for (let row = 0; row < rows2; row++) {
           for (let col = 0; col < cols2; col++) {
-            if (!occupied2.has(row * cols2 + col)) freeCells2.push(row * cols2 + col);
+            const candDstX = col * cellW2 + GAP2 / 2;
+            const candDstY = row * cellH2 + GAP2 / 2 - phaseStartTyPxRef.current;
+            const candScreenY0 = candDstY + liveTyPx2;
+            const candScreenY1 = candScreenY0 + DST_SIZE;
+            const overlaps = prev.some(t => {
+              if (Math.round(t.dstX / cellW2) !== Math.round(candDstX / cellW2)) return false;
+              const tY0 = t.dstY + liveTyPx2, tY1 = tY0 + t.dstSize;
+              return candScreenY0 < tY1 + MARGIN2 && candScreenY1 + MARGIN2 > tY0;
+            });
+            if (!overlaps) freeCells2.push(row * cols2 + col);
           }
         }
         for (let i = freeCells2.length - 1; i > 0; i--) {
@@ -1295,13 +1333,13 @@ export default function Home() {
           const col = freeCell2 % cols2;
           const row = Math.floor(freeCell2 / cols2);
           dstX = col * cellW2 + GAP2 / 2;
-          dstY = row * cellH2 + GAP2 / 2;
+          dstY = row * cellH2 + GAP2 / 2 - phaseStartTyPxRef.current;
         } else {
           const oldest = prev.reduce((a, b) => a.id < b.id ? a : b);
           dstX = oldest.dstX; dstY = oldest.dstY;
           nextPrev2 = prev.filter(t => t.id !== oldest.id);
         }
-        return [...nextPrev2, { id: newId, src, srcX: minX, srcY: minY, srcW: cropW, srcH: cropH, dstX, dstY, dstSize: DST_SIZE }];
+        return [...nextPrev2, { id: newId, src, srcX: minX, srcY: minY - liveTyPx2, srcW: cropW, srcH: cropH, dstX, dstY, dstSize: DST_SIZE }];
       });
       const mosaic = buildColoredMosaic(trails, minX, minY, cropW, cropH);
       if (mosaic) setThumbnails(prev => prev.map(t => t.id === newId ? { ...t, src: mosaic.src, bgColor: mosaic.bgColor } : t));
@@ -1315,6 +1353,9 @@ export default function Home() {
     // Общая функция отрисовки любого набора точек → мозаика → следующая фаза
     const runDrawPhase = (pts: { x: number; y: number }[], onDone: () => void, durationMs = 5000) => {
       if (!activeRef.current || pts.length === 0) { onDone(); return; }
+      // Фиксируем экран НА СТАРТЕ рисования — а не там, где скролл окажется
+      // несколько секунд спустя, когда фигура уже дорисуется и захватится.
+      phaseStartTyPxRef.current = gridTyPx(scrollRef.current / SCROLL_PER_UNIT);
       autoDrawActiveRef.current = true;
       physState.current.forEach(s => { s.trail = []; });
       clearCanvas();
@@ -1388,6 +1429,8 @@ export default function Home() {
     // Фаза 0: трейлы кубиков 5 сек → мозаика → геометрия
     const runPhase0 = () => {
       if (!activeRef.current) return;
+      // Фиксируем экран на старте накопления трейлов — см. runDrawPhase выше.
+      phaseStartTyPxRef.current = gridTyPx(scrollRef.current / SCROLL_PER_UNIT);
       autoDrawActiveRef.current = false;
       schedTimer = setTimeout(() => {
         if (!activeRef.current) return;
@@ -1956,6 +1999,16 @@ export default function Home() {
         }vh)`;
       iDoDesignRef.current.style.opacity = unit > 0.5 ? "0" : "1";
     }
+    // thumbContainer двигается вместе с iDoDesignRef (тот же translateY) —
+    // сама сетка мозаик едет со скроллом; куда ИМЕННО в неё встаёт новая
+    // плитка — отдельный вопрос, см. gridTyPx()/phaseStartTyPxRef ниже.
+    if (thumbContainerRef.current) {
+      const ty2 = gridTyVh(unit);
+      thumbContainerRef.current.style.transform = `translateY(${ty2}vh)`;
+      if (thumbPatternRef.current) {
+        thumbPatternRef.current.style.transform = `translateY(${ty2}vh)`;
+      }
+    }
     if (deltaY > 0 && unit < 0.9) {
       physState.current.forEach(s => { if (!s.initialized) return; s.vy -= Math.min(deltaY * 18, 900); s.rotSpeed += (Math.random() - 0.5) * 4; });
       wordPhysRef.current.forEach(wp => { wp.vy -= Math.min(deltaY * 18, 900); wp.rotSpeed += (Math.random() - 0.5) * 4; });
@@ -2212,15 +2265,12 @@ export default function Home() {
           <div ref={overlayRef} style={{ position: "absolute", inset: 0, zIndex: 10, pointerEvents: (showContact || !!selectedImg) ? "none" : "auto", cursor: "none" }} />
         </div>
 
-        {/* Картинки и узоры — ниже кубиков. Контейнер НЕ уезжает со скроллом
-            (раньше двигался вместе с iDoDesignRef и почти всё время был выше/ниже
-            экрана, из-за чего новые мозаики попадали в невидимую область) —
-            теперь всегда на месте, угасает вместе с кубиками через pinkOpacity */}
-        <div ref={thumbContainerRef} style={{ position: "absolute", inset: 0, zIndex: 3, pointerEvents: "none", opacity: pinkOpacity }}>
+        {/* Картинки и узоры — ниже кубиков */}
+        <div ref={thumbContainerRef} style={{ position: "absolute", inset: 0, zIndex: 3, pointerEvents: "none", transform: "translateY(110vh)", willChange: "transform", opacity: pinkOpacity }}>
         </div>
 
         {/* Узоры — 50% прозрачность */}
-        <div ref={thumbPatternRef} style={{ position: "absolute", inset: 0, zIndex: 3, pointerEvents: "none", opacity: pinkOpacity * 0.5 }}>
+        <div ref={thumbPatternRef} style={{ position: "absolute", inset: 0, zIndex: 3, pointerEvents: "none", transform: "translateY(110vh)", willChange: "transform", opacity: pinkOpacity * 0.5 }}>
           {thumbnails.map(t => (
             <ThumbItem key={t.id} thumb={t} />
           ))}
@@ -2387,26 +2437,37 @@ function ThumbItem({ thumb }: { thumb: Thumbnail }) {
     const el = ref.current;
     if (!el) return;
 
+    // Небольшой случайный перекос на старте — будто плитку слегка повело на
+    // лету — и он плавно выпрямляется при посадке, вместе с остальным.
+    const startRot = (Math.random() - 0.5) * 14; // ±7°
+    el.style.transform = `rotate(${startRot}deg)`;
+
     const r1 = requestAnimationFrame(() => {
       const r2 = requestAnimationFrame(() => {
         if (!ref.current) return;
+        // "Settle with overshoot" — лёгкий перелёт и оседание, как магнитный
+        // щелчок, а не монотонное скольжение. Заметно медленнее прежнего.
+        const SETTLE = "cubic-bezier(0.34,1.56,0.64,1)";
         ref.current.style.transition = [
-          "left 1.4s cubic-bezier(0.65,0,0.35,1)",
-          "top 1.4s cubic-bezier(0.65,0,0.35,1)",
-          "width 1.4s cubic-bezier(0.65,0,0.35,1)",
-          "height 1.4s cubic-bezier(0.65,0,0.35,1)",
-          "border-radius 1.4s cubic-bezier(0.65,0,0.35,1)",
+          `left 2.6s ${SETTLE}`,
+          `top 2.6s ${SETTLE}`,
+          `width 2.6s ${SETTLE}`,
+          `height 2.6s ${SETTLE}`,
+          `transform 2.1s ${SETTLE}`,
+          "border-radius 2.6s ease-out",
         ].join(",");
         ref.current.style.left = `${thumb.dstX}px`;
         ref.current.style.top = `${thumb.dstY}px`;
         ref.current.style.width = `${thumb.dstSize}px`;
         ref.current.style.height = `${thumb.dstSize}px`;
         ref.current.style.borderRadius = "16px";
-        // Сам узор чуть "садится" внутрь ячейки той же анимацией, что и перелёт —
-        // получается небольшой цветной отступ по краям (виден bgColor контейнера,
-        // а не пустота/чернота), а не резкая одномоментная усадка при capture.
+        ref.current.style.transform = "rotate(0deg)";
+        // Сам узор "садится" внутрь ячейки отдельным, чуть запаздывающим тактом —
+        // сперва плитка долетает и выпрямляется, потом узор плавно усаживается
+        // внутрь, открывая цветной отступ по краям (виден bgColor контейнера,
+        // а не пустота/чернота) — не резкая одномоментная усадка при capture.
         if (imgRef.current) {
-          imgRef.current.style.transition = "transform 1.4s cubic-bezier(0.65,0,0.35,1)";
+          imgRef.current.style.transition = `transform 2s ${SETTLE} 0.5s`;
           imgRef.current.style.transform = "scale(0.9)";
         }
       });
