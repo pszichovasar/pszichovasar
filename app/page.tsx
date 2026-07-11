@@ -2437,24 +2437,30 @@ function ThumbItem({ thumb }: { thumb: Thumbnail }) {
     const el = ref.current;
     if (!el) return;
 
-    // Небольшой случайный перекос на старте — будто плитку слегка повело на
-    // лету — и он плавно выпрямляется при посадке, вместе с остальным.
-    const startRot = (Math.random() - 0.5) * 14; // ±7°
+    // Случайные параметры на плитку — разнообразие достигается ЧЕРЕЗ ПОВОРОТ
+    // И ДВИЖЕНИЕ (позиция), а не через скейл: у размера/масштаба переброса нет
+    // вообще, иначе ширина и высота (едущие на разное расстояние — например,
+    // ширина с 1400px, высота с 200px, обе к 170px) перелетают и оседают не в
+    // унисон, и плитку на мгновение расплющивает/сжимает меньше финального.
+    const dur = 2.3 + Math.random() * 0.9; // 2.3–3.2s — общая длительность перелёта
+    const overshoot = 1.25 + Math.random() * 0.55; // 1.25–1.8 — сила "пружины" у позиции/поворота
+    const startRot = (Math.random() - 0.5) * 20; // ±10° — на старте слегка повело
+    const rotDur = dur * (0.7 + Math.random() * 0.25); // поворот выпрямляется чуть раньше или позже перелёта
+    const BOUNCE = `cubic-bezier(0.34,${overshoot.toFixed(2)},0.64,1)`; // для left/top/transform — переброс тут безопасен
+    const SMOOTH = "cubic-bezier(0.16,1,0.3,1)"; // ease-out-expo, БЕЗ переброса — для width/height/scale
+
     el.style.transform = `rotate(${startRot}deg)`;
 
     const r1 = requestAnimationFrame(() => {
       const r2 = requestAnimationFrame(() => {
         if (!ref.current) return;
-        // "Settle with overshoot" — лёгкий перелёт и оседание, как магнитный
-        // щелчок, а не монотонное скольжение. Заметно медленнее прежнего.
-        const SETTLE = "cubic-bezier(0.34,1.56,0.64,1)";
         ref.current.style.transition = [
-          `left 2.6s ${SETTLE}`,
-          `top 2.6s ${SETTLE}`,
-          `width 2.6s ${SETTLE}`,
-          `height 2.6s ${SETTLE}`,
-          `transform 2.1s ${SETTLE}`,
-          "border-radius 2.6s ease-out",
+          `left ${dur.toFixed(2)}s ${BOUNCE}`,
+          `top ${dur.toFixed(2)}s ${BOUNCE}`,
+          `width ${dur.toFixed(2)}s ${SMOOTH}`,
+          `height ${dur.toFixed(2)}s ${SMOOTH}`,
+          `transform ${rotDur.toFixed(2)}s ${BOUNCE}`,
+          `border-radius ${dur.toFixed(2)}s ease-out`,
         ].join(",");
         ref.current.style.left = `${thumb.dstX}px`;
         ref.current.style.top = `${thumb.dstY}px`;
@@ -2462,12 +2468,11 @@ function ThumbItem({ thumb }: { thumb: Thumbnail }) {
         ref.current.style.height = `${thumb.dstSize}px`;
         ref.current.style.borderRadius = "16px";
         ref.current.style.transform = "rotate(0deg)";
-        // Сам узор "садится" внутрь ячейки отдельным, чуть запаздывающим тактом —
-        // сперва плитка долетает и выпрямляется, потом узор плавно усаживается
-        // внутрь, открывая цветной отступ по краям (виден bgColor контейнера,
-        // а не пустота/чернота) — не резкая одномоментная усадка при capture.
+        // Узор "садится" внутрь ячейки отдельным, чуть запаздывающим тактом —
+        // тоже без переброса (масштаб не должен пружинить, даже равномерный).
         if (imgRef.current) {
-          imgRef.current.style.transition = `transform 2s ${SETTLE} 0.5s`;
+          const scaleDelay = dur * 0.2;
+          imgRef.current.style.transition = `transform ${(dur * 0.75).toFixed(2)}s ${SMOOTH} ${scaleDelay.toFixed(2)}s`;
           imgRef.current.style.transform = "scale(0.9)";
         }
       });
