@@ -65,10 +65,12 @@ const RING_CAPACITY_REF = 15;
 // иначе радиус, нужный чтобы 15 таких плиток поместились с адекватным
 // зазором, получается слишком большим и не влезает в экран (см. R0/maxRadius
 // в animate()). Этот множитель одновременно задаёт и размер плиток/кубиков, и
-// (через ringSpacing) радиус всех колец — удвоение того и другого вместе
-// сохраняет плотность в точности неизменной, поэтому увеличение кругов и
-// увеличение плиток делается ОДНИМ и тем же изменением этого числа.
-const RING_SIZE_FACTOR = 0.5;
+// (через ringSpacing) радиус всех колец — изменение того и другого вместе
+// сохраняет плотность в точности неизменной. 0.5 оказался слишком большим —
+// и кольцо 3, и кольцо кубиков упирались в один и тот же потолок maxRadius
+// (проверено численно — сходились к одному радиусу, отсюда наложение). При
+// 0.3 все кольца остаются естественно ниже потолка, без клампинга вовсе.
+const RING_SIZE_FACTOR = 0.3;
 
 // Направление вращения — чередуется по РАНГУ РАДИУСА (у каждого кольца
 // направление противоположно ближайшему соседу и по размеру больше, и по
@@ -116,7 +118,11 @@ const IMG_COUNT = (() => {
   const gap = tileSize * 0.15;
   const spacing = tileSize + gap;
   const R0 = spacing / (2 * Math.sin(Math.PI / RING_CAPACITY_REF));
-  const maxRadius = Math.min(W, H) * 0.48;
+  // Вычитаем половину размера плитки — иначе потолок ограничивает только
+  // РАДИУС (расстояние до ЦЕНТРА плитки), а сама плитка выступает за него ещё
+  // на tileSize/2 и может вылезти за экран (особенно заметно при большом
+  // RING_SIZE_FACTOR, когда плитки крупные).
+  const maxRadius = Math.min(W, H) * 0.48 - tileSize / 2;
   return getRingCapacity(CUBE_RING_IDX, R0, spacing, maxRadius);
 })();
 const IMG_SIZE_DESKTOP = 60; // запасной вариант для SSR (window ещё недоступен)
@@ -1076,53 +1082,48 @@ export default function Home() {
   const [pinkOpacity, setPinkOpacity] = useState(1);
   const [overlayOpacity, setOverlayOpacity] = useState(1);
   const [overlayWord, setOverlayWord] = useState(""); // текущее слово на экране загрузки
+  const [overlayWordKey, setOverlayWordKey] = useState(0); // растёт на каждую смену слова — форсирует remount span'а, чтобы CSS-анимация (пульс+свечение) перезапускалась с нуля на каждом слове, а не проигрывалась один раз и застывала
+  const [showStrikethrough, setShowStrikethrough] = useState(false); // включается только на самом последнем показе слова (dépression.) перед затемнением
 
   useEffect(() => {
-    const TOTAL = 10000; // 10 сек
-    const FADE = 800;    // fade out
-
-    // Все слова: "I DO DESIGN" + биография
+    // Все слова: новый текст (заменяет прежний "I DO DESIGN" + биография)
     const allWords = [
-      "I", "DO", "DESIGN",
-      "Hi!", "My", "name", "is", "Artem.", "I'm", "here", "to", "create",
-      "unique", "illustrations", "and", "visual", "design", "for", "any",
-      "of", "your", "creative", "needs.", "I", "work", "across",
-      "illustration,", "3D", "design,", "video", "editing,", "visual",
-      "effects,", "concept", "art,", "motion", "design,", "cartoons,",
-      "music,", "theatre,", "film,", "and", "stop-motion", "animation.",
-      "I've", "had", "a", "camera", "in", "my", "hands", "for", "as",
-      "long", "as", "I", "can", "remember", "—", "since", "I", "was",
-      "around", "5", "years", "old.", "Creating", "visuals", "and",
-      "telling", "stories", "has", "always", "been", "a", "natural",
-      "part", "of", "my", "life.", "I'm", "a", "truly", "dedicated",
-      "artist", "who", "lives", "through", "creativity,", "visual",
-      "expression,", "and", "filmmaking.", "Every", "project", "is",
-      "an", "opportunity", "to", "build", "something", "original,",
-      "memorable,", "and", "crafted", "with", "attention", "to", "detail.",
-      "Don't", "hesitate", "to", "contact", "me", "—", "I'll", "bring",
-      "your", "ideas", "to", "life", "and", "deliver", "unique,",
-      "high-quality", "work", "with", "the", "dedication", "and",
-      "professionalism", "of", "someone", "who", "genuinely", "loves",
-      "what", "they", "create."
+      "Mon", "seul", "ami", "est", "une", "boule", "rose.",
+      "Assez", "de", "souffrir", "et", "de", "ruminer", "des", "angoisses", "fantômes.",
+      "Fatigué", "?",
+      "Mais", "comment", "faire", "quand", "mes", "seuls", "amis", "sont", "des", "objets", "inanimés", "?",
+      "Du", "thé", "sucré.",
+      "De", "la", "nourriture", "sucrée.",
+      "Même", "le", "café", "est", "sucré.",
+      "Choisis", ":", "vaincre", "la", "dépression."
     ];
 
-    const OVERLAY_TOTAL = 10000;
-    const OVERLAY_FADE = 600;
+    const OVERLAY_TOTAL = 20000;
+    const OVERLAY_FADE = 1200;
 
-    // Вдвое быстрее — слово меняется вдвое чаще. Общая длительность экрана
-    // загрузки (OVERLAY_TOTAL) не трогаю — от неё зависят другие таймеры
-    // (взрыв текста, старт игрушки). Раз слов теперь "показов" вдвое больше,
-    // чем самих слов в массиве, зацикливаю через % — иначе на второй половине
-    // окна слова бы кончились и последнее просто зависло бы статично.
-    const interval = (OVERLAY_TOTAL - OVERLAY_FADE) / allWords.length / 2;
+    // SPEED_FACTOR — во сколько раз быстрее самого "естественного" темпа
+    // (когда каждое слово показывается ровно 1 раз за всё окно). Слов теперь
+    // "показов" в SPEED_FACTOR раз больше, чем самих слов в массиве,
+    // зацикливаю через % — иначе под конец окна слова бы кончились и
+    // последнее просто зависло бы статично.
+    const SPEED_FACTOR = 4;
+    const interval = (OVERLAY_TOTAL - OVERLAY_FADE) / allWords.length / SPEED_FACTOR;
+    // Ровно столько показов слов помещается в окне (по построению — без
+    // округления, т.к. interval сам получен делением на allWords.length/SPEED_FACTOR).
+    const totalTicks = allWords.length * SPEED_FACTOR;
+    // Насколько дольше держится САМЫЙ ПОСЛЕДНИЙ показ (dépression., прямо
+    // перед затемнением) — не каждое появление этого слова в цикле, а именно
+    // финальное, самое драматичное. НЕ ускоряем вместе с остальным — просили
+    // оставить этот момент как есть.
+    const LAST_WORD_EXTRA_MS = 1000;
+
     let idx = 0;
-    const timer = setInterval(() => {
-      setOverlayWord(allWords[idx % allWords.length]);
-      idx++;
-    }, interval);
+    let wordTimer: ReturnType<typeof setTimeout>;
+    let fadeTimer: ReturnType<typeof setTimeout>;
 
-    const fadeTimer = setTimeout(() => {
+    const runFade = () => {
       setOverlayWord(""); // убираем последнее слово сразу при старте fade
+      setShowStrikethrough(false);
       const start = performance.now();
       const fade = (now: number) => {
         const elapsed = now - start;
@@ -1131,9 +1132,24 @@ export default function Home() {
         if (opacity > 0) requestAnimationFrame(fade);
       };
       requestAnimationFrame(fade);
-    }, OVERLAY_TOTAL - OVERLAY_FADE);
+    };
 
-    return () => { clearInterval(timer); clearTimeout(fadeTimer); };
+    const showWord = () => {
+      const wordIdx = idx % allWords.length;
+      const isVeryLastTick = idx === totalTicks - 1; // самый последний показ во всей последовательности
+      setOverlayWord(allWords[wordIdx]);
+      setOverlayWordKey(k => k + 1);
+      if (isVeryLastTick) setShowStrikethrough(true); // перечёркивание — только на финальном "dépression."
+      idx++;
+      if (idx >= totalTicks) {
+        fadeTimer = setTimeout(runFade, interval + LAST_WORD_EXTRA_MS);
+      } else {
+        wordTimer = setTimeout(showWord, interval);
+      }
+    };
+    showWord(); // первый показ сразу, без начальной задержки
+
+    return () => { clearTimeout(wordTimer); clearTimeout(fadeTimer); };
   }, []);
   const [videoOpacity, setVideoOpacity] = useState(0);
 
@@ -1477,7 +1493,7 @@ export default function Home() {
         const ringGapNow = ringTileSizeNow * 0.15;
         const ringSpacingNow = ringTileSizeNow + ringGapNow;
         const R0Now = ringSpacingNow / (2 * Math.sin(Math.PI / RING_CAPACITY_REF));
-        const maxRadiusNow = Math.min(window.innerWidth, window.innerHeight) * 0.48;
+        const maxRadiusNow = Math.min(window.innerWidth, window.innerHeight) * 0.48 - ringTileSizeNow * Math.SQRT2 / 2; // диагональ повёрнутого квадрата (худший случай — угол смотрит наружу)
         const totalCap = computeTotalRingsCapacity(MAX_RINGS, R0Now, ringSpacingNow, maxRadiusNow);
         // thumbIdRef — синхронный счётчик (инкрементируется в момент создания
         // плитки, до асинхронного setRingTiles), в отличие от
@@ -1540,7 +1556,7 @@ export default function Home() {
         const ringGapNow = ringTileSizeNow * 0.15;
         const ringSpacingNow = ringTileSizeNow + ringGapNow;
         const R0Now = ringSpacingNow / (2 * Math.sin(Math.PI / RING_CAPACITY_REF));
-        const maxRadiusNow = Math.min(window.innerWidth, window.innerHeight) * 0.48;
+        const maxRadiusNow = Math.min(window.innerWidth, window.innerHeight) * 0.48 - ringTileSizeNow * Math.SQRT2 / 2; // см. runPhase0
         const totalCap = computeTotalRingsCapacity(MAX_RINGS, R0Now, ringSpacingNow, maxRadiusNow);
         // См. runPhase0 — thumbIdRef синхронный, ringTilesRef.current.length
         // мог отставать и пропускать одну лишнюю мозаику при коротких паузах.
@@ -1557,9 +1573,12 @@ export default function Home() {
       runDrawPhase(pts, runPhase0); // → трейлы
     };
 
-    // Старт — ровно когда гаснет экран загрузки (OVERLAY_TOTAL 10000 + OVERLAY_FADE 600),
-    // иначе первые трейлы прокручиваются невидимо под чёрной шторкой
-    schedTimer = setTimeout(runPhase0, 10600);
+    // Старт — ровно когда гаснет экран загрузки. OVERLAY_TOTAL (20000) уже
+    // включает OVERLAY_FADE (1200) в исходном расчёте, но последнее слово
+    // (dépression.) держится ещё на LAST_WORD_EXTRA_MS (1000) дольше обычного
+    // — это сдвигает и момент запуска fade, и момент его завершения на те же
+    // 1000мс вперёд: 20000+1000=21000, а не просто 20000.
+    schedTimer = setTimeout(runPhase0, 21000);
 
     const onMouseMove = (e: MouseEvent) => { mousePosRef.current = { x: e.clientX, y: e.clientY }; };
     window.addEventListener("mousemove", onMouseMove);
@@ -1623,15 +1642,21 @@ export default function Home() {
         const fGap = fTileSize * 0.15;
         const fSpacing = fTileSize + fGap;
         const fR0 = fSpacing / (2 * Math.sin(Math.PI / RING_CAPACITY_REF));
-        const fMaxRadius = Math.min(W, H) * 0.48;
+        // Вычитаем половину размера мозаичной плитки — иначе кольцо 3 могло
+        // выступать своим краем за экран (см. тот же приём в animate() выше).
+        const fMaxRadius = Math.min(W, H) * 0.48 - fTileSize * Math.SQRT2 / 2; // диагональ повёрнутого квадрата
         // Радиус кольца кубиков привязан НАПРЯМУЮ к фактическому (уже
         // применённому потолку) радиусу кольца 3, а не считается отдельно —
         // если бы оба считались независимо через getRingRadius(...,maxRadius),
         // на узких экранах потолок мог обрезать ОБА до одного и того же
         // значения (кольцо кубиков совпало бы по радиусу с кольцом 3, отсюда
         // и наложение на фото). Так гарантированно на один шаг дальше, всегда.
+        // Дополнительно ограничиваем сверху — с учётом уже половины размера
+        // САМОГО КУБИКА (S/2, а не мозаики) — иначе "ring3 + шаг" мог сам по
+        // себе вылезти за экран, поскольку эта надбавка нигде не ограничена.
+        const cubeMaxRadius = Math.min(W, H) * 0.48 - S * Math.SQRT2 / 2; // диагональ повёрнутого квадрата
         const ring3ActualR = getRingRadius(MAX_RINGS - 1, fR0, fSpacing, fMaxRadius);
-        const cubeRingR = ring3ActualR + fSpacing;
+        const cubeRingR = Math.min(ring3ActualR + fSpacing, cubeMaxRadius);
         const cubeRingDir = getRingDirection(CUBE_RING_IDX);
         cubeRingRotationRef.current += cubeRingDir * 0.1257 * dt;
 
@@ -1939,7 +1964,10 @@ export default function Home() {
       const ringGap = ringTileSize * 0.15;
       const ringSpacing = ringTileSize + ringGap;
       const R0 = ringSpacing / (2 * Math.sin(Math.PI / RING_CAPACITY_REF));
-      const maxRadius = Math.min(W, H) * 0.48;
+      // Вычитаем половину размера плитки — потолок иначе ограничивал бы
+      // только радиус (до центра плитки), а сама плитка выступает за него ещё
+      // на ringTileSize/2 и может вылезти за экран.
+      const maxRadius = Math.min(W, H) * 0.48 - ringTileSize * Math.SQRT2 / 2; // диагональ повёрнутого квадрата — плитка "приклеена к ободу" и повёрнута, худший случай — угол смотрит наружу
       const ringHalf = ringTileSize / 2;
       const tiles = ringTilesRef.current;
       const ringN = tiles.length;
@@ -2153,10 +2181,11 @@ export default function Home() {
     return { x: 0, y: 0, vx: 180, vy: -220, ang: 0, rotSpeed: 0.3, initialized: false, size: s, renderW: s, renderH: s, radialProfile: null as Float32Array | null };
   })());
 
-  // Через 11 секунд после монтирования — взрыв текста (буквы/слова разлетаются).
+  // Через 21.4с после монтирования — взрыв текста (буквы/слова разлетаются).
   // Раньше это ждало window.onload + 11с, что на медленной сети рассинхронизировалось
-  // с загрузочным экраном (тот всегда гаснет на 10.6с от монтирования); теперь оба
-  // используют одну и ту же точку отсчёта — момент монтирования компонента.
+  // с загрузочным экраном (тот всегда гаснет на 21с от монтирования — из них 20с
+  // основное окно плюс 1с лишней задержки на последнем слове dépression.);
+  // теперь оба используют одну и ту же точку отсчёта — момент монтирования компонента.
   useEffect(() => {
     const startExplosionTimer = () => {
       textFallTimerRef.current = setTimeout(() => {
@@ -2298,7 +2327,7 @@ export default function Home() {
           else overlay.innerHTML = "";
         };
         requestAnimationFrame(step);
-      }, 11000);
+      }, 21400); // 21000 (реальный момент гашения экрана загрузки, с учётом лишней 1с на dépression.) + те же 400мс запаса
     }; // end startExplosionTimer
 
     startExplosionTimer();
@@ -2498,6 +2527,10 @@ export default function Home() {
         .card-input{font-weight:900!important;letter-spacing:-0.02em}
         .card-btn{font-weight:900!important;letter-spacing:0.15em}
         @keyframes floatIn{from{opacity:0;}to{opacity:1;}}
+        @keyframes strikeThroughDraw{
+          from{transform:translateY(-50%) scaleX(0);}
+          to{transform:translateY(-50%) scaleX(1);}
+        }
         .floating-img{position:absolute;width:75px;height:75px;border-radius:10px;overflow:hidden;pointer-events:none;will-change:transform,left,top;transform-origin:center center;animation:floatIn 0.4s ease forwards;animation-delay:var(--delay);opacity:0;transform:scale(0.6) rotate(var(--rot));box-shadow:0 4px 16px rgba(0,0,0,0.18);}
         .floating-img img{width:100%;height:100%;object-fit:cover;display:block;}
         @media(max-width:768px){.floating-img{width:25px;height:25px;border-radius:4px;}}
@@ -2627,7 +2660,7 @@ export default function Home() {
               const img = e.currentTarget;
               const nw = img.naturalWidth || 1, nh = img.naturalHeight || 1;
               const s = sugPhys.current.size;
-              const N_ANGLES = 72;
+              const N_ANGLES = 360; // было 72 — для сильно вытянутых форм (как этот сухарик, 5.71:1) в узком диапазоне углов "выход через верх/низ" (±10° от вертикали при таком соотношении сторон) раньше попадало всего ~4 луча — недостаточно, чтобы поймать мелкие бугорки неровной корки; сейчас ~20
               const buildEllipseProfile = (rw: number, rh: number) => {
                 const rx = rw / 2, ry = rh / 2;
                 const profile = new Float32Array(N_ANGLES);
@@ -2691,7 +2724,13 @@ export default function Home() {
                     if (isOpaque(Math.round(cx0 + dx * r), Math.round(cy0 + dy * r))) found = r;
                     else if (found > 0 && r - found > 6) break; // вышли за пределы силуэта — дальше не ищем
                   }
-                  profile[a] = found * scale; // те же единицы, что и renderW/renderH
+                  // Небольшой защитный запас (+6%) — 72 луча с линейной
+                  // интерполяцией между ними и эвристика "разрыва в 6px" могут
+                  // чуть-чуть недооценить реальный край силуэта в отдельных
+                  // направлениях; лучше чтобы отскок срабатывал НЕМНОГО раньше
+                  // истинного края, чем хоть чуть-чуть позже (что и давало едва
+                  // заметный вылет за экран).
+                  profile[a] = found * scale * 1.06;
                 }
                 // Подстраховка на случай совсем плоского профиля (например,
                 // альфа не нашлась ни по одному лучу) — эллипс по факту. видимым размерам
@@ -2724,7 +2763,7 @@ export default function Home() {
         {/* Экран загрузки — слова по центру */}
         {overlayOpacity > 0 && (
           <div style={{ position: "fixed", inset: 0, background: "#000", zIndex: 4, pointerEvents: overlayOpacity > 0.01 ? "all" : "none", opacity: overlayOpacity, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <span style={{
+            <span key={overlayWordKey} style={{
               fontFamily: "'Arial Black', Arial, sans-serif",
               fontWeight: 900,
               fontSize: "clamp(48px, 10vw, 144px)",
@@ -2732,8 +2771,27 @@ export default function Home() {
               letterSpacing: "-0.04em",
               textTransform: "uppercase",
               userSelect: "none",
-              transition: "opacity 0.08s",
             }}>{overlayWord}</span>
+            {showStrikethrough && (
+              // Толщина — как штрих буквы "I" в Arial Black при том же кегле:
+              // у шрифтов насыщенности Black/900 вертикальный штрих обычно
+              // ~17% от размера шрифта — та же clamp()-формула, умноженная на
+              // этот коэффициент, вместо фиксированного пикселя.
+              // Рисуется слева направо (scaleX от 0 до 1, от левого края) и
+              // остаётся дорисованной — не пролетает мимо и не исчезает.
+              <div style={{
+                position: "absolute",
+                top: "50%",
+                left: 0,
+                width: "100%",
+                height: "clamp(8.2px, 1.7vw, 24.5px)",
+                background: "#fff",
+                transformOrigin: "left center",
+                transform: "translateY(-50%) scaleX(0)",
+                animation: "strikeThroughDraw 0.9s linear forwards",
+                pointerEvents: "none",
+              }} />
+            )}
           </div>
         )}
         <div ref={iDoDesignRef} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", zIndex: 5, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", pointerEvents: "none", willChange: "transform,opacity", visibility: overlayOpacity > 0.05 ? "hidden" : "visible" }}>
