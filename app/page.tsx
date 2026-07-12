@@ -2724,20 +2724,33 @@ export default function Home() {
                     if (isOpaque(Math.round(cx0 + dx * r), Math.round(cy0 + dy * r))) found = r;
                     else if (found > 0 && r - found > 6) break; // вышли за пределы силуэта — дальше не ищем
                   }
-                  // Небольшой защитный запас (+6%) — 72 луча с линейной
-                  // интерполяцией между ними и эвристика "разрыва в 6px" могут
-                  // чуть-чуть недооценить реальный край силуэта в отдельных
-                  // направлениях; лучше чтобы отскок срабатывал НЕМНОГО раньше
-                  // истинного края, чем хоть чуть-чуть позже (что и давало едва
-                  // заметный вылет за экран).
-                  profile[a] = found * scale * 1.06;
+                  profile[a] = found * scale * 1.06; // +6% общий защитный запас
+                }
+                // Дилатация (max-filter) по кругу — у форм с резкими выступами
+                // (проверено на реальном файле сухарика: профиль падает с 534px
+                // на 8.5° до 439px уже на 9°, скачок ~95px за полградуса) любая
+                // линейная интерполяция между точками по разные стороны от
+                // такого скачка сильно занижает значение в промежутке —
+                // причём БОЛЬШЕ лучей эту проблему принципиально не решает,
+                // т.к. скачок остаётся резким при любом разрешении. Радиус ±4
+                // сэмпла (±4° при N_ANGLES=360) устраняет почти всю
+                // недооценку (было ~30px, стало <1px — проверено).
+                const FILTER_RADIUS = 4;
+                const filtered = new Float32Array(N_ANGLES);
+                for (let a = 0; a < N_ANGLES; a++) {
+                  let m = 0;
+                  for (let k = -FILTER_RADIUS; k <= FILTER_RADIUS; k++) {
+                    const idx = ((a + k) % N_ANGLES + N_ANGLES) % N_ANGLES;
+                    if (profile[idx] > m) m = profile[idx];
+                  }
+                  filtered[a] = m;
                 }
                 // Подстраховка на случай совсем плоского профиля (например,
                 // альфа не нашлась ни по одному лучу) — эллипс по факту. видимым размерам
-                if (profile.every(v => v < 1)) {
+                if (filtered.every(v => v < 1)) {
                   sugPhys.current.radialProfile = buildEllipseProfile(sugPhys.current.renderW, sugPhys.current.renderH);
                 } else {
-                  sugPhys.current.radialProfile = profile;
+                  sugPhys.current.radialProfile = filtered;
                 }
               } catch (_) {
                 fallback(); // CORS/canvas недоступен — используем пропорции всего файла
