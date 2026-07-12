@@ -32,10 +32,15 @@ function getRingRadius(ringIdx: number, R0: number, radialGap: number, maxRadius
 }
 
 // Вместимость ОДНОГО кольца по его радиусу (та же хорда-формула, что и раньше).
+// Math.floor, не round — round() иногда округляет ВВЕРХ (например, 8.634 → 9),
+// что даёт на одну плитку больше "идеального" непрерывного значения — то есть
+// более плотную упаковку, чем задумано. floor() гарантирует, что вместимость
+// никогда не превышает идеал — только может быть чуть меньше, что безопаснее
+// (особенно заметно на маленьких кольцах, где 1 лишняя плитка — большой процент).
 function getRingCapacity(ringIdx: number, R0: number, radialGap: number, maxRadius: number): number {
   const Rk = getRingRadius(ringIdx, R0, radialGap, maxRadius);
   const ratio = Math.min(0.999, radialGap / (2 * Rk));
-  return Math.max(3, Math.round(Math.PI / Math.asin(ratio)));
+  return Math.max(3, Math.floor(Math.PI / Math.asin(ratio)));
 }
 
 // Суммарная вместимость первых maxRings колец — используется, чтобы понять,
@@ -2781,7 +2786,7 @@ function RingTileView({ tile, boxSize, index, slotRefsArray }: {
           backgroundColor: tile.bgColor || "transparent",
         }}
       >
-        <img src={tile.src} alt="" style={{ width: "100%", height: "100%", objectFit: "contain", display: "block", transform: "scale(0.9)" }} />
+        <img src={tile.src} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", transform: "scale(0.9)" }} />
       </div>
     </div>
   );
