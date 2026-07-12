@@ -1851,11 +1851,25 @@ export default function Home() {
           sg.initialized = true;
         }
         const halfBox = sg.size / 2; // половина квадратного контейнера — только для позиционирования
+
+        // Физика — естественная, почти без затухания. Угол обновляется ЗДЕСЬ,
+        // ДО расчёта границ силуэта ниже — раньше было наоборот (границы
+        // считались из угла ПРОШЛОГО кадра, а рендерился уже новый), и при
+        // быстром вращении силуэт после поворота мог высунуться за уже
+        // скорректированную границу — отсюда вылет за экран.
+        sg.vx *= 0.995;
+        sg.vy *= 0.995;
+        sg.rotSpeed *= 0.999; // вращение очень медленно замедляется
+        sg.x += sg.vx * dt;
+        sg.y += sg.vy * dt;
+        sg.ang += sg.rotSpeed * dt;
+
         // Отскок теперь идёт по РЕАЛЬНОМУ радиальному профилю силуэта (см. onLoad),
         // а не по повёрнутому прямоугольнику: для каждого из 4 направлений (лево,
         // право, верх, низ) берём фактический радиус силуэта в ту сторону, с
-        // поправкой на текущий поворот sg.ang — силуэт асимметричен, поэтому
-        // лево/право и верх/низ могут получать РАЗНЫЕ значения, а не общий shX/shY.
+        // поправкой на ТЕКУЩИЙ (уже обновлённый) поворот sg.ang — силуэт
+        // асимметричен, поэтому лево/право и верх/низ могут получать РАЗНЫЕ
+        // значения, а не общий shX/shY.
         let shXLeft: number, shXRight: number, shYTop: number, shYBottom: number;
         if (sg.radialProfile) {
           shXLeft = sampleRadialProfile(sg.radialProfile, Math.PI - sg.ang);
@@ -1870,14 +1884,6 @@ export default function Home() {
           shXLeft = shXRight = hw0 * cosA + hh0 * sinA;
           shYTop = shYBottom = hw0 * sinA + hh0 * cosA;
         }
-
-        // Физика — естественная, почти без затухания
-        sg.vx *= 0.995;
-        sg.vy *= 0.995;
-        sg.rotSpeed *= 0.999; // вращение очень медленно замедляется
-        sg.x += sg.vx * dt;
-        sg.y += sg.vy * dt;
-        sg.ang += sg.rotSpeed * dt;
 
         // Отскок от краёв с передачей момента вращения (torque) — по форме силуэта
         if (sg.x < shXLeft) {
@@ -2577,7 +2583,7 @@ export default function Home() {
             <RingTileView
               key={tile.id}
               tile={tile}
-              boxSize={tileSize * RING_SIZE_FACTOR}
+              boxSize={calcRingTileSize()}
               index={i}
               slotRefsArray={ringSlotRefs}
             />
