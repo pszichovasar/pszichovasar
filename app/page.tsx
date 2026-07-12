@@ -1086,15 +1086,11 @@ export default function Home() {
   const [showStrikethrough, setShowStrikethrough] = useState(false); // включается только на самом последнем показе слова (dépression.) перед затемнением
 
   useEffect(() => {
-    // Все слова: новый текст (заменяет прежний "I DO DESIGN" + биография)
+    // Все слова: более короткий текст
     const allWords = [
       "Mon", "seul", "ami", "est", "une", "boule", "rose.",
-      "Assez", "de", "souffrir", "et", "de", "ruminer", "des", "angoisses", "fantômes.",
       "Fatigué", "?",
       "Mais", "comment", "faire", "quand", "mes", "seuls", "amis", "sont", "des", "objets", "inanimés", "?",
-      "Du", "thé", "sucré.",
-      "De", "la", "nourriture", "sucrée.",
-      "Même", "le", "café", "est", "sucré.",
       "Choisis", ":", "vaincre", "la", "dépression."
     ];
 
@@ -1869,7 +1865,14 @@ export default function Home() {
 
 
       const trailCanvas = trailCanvasRef.current;
-      // ===== СУХАРИК — полная физика =====
+      // ===== СУХАРИК — та же физика, что и у кубиков (DAMPING/MAX_SPEED/
+      // ROT_DAMPING/MAX_ROT_SPEED/BOUNCE — те же константы, объявленные выше
+      // в этом же animate()), но столкновение со стенами — по РЕАЛЬНОЙ ФОРМЕ
+      // силуэта (радиальный профиль, см. onLoad на <img sug>), а не по
+      // простому квадрату, как у кубиков: форма сухарика (вытянутый ломтик)
+      // слишком не похожа на квадрат, чтобы простой прямоугольник смотрелся
+      // правдоподобно. Реакция на курсор — через explodeFromPoint (см. её
+      // определение выше), которая уже толкает и кубики, и сухарик одинаково.
       const sg = sugPhys.current;
       const sugEl = sugRef.current;
       if (sugEl) {
@@ -1877,25 +1880,29 @@ export default function Home() {
           sg.x = W * 0.3; sg.y = H * 0.4;
           sg.initialized = true;
         }
-        const halfBox = sg.size / 2; // половина квадратного контейнера — только для позиционирования
+        const halfBox = sg.size / 2; // половина квадратного контейнера — только для позиционирования DOM-элемента
 
-        // Физика — естественная, почти без затухания. Угол обновляется ЗДЕСЬ,
-        // ДО расчёта границ силуэта ниже — раньше было наоборот (границы
-        // считались из угла ПРОШЛОГО кадра, а рендерился уже новый), и при
-        // быстром вращении силуэт после поворота мог высунуться за уже
-        // скорректированную границу — отсюда вылет за экран.
-        sg.vx *= 0.995;
-        sg.vy *= 0.995;
-        sg.rotSpeed *= 0.999; // вращение очень медленно замедляется
+        // Ровно та же физика, что и у кубиков — единые константы.
+        sg.vx += gx * dt; sg.vy += gy * dt; // гироскоп на мобильных, как у кубиков
+        sg.vx *= DAMPING; sg.vy *= DAMPING;
+        const sgSp = Math.sqrt(sg.vx * sg.vx + sg.vy * sg.vy);
+        if (sgSp > MAX_SPEED) { sg.vx = sg.vx / sgSp * MAX_SPEED; sg.vy = sg.vy / sgSp * MAX_SPEED; }
+        sg.rotSpeed *= ROT_DAMPING;
+        if (sg.rotSpeed > MAX_ROT_SPEED) sg.rotSpeed = MAX_ROT_SPEED;
+        if (sg.rotSpeed < -MAX_ROT_SPEED) sg.rotSpeed = -MAX_ROT_SPEED;
+        // Угол обновляется ДО расчёта границ силуэта ниже — иначе граница
+        // считалась бы из угла прошлого кадра, а рендерился бы уже новый, и
+        // при быстром вращении силуэт после поворота мог высунуться за уже
+        // скорректированную границу (была такая проблема раньше).
         sg.x += sg.vx * dt;
         sg.y += sg.vy * dt;
         sg.ang += sg.rotSpeed * dt;
 
-        // Отскок теперь идёт по РЕАЛЬНОМУ радиальному профилю силуэта (см. onLoad),
-        // а не по повёрнутому прямоугольнику: для каждого из 4 направлений (лево,
-        // право, верх, низ) берём фактический радиус силуэта в ту сторону, с
-        // поправкой на ТЕКУЩИЙ (уже обновлённый) поворот sg.ang — силуэт
-        // асимметричен, поэтому лево/право и верх/низ могут получать РАЗНЫЕ
+        // Отскок — по РЕАЛЬНОМУ радиальному профилю силуэта (см. onLoad), а
+        // не по повёрнутому прямоугольнику: для каждого из 4 направлений
+        // (лево, право, верх, низ) берём фактический радиус силуэта в ту
+        // сторону, с поправкой на ТЕКУЩИЙ (уже обновлённый) поворот sg.ang —
+        // силуэт асимметричен, поэтому лево/право и верх/низ получают РАЗНЫЕ
         // значения, а не общий shX/shY.
         let shXLeft: number, shXRight: number, shYTop: number, shYBottom: number;
         if (sg.radialProfile) {
@@ -1905,38 +1912,35 @@ export default function Home() {
           shYBottom = sampleRadialProfile(sg.radialProfile, Math.PI / 2 - sg.ang);
         } else {
           // Профиль ещё не готов (картинка не успела загрузиться) — временно
-          // старое поведение повёрнутого прямоугольника, до готовности onLoad.
+          // повёрнутый прямоугольник по пропорциям, до готовности onLoad.
           const hw0 = sg.renderW / 2, hh0 = sg.renderH / 2;
           const cosA = Math.abs(Math.cos(sg.ang)), sinA = Math.abs(Math.sin(sg.ang));
           shXLeft = shXRight = hw0 * cosA + hh0 * sinA;
           shYTop = shYBottom = hw0 * sinA + hh0 * cosA;
         }
 
-        // Отскок от краёв с передачей момента вращения (torque) — по форме силуэта
+        // Отскок от краёв с передачей момента вращения (torque) — тот же
+        // BOUNCE, что и у кубиков, но по форме вместо простого квадрата.
         if (sg.x < shXLeft) {
           sg.x = shXLeft;
-          sg.vx = Math.abs(sg.vx) * 0.75;
+          sg.vx = Math.abs(sg.vx) * BOUNCE;
           sg.rotSpeed += sg.vy * 0.004;
         }
         if (sg.x > W - shXRight) {
           sg.x = W - shXRight;
-          sg.vx = -Math.abs(sg.vx) * 0.75;
+          sg.vx = -Math.abs(sg.vx) * BOUNCE;
           sg.rotSpeed -= sg.vy * 0.004;
         }
         if (sg.y < shYTop) {
           sg.y = shYTop;
-          sg.vy = Math.abs(sg.vy) * 0.75;
+          sg.vy = Math.abs(sg.vy) * BOUNCE;
           sg.rotSpeed += sg.vx * 0.004;
         }
         if (sg.y > H - shYBottom) {
           sg.y = H - shYBottom;
-          sg.vy = -Math.abs(sg.vy) * 0.75;
+          sg.vy = -Math.abs(sg.vy) * BOUNCE;
           sg.rotSpeed -= sg.vx * 0.004;
         }
-
-        // Гироскоп на мобильных
-        sg.vx += gyroRef.current.gx * dt;
-        sg.vy += gyroRef.current.gy * dt;
 
         // Рендер — квадратный контейнер по-прежнему центрируем по halfBox
         sugEl.style.left = `${sg.x - halfBox}px`;
