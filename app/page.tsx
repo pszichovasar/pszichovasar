@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState, useMemo } from "react";
+import React, { useEffect, useRef, useState, useMemo, useCallback } from "react";
 
 function shuffleWithSeed(arr: string[], seed: number): string[] {
   const a = [...arr];
@@ -13,13 +13,113 @@ function shuffleWithSeed(arr: string[], seed: number): string[] {
   return a;
 }
 
-const IMG_COUNT = 30;
-const IMG_SIZE_DESKTOP = 60;
-const IMG_SIZE_MOBILE = 20;
+// Кольцо 0 — исходное (радиус R0). Кольцо 1 (первое переполнение) — наружное,
+// больше R0. Кольцо 2 (второе переполнение) — внутреннее, меньше R0. Дальше
+// чередование продолжается тем же способом. Шаг АДДИТИВНЫЙ и равен radialGap —
+// тому же расстоянию, что и между мозайками внутри одного кольца (см. вызов
+// в animate()), поэтому соседние кольца оказываются практически вплотную.
+// minRadius — защита от ухода в 0/отрицательное на очень глубоких внутренних
+// кольцах. maxRadius — жёсткий потолок (доля от min(W,H)) — без него наружные
+// кольца рано или поздно вылезают за пределы экрана; с потолком самые дальние
+// наружные кольца просто "упрутся" в него и перестанут расти дальше.
+function getRingRadius(ringIdx: number, R0: number, radialGap: number, maxRadius: number): number {
+  if (ringIdx === 0) return Math.min(R0, maxRadius);
+  const step = Math.ceil(ringIdx / 2);
+  const outward = ringIdx % 2 === 1;
+  const minRadius = radialGap * 0.6;
+  const raw = outward ? R0 + step * radialGap : R0 - step * radialGap;
+  return Math.min(maxRadius, Math.max(minRadius, raw));
+}
+
+// Вместимость ОДНОГО кольца по его радиусу (та же хорда-формула, что и раньше).
+function getRingCapacity(ringIdx: number, R0: number, radialGap: number, maxRadius: number): number {
+  const Rk = getRingRadius(ringIdx, R0, radialGap, maxRadius);
+  const ratio = Math.min(0.999, radialGap / (2 * Rk));
+  return Math.max(3, Math.round(Math.PI / Math.asin(ratio)));
+}
+
+// Суммарная вместимость первых maxRings колец — используется, чтобы понять,
+// когда общее число мозаик достигло предела и рисование должно остановиться.
+function computeTotalRingsCapacity(maxRings: number, R0: number, radialGap: number, maxRadius: number): number {
+  let total = 0;
+  for (let k = 0; k < maxRings; k++) total += getRingCapacity(k, R0, radialGap, maxRadius);
+  return total;
+}
+
+// Максимум колец — после того как последнее (4-е, индексы 0..3) заполнено
+// целиком, отрисовка новых мозаик останавливается полностью.
+const MAX_RINGS = 4;
+
+// Опорное число мозаик, задающее РАЗМЕР кольца 0 (его радиус R0, см. animate()).
+// Вместимость КАЖДОГО кольца (включая кольцо 0) на самом деле каждый раз
+// пересчитывается из его собственного радиуса — так плотность (шаг между
+// соседними мозаиками) одинакова во всех кольцах, а не число мозаик в них.
+const RING_CAPACITY_REF = 15;
+
+// Плитки в кольце — фиксированного и заметно МЕНЬШЕГО размера, чем в сетке
+// "5 РЯДОВ" (доля от неё), а не точное совпадение — иначе радиус, нужный
+// чтобы 15 таких плиток поместились с адекватным зазором, получается слишком
+// большим и не влезает в экран (см. R0/maxRadius в animate()).
+const RING_SIZE_FACTOR = 0.4;
+
+// Направление вращения — чередуется по РАНГУ РАДИУСА (у каждого кольца
+// направление противоположно ближайшему соседу и по размеру больше, и по
+// размеру меньше него). Проверено численно (сортировкой фактических
+// радиусов) для 7 колец подряд — чередование верное при любом их числе.
+function getRingDirection(ringIdx: number): number {
+  if (ringIdx === 0) return 1;
+  const step = Math.ceil(ringIdx / 2);
+  return step % 2 === 0 ? 1 : -1;
+}
+
+// Плавное замедление к цели, без переброса (используется и для анимации
+// прилёта новой мозаики, и для "раздвигания" существующих при пополнении кольца).
+function easeOutCubic(t: number): number {
+  return 1 - Math.pow(1 - t, 3);
+}
+
+// Разница углов, приведённая к кратчайшему пути (-π, π] — без этого поворот
+// от накопленного за время взрыва угла (может быть много полных оборотов) к
+// целевому углу на кольце шёл бы через лишние обороты, а не по прямой дуге.
+function normalizeAngleDiff(diff: number): number {
+  let d = diff % (Math.PI * 2);
+  if (d > Math.PI) d -= Math.PI * 2;
+  if (d < -Math.PI) d += Math.PI * 2;
+  return d;
+}
+
+// Индекс "кольца кубиков" в общей последовательности — следующее наружное
+// кольцо СРАЗУ после последнего мозаичного (кольцо MAX_RINGS-1 = 3, наружнее
+// него уже было бы кольцо 4, но 4 — внутреннее по чередованию; следующее
+// наружное — 5). Используется и для радиуса, и для количества кубиков, и для
+// направления вращения в финале — везде одна и та же формула, что и у
+// мозаичных колец, поэтому плотность гарантированно совпадает без подгонки.
+const CUBE_RING_IDX = MAX_RINGS + 1;
+
+// Число кубиков — не произвольная константа, а РОВНО столько, сколько
+// поместится в кольцо CUBE_RING_IDX с той же плотностью (шагом между
+// соседями), что и у всех мозаичных колец — той же формулой getRingCapacity.
+// Вычисляется один раз при загрузке модуля, на основе размеров окна в этот
+// момент (запасное значение 30 — для SSR, пока window недоступен).
+const IMG_COUNT = (() => {
+  if (typeof window === "undefined") return 30;
+  const H = window.innerHeight, W = window.innerWidth;
+  const tileSize = Math.floor((H - 20 * 6) / 5) * RING_SIZE_FACTOR;
+  const gap = tileSize * 0.15;
+  const spacing = tileSize + gap;
+  const R0 = spacing / (2 * Math.sin(Math.PI / RING_CAPACITY_REF));
+  const maxRadius = Math.min(W, H) * 0.48;
+  return getRingCapacity(CUBE_RING_IDX, R0, spacing, maxRadius);
+})();
+const IMG_SIZE_DESKTOP = 60; // запасной вариант для SSR (window ещё недоступен)
+// Кубики теперь того же размера, что и мозаики в кольцах — чуть крупнее, чем
+// были раньше. Формула та же, что и calcTileSize()*RING_SIZE_FACTOR внутри
+// компонента (GAP=20 продублирован как литерал: эта функция модульного
+// уровня, а GAP объявлена внутри Home и оттуда недоступна).
 const getImgSize = () =>
-  typeof window !== "undefined" && window.innerWidth <= 768
-    ? IMG_SIZE_MOBILE
-    : IMG_SIZE_DESKTOP;
+  typeof window === "undefined"
+    ? IMG_SIZE_DESKTOP
+    : Math.floor((window.innerHeight - 20 * 6) / 5) * RING_SIZE_FACTOR;
 
 const FLOATING_INIT = Array.from({ length: IMG_COUNT }, (_, i) => {
   const seed = i * 137 + 42;
@@ -85,29 +185,39 @@ function obbCollide(
   return { overlap: minOverlap, nx: minAxis.x * sign, ny: minAxis.y * sign };
 }
 
-// Тип для накопленных миниатюр узоров
-type Thumbnail = {
+// Мозаики теперь не сетка, а слоты постоянно растущих колец — координаты не
+// нужны, позиция считается из индекса в массиве (см. getRingRadius/
+// getRingDirection и ringRotationRefs в animate()); размер плитки ФИКСИРОВАН
+// и одинаков всегда и везде (tileSize) — растёт без ограничений, никогда не
+// заменяется, при переполнении текущего кольца (вместимость которого зависит
+// от его радиуса, см. animate()) формируется следующее кольцо.
+// captureX/Y/W/H — где на экране узор был захвачен (для анимации "прилёта" в
+// кольцо), createdAt — момент создания (performance.now()) для расчёта
+// прогресса этой анимации в animate().
+type RingTile = {
   id: number;
   src: string;
-  srcX: number; srcY: number; srcW: number; srcH: number;
-  dstX: number; dstY: number; dstSize: number;
-  bgColor?: string; // цвет из самой мозаики — виден в отступе при лёгком уменьшении узора в ячейке
+  bgColor?: string;
+  captureX: number; captureY: number; captureW: number; captureH: number;
+  createdAt: number;
 };
 
-// Вертикальный сдвиг контейнера сетки мозаик (в vh) по unit-скроллу — сетка
-// едет со скроллом (появляется, потом уезжает), как и раньше. Вынесена в
-// отдельную функцию модуля, т.к. нужна и для реального CSS-transform
-// контейнера (applyAnimations), и для перевода экранных координат в локальные
-// координаты контейнера при размещении новых мозаик (makeMosaicFromSnap/makeMosaic).
-function gridTyVh(unit: number): number {
-  if (unit <= 0.35) return (1 - unit / 0.35) * 110;
-  if (unit <= 0.75) return -((unit - 0.35) / 0.4) * 110;
-  return -110;
-}
-function gridTyPx(unit: number): number {
-  return gridTyVh(unit) / 100 * (typeof window !== "undefined" ? window.innerHeight : 0);
+// Линейная интерполяция значения из радиального профиля силуэта сухарика
+// (см. onLoad на <img src="/sug.png">) по произвольному углу — используется
+// для коллизии "по форме" вместо повёрнутого прямоугольника.
+function sampleRadialProfile(profile: Float32Array, angle: number): number {
+  const n = profile.length;
+  const norm = ((angle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+  const idx = (norm / (Math.PI * 2)) * n;
+  const i0 = Math.floor(idx) % n;
+  const i1 = (i0 + 1) % n;
+  const frac = idx - Math.floor(idx);
+  return profile[i0] * (1 - frac) + profile[i1] * frac;
 }
 
+// Кольцо 0 — исходное (радиус R0). Кольцо 1 (первое переполнение) — наружное,
+// больше R0. Кольцо 2 (второе переполнение) — внутреннее, меньше R0. Дальше
+// чередование продолжается тем же способом. Шаг АДДИТИВНЫЙ и равен radialGap —
 // Заливка как в Paint: линии-разделители создают области, flood-fill заливает каждую ярким цветом.
 // Фон тоже получает случайный цвет. Белого и серого нет.
 function buildColoredMosaic(
@@ -120,9 +230,8 @@ function buildColoredMosaic(
   const w = Math.max(4, Math.round(cropW * scale));
   const h = Math.max(4, Math.round(cropH * scale));
 
-  // Узор занимает весь канвас как есть — без отступа при захвате. Уменьшение
-  // до размера ячейки, и лёгкий цветной отступ вокруг узора — отдельно,
-  // плавной анимацией в ThumbItem, пока миниатюра летит на своё место в сетке.
+  // Узор занимает весь канвас как есть — без отступа при захвате. Лёгкий
+  // цветной отступ вокруг узора в самом кольце — через scale(0.9) на <img>.
   const adjMinX = minX;
   const adjMinY = minY;
 
@@ -826,7 +935,7 @@ function generate3DShapePoints(
   const cx = W * 0.5, cy = H * 0.5;
   const rotX = rng() * Math.PI * 2;
   const rotY = rng() * Math.PI * 2;
-  const shapeType = Math.floor(rng() * 18); // 16 типов
+  const shapeType = Math.floor(rng() * 18); // только сложные аттракторы/узлы — без формул/геометрии/да Винчи
 
   // Непрерывные кривые — проецируем напрямую
   // Автоматически масштабирует и центрирует точки по экрану
@@ -1019,14 +1128,30 @@ export default function Home() {
   const cursorRef = useRef<HTMLDivElement>(null);
   const trailCanvasRef = useRef<HTMLCanvasElement>(null);
 
-  // Накопленные миниатюры узоров
-  const [thumbnails, setThumbnails] = useState<Thumbnail[]>([]);
+  // Мозаики — растут БЕЗ ОГРАНИЧЕНИЙ (новые только добавляются, никогда не
+  // заменяют старые). Кольцо 0 заполняется первым, дальше формируется
+  // кольцо 1 (наружное), потом кольцо 2 (внутреннее), и т.д. — чередуя радиус
+  // и направление вращения (см. getRingRadius/getRingDirection в начале файла).
+  // Вместимость каждого кольца — своя, из его радиуса (плотность одинаковая).
+  const [ringTiles, setRingTiles] = useState<RingTile[]>([]);
+  // Зеркало ringTiles в реф — animate() императивный, его эффект настроен один
+  // раз при монтировании, и без этого видел бы устаревшее состояние.
+  const ringTilesRef = useRef<RingTile[]>([]);
+  useEffect(() => { ringTilesRef.current = ringTiles; }, [ringTiles]);
   const thumbIdRef = useRef(0);
-  // Положение сетки (в px, см. gridTyPx) на МОМЕНТ НАЧАЛА текущей фазы рисования
-  // (трейлы или фигура) — используется для размещения итоговой мозаики, чтобы
-  // не зависеть от того, сколько успели проскроллить, пока фигура рисовалась
-  // несколько секунд. Обновляется в начале runPhase0/runDrawPhase.
-  const phaseStartTyPxRef = useRef(0);
+  // Одно число на кольцо (растёт по мере появления новых колец) — каждое
+  // кольцо крутится с собственным накопленным углом, см. getRingDirection().
+  const ringRotationRefs = useRef<number[]>([0]);
+  const ringSlotRefs = useRef<(HTMLDivElement | null)[]>([]);
+  // Заполненность каждого кольца на прошлом кадре — как только меняется,
+  // запускаем плавное "раздвигание" (см. ringCountTransitionsRef в animate()).
+  const ringPrevCountsRef = useRef<number[]>([]);
+  const ringCountTransitionsRef = useRef<Map<number, { from: number; to: number; start: number }>>(new Map());
+  // Финал: все MAX_RINGS колец мозаик заполнены — трейлы кубиков выключаются,
+  // и сами кубики выстраиваются в ещё одно, самое внешнее кольцо (см. animate()).
+  const finaleReachedRef = useRef(false);
+  const finaleHomingRef = useRef<{ startX: number; startY: number; startAng: number; startedAt: number }[] | null>(null);
+  const cubeRingRotationRef = useRef(0);
   const captureCountRef = useRef(0);
   const mousePosRef = useRef({ x: 0, y: 0 });
   const autoTrailRef = useRef<{ x: number; y: number }[]>([]);
@@ -1193,8 +1318,7 @@ export default function Home() {
       maxX = Math.min(VW, maxX + pad); maxY = Math.min(VH, maxY + pad);
       // Никогда не форсим квадрат minSide×minSide — это раньше могло СЖИМАТЬ
       // (обрезать) вытянутый узор, если он был шире/выше minSide только по
-      // одной оси. Захват всегда точно по фактической рамке узора; лёгкое
-      // "уменьшение с отступом" — отдельно, при анимации перелёта в ThumbItem.
+      // одной оси. Захват всегда точно по фактической рамке узора.
       const cropW = Math.max(1, maxX - minX);
       const cropH = Math.max(1, maxY - minY);
       const dpr = window.devicePixelRatio || 1;
@@ -1204,67 +1328,15 @@ export default function Home() {
       const ctx2 = crop.getContext("2d");
       if (ctx2) ctx2.drawImage(snap, minX * dpr, minY * dpr, cropW * dpr, cropH * dpr, 0, 0, crop.width, crop.height);
       const src = crop.toDataURL("image/png");
-      const SW = window.innerWidth, SH = window.innerHeight;
-      // Живое положение экрана ПРЯМО СЕЙЧАС — нужно (а) перевести экранную
-      // srcY захвата в локальные координаты контейнера и (б) честно проверить,
-      // где СЕЙЧАС физически находятся уже существующие плитки (см. ниже).
-      const liveTyPx = gridTyPx(scrollRef.current / SCROLL_PER_UNIT);
-      const isMobile = SW <= 768;
-      const DST_SIZE = isMobile ? 57 : 170;
-      const GAP = 8;
-      const cellW = DST_SIZE + GAP, cellH = DST_SIZE + GAP;
-      const cols = Math.floor(SW / cellW);
-      const rows = Math.floor(SH / cellH);
 
+      // Мозаика ДОБАВЛЯЕТСЯ в конец растущего кольца — никогда не заменяет
+      // существующие. captureX/Y/W/H — та же рамка, что и у crop (где узор
+      // реально был на экране) — используется для анимации прилёта в кольцо.
       thumbIdRef.current++;
       const newId = thumbIdRef.current;
-
-      setThumbnails(prev => {
-        // Локальный dstY нового кандидата считаем относительно СТАРТА этой фазы
-        // рисования (phaseStartTyPxRef) — так итоговая позиция не прыгает от
-        // того, сколько успели проскроллить за секунды, пока фигура рисовалась.
-        // А вот занятость ячейки проверяем по ЖИВОЙ ТЕКУЩЕЙ экранной позиции —
-        // и кандидата, и уже существующих плиток, приведённых к ОДНОМУ и тому
-        // же моменту (liveTyPx) — иначе сравнение "врёт" и наложение проходит
-        // незамеченным (округление до номера ряда одной и той же плитки может
-        // дать разный "ряд" до и после скролла).
-        const MARGIN = 2;
-        const freeCells: number[] = [];
-        for (let row = 0; row < rows; row++) {
-          for (let col = 0; col < cols; col++) {
-            const candDstX = col * cellW + GAP / 2;
-            const candDstY = row * cellH + GAP / 2 - phaseStartTyPxRef.current;
-            const candScreenY0 = candDstY + liveTyPx;
-            const candScreenY1 = candScreenY0 + DST_SIZE;
-            const overlaps = prev.some(t => {
-              if (Math.round(t.dstX / cellW) !== Math.round(candDstX / cellW)) return false;
-              const tY0 = t.dstY + liveTyPx, tY1 = tY0 + t.dstSize;
-              return candScreenY0 < tY1 + MARGIN && candScreenY1 + MARGIN > tY0;
-            });
-            if (!overlaps) freeCells.push(row * cols + col);
-          }
-        }
-        for (let i = freeCells.length - 1; i > 0; i--) {
-          const j = Math.floor(Math.random() * (i + 1));
-          [freeCells[i], freeCells[j]] = [freeCells[j], freeCells[i]];
-        }
-        const freeCell = freeCells.length > 0 ? freeCells[0] : -1;
-        let dstX: number, dstY: number;
-        let nextPrev = prev;
-        if (freeCell >= 0) {
-          const col = freeCell % cols;
-          const row = Math.floor(freeCell / cols);
-          dstX = col * cellW + GAP / 2;
-          dstY = row * cellH + GAP / 2 - phaseStartTyPxRef.current;
-        } else {
-          const oldest = prev.reduce((a, b) => a.id < b.id ? a : b);
-          dstX = oldest.dstX; dstY = oldest.dstY;
-          nextPrev = prev.filter(t => t.id !== oldest.id);
-        }
-        return [...nextPrev, { id: newId, src, srcX: minX, srcY: minY - liveTyPx, srcW: cropW, srcH: cropH, dstX, dstY, dstSize: DST_SIZE }];
-      });
+      setRingTiles(prev => [...prev, { id: newId, src, captureX: minX, captureY: minY, captureW: cropW, captureH: cropH, createdAt: performance.now() }]);
       const mosaic = buildColoredMosaic([pts], minX, minY, cropW, cropH);
-      if (mosaic) setThumbnails(prev => prev.map(t => t.id === newId ? { ...t, src: mosaic.src, bgColor: mosaic.bgColor } : t));
+      if (mosaic) setRingTiles(prev => prev.map(t => t.id === newId ? { ...t, src: mosaic.src, bgColor: mosaic.bgColor } : t));
     };
 
     const makeMosaic = (trails: { x: number, y: number }[][], _snap?: HTMLCanvasElement) => {
@@ -1292,57 +1364,13 @@ export default function Home() {
       const ctx2 = crop.getContext("2d");
       if (ctx2) ctx2.drawImage(c, minX * dpr, minY * dpr, cropW * dpr, cropH * dpr, 0, 0, crop.width, crop.height);
       const src = crop.toDataURL("image/png");
-      const W = window.innerWidth, H = window.innerHeight;
-      const liveTyPx2 = gridTyPx(scrollRef.current / SCROLL_PER_UNIT);
-      const isMobile = W <= 768;
-      const DST_SIZE = isMobile ? 57 : 170;
-      const GAP2 = 8;
-      const cellW2 = DST_SIZE + GAP2, cellH2 = DST_SIZE + GAP2;
-      const cols2 = Math.floor(W / cellW2);
-      const rows2 = Math.floor(H / cellH2);
+
+      // См. makeMosaicFromSnap — та же ничем не ограниченная добавка в кольцо.
       thumbIdRef.current++;
       const newId = thumbIdRef.current;
-      setThumbnails(prev => {
-        // См. makeMosaicFromSnap — dstY кандидата привязан к старту фазы
-        // (phaseStartTyPxRef), занятость проверяется по живому текущему
-        // положению (liveTyPx2), приведённому к одному моменту для всех.
-        const MARGIN2 = 2;
-        const freeCells2: number[] = [];
-        for (let row = 0; row < rows2; row++) {
-          for (let col = 0; col < cols2; col++) {
-            const candDstX = col * cellW2 + GAP2 / 2;
-            const candDstY = row * cellH2 + GAP2 / 2 - phaseStartTyPxRef.current;
-            const candScreenY0 = candDstY + liveTyPx2;
-            const candScreenY1 = candScreenY0 + DST_SIZE;
-            const overlaps = prev.some(t => {
-              if (Math.round(t.dstX / cellW2) !== Math.round(candDstX / cellW2)) return false;
-              const tY0 = t.dstY + liveTyPx2, tY1 = tY0 + t.dstSize;
-              return candScreenY0 < tY1 + MARGIN2 && candScreenY1 + MARGIN2 > tY0;
-            });
-            if (!overlaps) freeCells2.push(row * cols2 + col);
-          }
-        }
-        for (let i = freeCells2.length - 1; i > 0; i--) {
-          const j = Math.floor(Math.random() * (i + 1));
-          [freeCells2[i], freeCells2[j]] = [freeCells2[j], freeCells2[i]];
-        }
-        const freeCell2 = freeCells2.length > 0 ? freeCells2[0] : -1;
-        let dstX: number, dstY: number;
-        let nextPrev2 = prev;
-        if (freeCell2 >= 0) {
-          const col = freeCell2 % cols2;
-          const row = Math.floor(freeCell2 / cols2);
-          dstX = col * cellW2 + GAP2 / 2;
-          dstY = row * cellH2 + GAP2 / 2 - phaseStartTyPxRef.current;
-        } else {
-          const oldest = prev.reduce((a, b) => a.id < b.id ? a : b);
-          dstX = oldest.dstX; dstY = oldest.dstY;
-          nextPrev2 = prev.filter(t => t.id !== oldest.id);
-        }
-        return [...nextPrev2, { id: newId, src, srcX: minX, srcY: minY - liveTyPx2, srcW: cropW, srcH: cropH, dstX, dstY, dstSize: DST_SIZE }];
-      });
+      setRingTiles(prev => [...prev, { id: newId, src, captureX: minX, captureY: minY, captureW: cropW, captureH: cropH, createdAt: performance.now() }]);
       const mosaic = buildColoredMosaic(trails, minX, minY, cropW, cropH);
-      if (mosaic) setThumbnails(prev => prev.map(t => t.id === newId ? { ...t, src: mosaic.src, bgColor: mosaic.bgColor } : t));
+      if (mosaic) setRingTiles(prev => prev.map(t => t.id === newId ? { ...t, src: mosaic.src, bgColor: mosaic.bgColor } : t));
     };
 
     // Фаза 0: собираем трейлы кубиков → мозаика, затем фаза 1
@@ -1351,11 +1379,8 @@ export default function Home() {
     const activeRef = { current: true };
 
     // Общая функция отрисовки любого набора точек → мозаика → следующая фаза
-    const runDrawPhase = (pts: { x: number; y: number }[], onDone: () => void, durationMs = 5000) => {
+    const runDrawPhase = (pts: { x: number; y: number }[], onDone: () => void, durationMs = 1250) => {
       if (!activeRef.current || pts.length === 0) { onDone(); return; }
-      // Фиксируем экран НА СТАРТЕ рисования — а не там, где скролл окажется
-      // несколько секунд спустя, когда фигура уже дорисуется и захватится.
-      phaseStartTyPxRef.current = gridTyPx(scrollRef.current / SCROLL_PER_UNIT);
       autoDrawActiveRef.current = true;
       physState.current.forEach(s => { s.trail = []; });
       clearCanvas();
@@ -1429,8 +1454,59 @@ export default function Home() {
     // Фаза 0: трейлы кубиков 5 сек → мозаика → геометрия
     const runPhase0 = () => {
       if (!activeRef.current) return;
-      // Фиксируем экран на старте накопления трейлов — см. runDrawPhase выше.
-      phaseStartTyPxRef.current = gridTyPx(scrollRef.current / SCROLL_PER_UNIT);
+      // Ограничение в MAX_RINGS (4) колец — как только их суммарная вместимость
+      // достигнута, рисование новых мозаик останавливается полностью: фаза
+      // просто не запускается дальше (ни взрыва, ни сбора трейлов, ни
+      // следующей фазы). Вместо этого — финал: трейлы кубиков выключаются, и
+      // сами кубики выстраиваются в ещё одно, самое внешнее кольцо (см. animate()).
+      {
+        const ringTileSizeNow = calcTileSize() * RING_SIZE_FACTOR;
+        const ringGapNow = ringTileSizeNow * 0.15;
+        const ringSpacingNow = ringTileSizeNow + ringGapNow;
+        const R0Now = ringSpacingNow / (2 * Math.sin(Math.PI / RING_CAPACITY_REF));
+        const maxRadiusNow = Math.min(window.innerWidth, window.innerHeight) * 0.48;
+        const totalCap = computeTotalRingsCapacity(MAX_RINGS, R0Now, ringSpacingNow, maxRadiusNow);
+        // thumbIdRef — синхронный счётчик (инкрементируется в момент создания
+        // плитки, до асинхронного setRingTiles), в отличие от
+        // ringTilesRef.current.length, который синхронизируется с React-
+        // состоянием только после рендера. При коротких паузах между фазами
+        // (после ускорения цикла) React мог не успеть синхронизироваться —
+        // проверка по устаревшей длине пропускала одну лишнюю мозаику.
+        if (thumbIdRef.current >= totalCap) {
+          finaleReachedRef.current = true;
+          autoDrawActiveRef.current = true; // выключает трейлы кубиков
+          physState.current.forEach(s => { s.trail = []; });
+          clearCanvas(); // стирает случайные обрывки трейла, успевшие нарисоваться в короткое окно перед финалом
+          return;
+        }
+      }
+      // Мощный взрыв-импульс для ВСЕХ кубиков сразу — без затухания по
+      // расстоянию (в отличие от explodeFromPoint, который для локального
+      // клика мышью): гарантированно провоцирует активное движение перед
+      // сбором трейлов, а не полагается на то, что кубики уже куда-то летят.
+      // Точка взрыва — СЛУЧАЙНАЯ при каждом запуске (не центр экрана): если
+      // всегда толкать от одной и той же точки, кубики раз за разом летят в
+      // одном и том же "наружу" направлении и со временем скапливаются по
+      // углам — самым дальним точкам от фиксированного центра. Случайная
+      // точка + разброс силы + доворот направления — чтобы каждый взрыв был
+      // другим, а кубики не дрейфовали в одну сторону.
+      {
+        const ecx = window.innerWidth * (0.2 + Math.random() * 0.6);
+        const ecy = window.innerHeight * (0.2 + Math.random() * 0.6);
+        physState.current.forEach(s => {
+          if (!s.initialized) return;
+          const dx = s.x - ecx, dy = s.y - ecy;
+          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+          const nx = dx / dist, ny = dy / dist;
+          const jitter = (Math.random() - 0.5) * 1.2; // случайный доворот направления, рад
+          const cosJ = Math.cos(jitter), sinJ = Math.sin(jitter);
+          const jnx = nx * cosJ - ny * sinJ, jny = nx * sinJ + ny * cosJ;
+          const force = (650 + Math.random() * 450) * 3; // втрое сильнее
+          s.vx += jnx * force;
+          s.vy += jny * force;
+          s.rotSpeed += (Math.random() - 0.5) * 10 * 3;
+        });
+      }
       autoDrawActiveRef.current = false;
       schedTimer = setTimeout(() => {
         if (!activeRef.current) return;
@@ -1438,13 +1514,31 @@ export default function Home() {
         physState.current.forEach(s => { s.trail = []; });
         clearCanvas();
         makeMosaic(trails);
-        schedTimer = setTimeout(runPhase1, 100); // → геометрия
-      }, 5000);
+        schedTimer = setTimeout(runPhase1, 25); // → геометрия
+      }, 1250);
     };
 
     // Фаза 1: 3D/4D фигура → трейлы
     const runPhase1 = () => {
       if (!activeRef.current) return;
+      // См. проверку в runPhase0 — то же ограничение, на всякий случай и здесь.
+      {
+        const ringTileSizeNow = calcTileSize() * RING_SIZE_FACTOR;
+        const ringGapNow = ringTileSizeNow * 0.15;
+        const ringSpacingNow = ringTileSizeNow + ringGapNow;
+        const R0Now = ringSpacingNow / (2 * Math.sin(Math.PI / RING_CAPACITY_REF));
+        const maxRadiusNow = Math.min(window.innerWidth, window.innerHeight) * 0.48;
+        const totalCap = computeTotalRingsCapacity(MAX_RINGS, R0Now, ringSpacingNow, maxRadiusNow);
+        // См. runPhase0 — thumbIdRef синхронный, ringTilesRef.current.length
+        // мог отставать и пропускать одну лишнюю мозаику при коротких паузах.
+        if (thumbIdRef.current >= totalCap) {
+          finaleReachedRef.current = true;
+          autoDrawActiveRef.current = true; // выключает трейлы кубиков
+          physState.current.forEach(s => { s.trail = []; });
+          clearCanvas(); // см. runPhase0 — та же подстраховка от обрывков трейла
+          return;
+        }
+      }
       const W = window.innerWidth, H = window.innerHeight;
       const pts = generate3DShapePoints(Math.floor(Math.random() * 999999), W, H, 0, 0);
       runDrawPhase(pts, runPhase0); // → трейлы
@@ -1487,6 +1581,7 @@ export default function Home() {
 
       for (let i = 0; i < IMG_COUNT; i++) {
         for (let j = i + 1; j < IMG_COUNT; j++) {
+          if (finaleReachedRef.current) break; // в финале позиция считается напрямую, столкновения не нужны
           const a = states[i], b = states[j];
           const r = obbCollide(a.x, a.y, a.ang, b.x, b.y, b.ang, S);
           if (!r) continue;
@@ -1501,27 +1596,97 @@ export default function Home() {
       }
 
       const { gx, gy } = gyroRef.current;
-      states.forEach((s, i) => {
-        s.vx += gx * dt; s.vy += gy * dt;
-        s.vx *= DAMPING; s.vy *= DAMPING;
-        const sp = Math.sqrt(s.vx * s.vx + s.vy * s.vy);
-        if (sp > MAX_SPEED) { s.vx = s.vx / sp * MAX_SPEED; s.vy = s.vy / sp * MAX_SPEED; }
-        s.rotSpeed *= ROT_DAMPING;
-        if (s.rotSpeed > MAX_ROT_SPEED) s.rotSpeed = MAX_ROT_SPEED;
-        if (s.rotSpeed < -MAX_ROT_SPEED) s.rotSpeed = -MAX_ROT_SPEED;
-        s.x += s.vx * dt; s.y += s.vy * dt; s.ang += s.rotSpeed * dt;
-        const h = S / 2;
-        if (s.x < h) { s.x = h; s.vx = Math.abs(s.vx) * BOUNCE; }
-        if (s.x > W - h) { s.x = W - h; s.vx = -Math.abs(s.vx) * BOUNCE; }
-        if (s.y < h) { s.y = h; s.vy = Math.abs(s.vy) * BOUNCE; }
-        if (s.y > H - h) { s.y = H - h; s.vy = -Math.abs(s.vy) * BOUNCE; }
-        const el = floatingRefs.current[i];
-        if (el) {
-          el.style.left = `${s.x - h}px`; el.style.top = `${s.y - h}px`;
-          el.style.width = `${S}px`; el.style.height = `${S}px`;
-          el.style.transform = `rotate(${s.ang}rad)`;
+      if (finaleReachedRef.current) {
+        // Финал: все MAX_RINGS колец мозаик заполнены. Кубики больше не живут
+        // обычной физикой — они выстраиваются в ещё одно, самое внешнее
+        // кольцо, с той же плотностью (шагом между соседями), что и у
+        // остальных колец. Направление вращения — противоположное самому
+        // дальнему мозаичному кольцу (тому же чередованию, что и у них).
+        if (!finaleHomingRef.current) {
+          finaleHomingRef.current = states.map(s => ({ startX: s.x, startY: s.y, startAng: s.ang, startedAt: performance.now() }));
         }
-      });
+        const fRingCx = W * 0.5, fRingCy = H * 0.5;
+        const fTileSize = calcTileSize() * RING_SIZE_FACTOR;
+        const fGap = fTileSize * 0.15;
+        const fSpacing = fTileSize + fGap;
+        const fR0 = fSpacing / (2 * Math.sin(Math.PI / RING_CAPACITY_REF));
+        const fMaxRadius = Math.min(W, H) * 0.48;
+        // Радиус кольца кубиков привязан НАПРЯМУЮ к фактическому (уже
+        // применённому потолку) радиусу кольца 3, а не считается отдельно —
+        // если бы оба считались независимо через getRingRadius(...,maxRadius),
+        // на узких экранах потолок мог обрезать ОБА до одного и того же
+        // значения (кольцо кубиков совпало бы по радиусу с кольцом 3, отсюда
+        // и наложение на фото). Так гарантированно на один шаг дальше, всегда.
+        const ring3ActualR = getRingRadius(MAX_RINGS - 1, fR0, fSpacing, fMaxRadius);
+        const cubeRingR = ring3ActualR + fSpacing;
+        const cubeRingDir = getRingDirection(CUBE_RING_IDX);
+        cubeRingRotationRef.current += cubeRingDir * 0.1257 * dt;
+
+        const HOMING_MS = 1800;
+        const homing = finaleHomingRef.current;
+        const nowMsF = performance.now();
+        states.forEach((s, i) => {
+          const angle = (i / IMG_COUNT) * Math.PI * 2 + cubeRingRotationRef.current;
+          const targetX = fRingCx + cubeRingR * Math.cos(angle);
+          const targetY = fRingCy + cubeRingR * Math.sin(angle);
+
+          const h0 = homing[i];
+          const elapsed = nowMsF - h0.startedAt;
+          const t = Math.min(1, Math.max(0, elapsed / HOMING_MS));
+          const eased = easeOutCubic(t);
+          s.x = h0.startX + (targetX - h0.startX) * eased;
+          s.y = h0.startY + (targetY - h0.startY) * eased;
+          s.vx = 0; s.vy = 0; s.rotSpeed = 0;
+          // Наклон кубика приводится к тому же соглашению, что и у мозаик —
+          // "приклеен к ободу" (наклон = текущий угол на кольце), а не
+          // застывает на случайном угле после взрыва. Доворачиваем от угла на
+          // момент старта финала к целевому по КРАТЧАЙШЕМУ пути (иначе кубик
+          // раскрутился бы через лишние обороты, если после взрыва накопил
+          // много полных оборотов). После t=1 остаточная разница = 0, и угол
+          // дальше просто следует за вращением кольца, как у мозаик.
+          const diff = normalizeAngleDiff(h0.startAng - angle);
+          s.ang = angle + diff * (1 - eased);
+
+          const el = floatingRefs.current[i];
+          if (el) {
+            const h = S / 2;
+            el.style.left = `${s.x - h}px`; el.style.top = `${s.y - h}px`;
+            el.style.width = `${S}px`; el.style.height = `${S}px`;
+            el.style.transform = `rotate(${s.ang}rad)`;
+          }
+        });
+      } else {
+        // Во время сбора трейлов (!autoDrawActiveRef.current) кубики должны
+        // реально летать по всему экрану — иначе взрыв, каким бы сильным ни был,
+        // упирается в обычный потолок скорости на следующем же кадре, а обычное
+        // затухание гасит его за первую секунду-полторы. На время сбора трейлов
+        // потолок выше, а затухание намного слабее — проверено: за 5 секунд
+        // кубик проходит ~13000px вместо ~1900px при обычных значениях.
+        const collectingTrails = !autoDrawActiveRef.current;
+        const effDamping = collectingTrails ? 0.999 : DAMPING;
+        const effMaxSpeed = collectingTrails ? MAX_SPEED * 2.5 : MAX_SPEED;
+        states.forEach((s, i) => {
+          s.vx += gx * dt; s.vy += gy * dt;
+          s.vx *= effDamping; s.vy *= effDamping;
+          const sp = Math.sqrt(s.vx * s.vx + s.vy * s.vy);
+          if (sp > effMaxSpeed) { s.vx = s.vx / sp * effMaxSpeed; s.vy = s.vy / sp * effMaxSpeed; }
+          s.rotSpeed *= ROT_DAMPING;
+          if (s.rotSpeed > MAX_ROT_SPEED) s.rotSpeed = MAX_ROT_SPEED;
+          if (s.rotSpeed < -MAX_ROT_SPEED) s.rotSpeed = -MAX_ROT_SPEED;
+          s.x += s.vx * dt; s.y += s.vy * dt; s.ang += s.rotSpeed * dt;
+          const h = S / 2;
+          if (s.x < h) { s.x = h; s.vx = Math.abs(s.vx) * BOUNCE; }
+          if (s.x > W - h) { s.x = W - h; s.vx = -Math.abs(s.vx) * BOUNCE; }
+          if (s.y < h) { s.y = h; s.vy = Math.abs(s.vy) * BOUNCE; }
+          if (s.y > H - h) { s.y = H - h; s.vy = -Math.abs(s.vy) * BOUNCE; }
+          const el = floatingRefs.current[i];
+          if (el) {
+            el.style.left = `${s.x - h}px`; el.style.top = `${s.y - h}px`;
+            el.style.width = `${S}px`; el.style.height = `${S}px`;
+            el.style.transform = `rotate(${s.ang}rad)`;
+          }
+        });
+      }
 
       // (физика "текст как большой кубик" убрана — textPhysRef.x/y никогда не
       // инициализировались позицией заголовка, только .active, поэтому это был
@@ -1675,15 +1840,25 @@ export default function Home() {
           sg.initialized = true;
         }
         const halfBox = sg.size / 2; // половина квадратного контейнера — только для позиционирования
-        // Полу-ширина/высота ОСЕВОГО прямоугольника, описывающего повёрнутый силуэт.
-        // renderW/renderH — реальные (обрезанные по альфа-каналу) размеры картинки;
-        // при повороте на угол sg.ang их проекция на оси экрана растёт (макс. на
-        // диагонали ~45°) — без этого пересчёта отскок не совпадал бы с тем,
-        // что видно на экране, когда сухарик повёрнут.
-        const hw0 = sg.renderW / 2, hh0 = sg.renderH / 2;
-        const cosA = Math.abs(Math.cos(sg.ang)), sinA = Math.abs(Math.sin(sg.ang));
-        const shX = hw0 * cosA + hh0 * sinA;
-        const shY = hw0 * sinA + hh0 * cosA;
+        // Отскок теперь идёт по РЕАЛЬНОМУ радиальному профилю силуэта (см. onLoad),
+        // а не по повёрнутому прямоугольнику: для каждого из 4 направлений (лево,
+        // право, верх, низ) берём фактический радиус силуэта в ту сторону, с
+        // поправкой на текущий поворот sg.ang — силуэт асимметричен, поэтому
+        // лево/право и верх/низ могут получать РАЗНЫЕ значения, а не общий shX/shY.
+        let shXLeft: number, shXRight: number, shYTop: number, shYBottom: number;
+        if (sg.radialProfile) {
+          shXLeft = sampleRadialProfile(sg.radialProfile, Math.PI - sg.ang);
+          shXRight = sampleRadialProfile(sg.radialProfile, -sg.ang);
+          shYTop = sampleRadialProfile(sg.radialProfile, -Math.PI / 2 - sg.ang);
+          shYBottom = sampleRadialProfile(sg.radialProfile, Math.PI / 2 - sg.ang);
+        } else {
+          // Профиль ещё не готов (картинка не успела загрузиться) — временно
+          // старое поведение повёрнутого прямоугольника, до готовности onLoad.
+          const hw0 = sg.renderW / 2, hh0 = sg.renderH / 2;
+          const cosA = Math.abs(Math.cos(sg.ang)), sinA = Math.abs(Math.sin(sg.ang));
+          shXLeft = shXRight = hw0 * cosA + hh0 * sinA;
+          shYTop = shYBottom = hw0 * sinA + hh0 * cosA;
+        }
 
         // Физика — естественная, почти без затухания
         sg.vx *= 0.995;
@@ -1693,24 +1868,24 @@ export default function Home() {
         sg.y += sg.vy * dt;
         sg.ang += sg.rotSpeed * dt;
 
-        // Отскок от краёв с передачей момента вращения (torque) — по размерам самой картинки
-        if (sg.x < shX) {
-          sg.x = shX;
+        // Отскок от краёв с передачей момента вращения (torque) — по форме силуэта
+        if (sg.x < shXLeft) {
+          sg.x = shXLeft;
           sg.vx = Math.abs(sg.vx) * 0.75;
           sg.rotSpeed += sg.vy * 0.004;
         }
-        if (sg.x > W - shX) {
-          sg.x = W - shX;
+        if (sg.x > W - shXRight) {
+          sg.x = W - shXRight;
           sg.vx = -Math.abs(sg.vx) * 0.75;
           sg.rotSpeed -= sg.vy * 0.004;
         }
-        if (sg.y < shY) {
-          sg.y = shY;
+        if (sg.y < shYTop) {
+          sg.y = shYTop;
           sg.vy = Math.abs(sg.vy) * 0.75;
           sg.rotSpeed += sg.vx * 0.004;
         }
-        if (sg.y > H - shY) {
-          sg.y = H - shY;
+        if (sg.y > H - shYBottom) {
+          sg.y = H - shYBottom;
           sg.vy = -Math.abs(sg.vy) * 0.75;
           sg.rotSpeed -= sg.vx * 0.004;
         }
@@ -1723,6 +1898,119 @@ export default function Home() {
         sugEl.style.left = `${sg.x - halfBox}px`;
         sugEl.style.top = `${sg.y - halfBox}px`;
         sugEl.style.transform = `rotate(${sg.ang}rad)`;
+      }
+
+      // ===== КОЛЬЦА МОЗАИК — постоянное вращение, несколько колец =====
+      // Угол каждого кольца непрерывно растёт независимо от скролла — отсюда
+      // "постоянно движущийся". Кольцо 0 заполняется первым, дальше формируется
+      // кольцо 1 (наружное, больше радиусом), потом кольцо 2 (внутреннее,
+      // меньше кольца 0), и так далее чередуя направление вращения
+      // (getRingDirection) и радиус (getRingRadius) — см. определения этих
+      // функций в начале файла. ВМЕСТИМОСТЬ каждого кольца теперь СВОЯ —
+      // считается из ЕГО РАДИУСА так, чтобы шаг между соседними мозаиками
+      // (плотность) был ОДИНАКОВЫМ во всех кольцах: у большого кольца длиннее
+      // окружность — значит, и мозаик в нём помещается больше, у маленького —
+      // меньше, но РАССТОЯНИЕ между ними всегда одно и то же (см. ringSpacing).
+      // ringTileSize — маленький, ФИКСИРОВАННЫЙ размер (доля от плитки сетки,
+      // см. RING_SIZE_FACTOR), одинаковый для абсолютно всех плиток во всех
+      // кольцах, с самой первой. maxRadius — жёсткий потолок: ни одно кольцо,
+      // сколько бы их ни появилось со временем, не может вылезти за экран.
+      const ringCx = W * 0.5, ringCy = H * 0.5;
+      const ringTileSize = calcTileSize() * RING_SIZE_FACTOR;
+      const ringGap = ringTileSize * 0.15;
+      const ringSpacing = ringTileSize + ringGap;
+      const R0 = ringSpacing / (2 * Math.sin(Math.PI / RING_CAPACITY_REF));
+      const maxRadius = Math.min(W, H) * 0.48;
+      const ringHalf = ringTileSize / 2;
+      const tiles = ringTilesRef.current;
+      const ringN = tiles.length;
+
+      // Вместимость каждого кольца — из его радиуса, при том же шаге ringSpacing
+      // между соседями (см. getRingCapacity в начале файла).
+      const ringCaps: number[] = [];
+      {
+        let cum = 0, k = 0;
+        while (cum < Math.max(ringN, 1)) {
+          const cap = getRingCapacity(k, R0, ringSpacing, maxRadius);
+          ringCaps.push(cap);
+          cum += cap;
+          k++;
+          if (k > 500) break; // защита от зацикливания в вырожденных случаях
+        }
+      }
+      const numRings = ringCaps.length;
+      for (let k = ringRotationRefs.current.length; k < numRings; k++) ringRotationRefs.current.push(0);
+      for (let k = 0; k < numRings; k++) {
+        ringRotationRefs.current[k] += getRingDirection(k) * 0.1257 * dt; // полный оборот ~50 сек, знак чередуется
+      }
+
+      const nowMs = performance.now();
+      const ARRIVAL_MS = 300; // прилёт новой мозаики из точки захвата
+      const COUNT_TRANSITION_MS = 225; // плавное "раздвигание" уже существующих
+
+      let ringStart = 0;
+      for (let k = 0; k < numRings; k++) {
+        const cap = ringCaps[k];
+        const countInRing = Math.min(cap, Math.max(0, ringN - ringStart));
+        if (countInRing <= 0) break;
+
+        // Заполненность этого кольца поменялась — плавно раздвигаем уже
+        // существующие плитки (интерполируем эффективное число участников),
+        // вместо мгновенного скачка на новый угол.
+        const prevCount = ringPrevCountsRef.current[k];
+        if (prevCount !== undefined && prevCount !== countInRing && prevCount >= 1) {
+          ringCountTransitionsRef.current.set(k, { from: prevCount, to: countInRing, start: nowMs });
+        }
+        ringPrevCountsRef.current[k] = countInRing;
+
+        let effectiveCount = countInRing;
+        const transition = ringCountTransitionsRef.current.get(k);
+        if (transition) {
+          const tt = (nowMs - transition.start) / COUNT_TRANSITION_MS;
+          if (tt < 1) effectiveCount = transition.from + (transition.to - transition.from) * easeOutCubic(tt);
+          else ringCountTransitionsRef.current.delete(k);
+        }
+
+        const ringR = getRingRadius(k, R0, ringSpacing, maxRadius);
+        for (let idxInRing = 0; idxInRing < countInRing; idxInRing++) {
+          const i = ringStart + idxInRing;
+          const el = ringSlotRefs.current[i];
+          if (!el) continue;
+          const tile = tiles[i];
+
+          const angle = (idxInRing / effectiveCount) * Math.PI * 2 + ringRotationRefs.current[k];
+          const rx = ringCx + ringR * Math.cos(angle);
+          const ry = ringCy + ringR * Math.sin(angle);
+          const targetX = rx - ringHalf, targetY = ry - ringHalf;
+
+          // Анимация прилёта из точки захвата — цель (rx,ry) сама постоянно
+          // движется (кольцо крутится), поэтому смещение пересчитывается каждый
+          // кадр относительно ТЕКУЩЕЙ позиции слота, а не фиксированной точки —
+          // плитка плавно "догоняет" движущееся место, а не бежит к точке,
+          // которая к моменту прилёта уже давно съехала.
+          let offsetX = 0, offsetY = 0, sx = 1, sy = 1;
+          if (tile) {
+            const elapsed = nowMs - tile.createdAt;
+            if (elapsed < ARRIVAL_MS) {
+              const t = Math.max(0, elapsed) / ARRIVAL_MS;
+              const eased = easeOutCubic(t);
+              const remain = 1 - eased;
+              const captureCenterX = tile.captureX + tile.captureW / 2;
+              const captureCenterY = tile.captureY + tile.captureH / 2;
+              offsetX = (captureCenterX - rx) * remain;
+              offsetY = (captureCenterY - ry) * remain;
+              sx = 1 + (tile.captureW / ringTileSize - 1) * remain;
+              sy = 1 + (tile.captureH / ringTileSize - 1) * remain;
+            }
+          }
+
+          el.style.left = `${targetX}px`;
+          el.style.top = `${targetY}px`;
+          // Плитка "жёстко приклеена" к ободу — её собственный наклон равен
+          // текущему углу на круге, а не остаётся плоским при вращении.
+          el.style.transform = `translate(${offsetX}px, ${offsetY}px) rotate(${angle}rad) scale(${sx}, ${sy})`;
+        }
+        ringStart += cap;
       }
       if (trailCanvas && !autoDrawActiveRef.current) {
         const ctx = trailCanvas.getContext("2d");
@@ -1817,11 +2105,19 @@ export default function Home() {
   // без отдельного таймера/состояния.
   const sugRef = useRef<HTMLImageElement>(null);
   const sugPhys = useRef((() => {
-    const s = typeof window !== 'undefined' && window.innerWidth <= 768 ? 160 : 320;
+    // Размер на мобильном был непропорционально большим относительно экрана
+    // (160px на ~390px ширины ≈ 41%) по сравнению с десктопом (320px на
+    // ~1920px ≈ 17%). Приводим к тому же ~3-кратному соотношению, что и у
+    // кубиков (60→20) и мозаик (170→57).
+    const s = typeof window !== 'undefined' && window.innerWidth <= 768 ? 110 : 320;
     // renderW/renderH — реальные размеры картинки внутри квадратного контейнера
     // (с учётом object-fit:contain и её собственного aspect ratio). Уточняются
     // в onLoad на <img>; до загрузки — считаем квадратом (как сейчас).
-    return { x: 0, y: 0, vx: 180, vy: -220, ang: 0, rotSpeed: 0.3, initialized: false, size: s, renderW: s, renderH: s };
+    // radialProfile — радиальный профиль силуэта (расстояние до края по 72
+    // направлениям вокруг центра), тоже уточняется в onLoad. Отскок от стен
+    // считается по НЕМУ, а не по прямоугольнику — то есть по форме, а не по
+    // габаритному боксу.
+    return { x: 0, y: 0, vx: 180, vy: -220, ang: 0, rotSpeed: 0.3, initialized: false, size: s, renderW: s, renderH: s, radialProfile: null as Float32Array | null };
   })());
 
   // Через 11 секунд после монтирования — взрыв текста (буквы/слова разлетаются).
@@ -1978,8 +2274,6 @@ export default function Home() {
       if (textFallTimerRef.current) clearTimeout(textFallTimerRef.current);
     };
   }, []);
-  const thumbContainerRef = useRef<HTMLDivElement>(null);
-  const thumbPatternRef = useRef<HTMLDivElement>(null);
 
   const applyAnimations = (scrollY: number, deltaY = 0) => {
     const unit = scrollY / SCROLL_PER_UNIT;
@@ -1998,16 +2292,6 @@ export default function Home() {
       iDoDesignRef.current.style.transform = `translateY(${unit <= 0 ? 0 : unit <= 0.35 ? -(unit / 0.35) * 110 : -110
         }vh)`;
       iDoDesignRef.current.style.opacity = unit > 0.5 ? "0" : "1";
-    }
-    // thumbContainer двигается вместе с iDoDesignRef (тот же translateY) —
-    // сама сетка мозаик едет со скроллом; куда ИМЕННО в неё встаёт новая
-    // плитка — отдельный вопрос, см. gridTyPx()/phaseStartTyPxRef ниже.
-    if (thumbContainerRef.current) {
-      const ty2 = gridTyVh(unit);
-      thumbContainerRef.current.style.transform = `translateY(${ty2}vh)`;
-      if (thumbPatternRef.current) {
-        thumbPatternRef.current.style.transform = `translateY(${ty2}vh)`;
-      }
     }
     if (deltaY > 0 && unit < 0.9) {
       physState.current.forEach(s => { if (!s.initialized) return; s.vy -= Math.min(deltaY * 18, 900); s.rotSpeed += (Math.random() - 0.5) * 4; });
@@ -2265,14 +2549,22 @@ export default function Home() {
           <div ref={overlayRef} style={{ position: "absolute", inset: 0, zIndex: 10, pointerEvents: (showContact || !!selectedImg) ? "none" : "auto", cursor: "none" }} />
         </div>
 
-        {/* Картинки и узоры — ниже кубиков */}
-        <div ref={thumbContainerRef} style={{ position: "absolute", inset: 0, zIndex: 3, pointerEvents: "none", transform: "translateY(110vh)", willChange: "transform", opacity: pinkOpacity }}>
-        </div>
-
-        {/* Узоры — 50% прозрачность */}
-        <div ref={thumbPatternRef} style={{ position: "absolute", inset: 0, zIndex: 3, pointerEvents: "none", transform: "translateY(110vh)", willChange: "transform", opacity: pinkOpacity * 0.5 }}>
-          {thumbnails.map(t => (
-            <ThumbItem key={t.id} thumb={t} />
+        {/* Несколько колец мозаик — растут без ограничений. Кольцо 0 заполняется
+            первым, дальше формируется кольцо 1 (наружное, крутится в другую
+            сторону), потом кольцо 2 (внутреннее, меньше кольца 0), и так далее
+            чередуя направление/радиус — см. getRingRadius/getRingDirection в
+            начале файла. Вместимость каждого кольца — своя, из его радиуса
+            (см. animate()), чтобы плотность была одинаковой во всех кольцах.
+            Размер плитки — ФИКСИРОВАН и ОДИНАКОВ везде (tileSize). */}
+        <div style={{ position: "absolute", inset: 0, zIndex: 3, pointerEvents: "none", opacity: pinkOpacity * 0.5 }}>
+          {ringTiles.map((tile, i) => (
+            <RingTileView
+              key={tile.id}
+              tile={tile}
+              boxSize={tileSize * RING_SIZE_FACTOR}
+              index={i}
+              slotRefsArray={ringSlotRefs}
+            />
           ))}
         </div>
 
@@ -2296,15 +2588,30 @@ export default function Home() {
               // Точные видимые размеры картинки — обрезаем прозрачные поля по
               // альфа-каналу (в PNG может быть лишний прозрачный отступ вокруг
               // самого силуэта), а не берём naturalWidth/naturalHeight как есть.
-              // Отскок от стен считается именно по этому силуэту, не по всему
-              // квадратному контейнеру size×size.
+              // Плюс строим радиальный профиль силуэта (расстояние до края по
+              // 72 направлениям вокруг центра) — отскок от стен считается по
+              // НЕМУ, а не по прямоугольнику: так коллизия идёт по форме.
               const img = e.currentTarget;
               const nw = img.naturalWidth || 1, nh = img.naturalHeight || 1;
               const s = sugPhys.current.size;
+              const N_ANGLES = 72;
+              const buildEllipseProfile = (rw: number, rh: number) => {
+                const rx = rw / 2, ry = rh / 2;
+                const profile = new Float32Array(N_ANGLES);
+                for (let a = 0; a < N_ANGLES; a++) {
+                  const th = (a / N_ANGLES) * Math.PI * 2;
+                  const c = Math.cos(th), sN = Math.sin(th);
+                  const denom = Math.sqrt((ry * c) ** 2 + (rx * sN) ** 2) || 1;
+                  profile[a] = (rx * ry) / denom;
+                }
+                return profile;
+              };
               const fallback = () => {
                 const aspect = nw / nh;
                 if (aspect >= 1) { sugPhys.current.renderW = s; sugPhys.current.renderH = s / aspect; }
                 else { sugPhys.current.renderH = s; sugPhys.current.renderW = s * aspect; }
+                // Без альфа-данных — эллипс по пропорциям картинки, лучше чем прямоугольник
+                sugPhys.current.radialProfile = buildEllipseProfile(sugPhys.current.renderW, sugPhys.current.renderH);
               };
               try {
                 const off = document.createElement("canvas");
@@ -2328,6 +2635,31 @@ export default function Home() {
                 const scale = Math.min(s / nw, s / nh); // тот же масштаб, что даёт object-fit:contain
                 sugPhys.current.renderW = visW * scale;
                 sugPhys.current.renderH = visH * scale;
+
+                // Радиальный профиль — луч из центра силуэта по каждому из
+                // N_ANGLES направлений, дальняя непрозрачная точка вдоль луча
+                const cx0 = (minX + maxX) / 2, cy0 = (minY + maxY) / 2;
+                const maxR = Math.sqrt(nw * nw + nh * nh);
+                const isOpaque = (px: number, py: number) =>
+                  px >= 0 && px < nw && py >= 0 && py < nh && data[(py * nw + px) * 4 + 3] > ALPHA_THRESHOLD;
+                const profile = new Float32Array(N_ANGLES);
+                for (let a = 0; a < N_ANGLES; a++) {
+                  const th = (a / N_ANGLES) * Math.PI * 2;
+                  const dx = Math.cos(th), dy = Math.sin(th);
+                  let found = 0;
+                  for (let r = 0; r < maxR; r += 2) {
+                    if (isOpaque(Math.round(cx0 + dx * r), Math.round(cy0 + dy * r))) found = r;
+                    else if (found > 0 && r - found > 6) break; // вышли за пределы силуэта — дальше не ищем
+                  }
+                  profile[a] = found * scale; // те же единицы, что и renderW/renderH
+                }
+                // Подстраховка на случай совсем плоского профиля (например,
+                // альфа не нашлась ни по одному лучу) — эллипс по факту. видимым размерам
+                if (profile.every(v => v < 1)) {
+                  sugPhys.current.radialProfile = buildEllipseProfile(sugPhys.current.renderW, sugPhys.current.renderH);
+                } else {
+                  sugPhys.current.radialProfile = profile;
+                }
               } catch (_) {
                 fallback(); // CORS/canvas недоступен — используем пропорции всего файла
               }
@@ -2421,83 +2753,36 @@ export default function Home() {
   );
 }
 
-// ThumbItem: position:absolute внутри thumbContainerRef.
-// imgRef позволяет обновить src без перемонтирования когда мозаика готова.
-function ThumbItem({ thumb }: { thumb: Thumbnail }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const imgRef = useRef<HTMLImageElement>(null);
-
-  useEffect(() => {
-    if (imgRef.current && thumb.src) {
-      imgRef.current.src = thumb.src;
-    }
-  }, [thumb.src]);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-
-    // Случайные параметры на плитку — разнообразие достигается ЧЕРЕЗ ПОВОРОТ
-    // И ДВИЖЕНИЕ (позиция), а не через скейл: у размера/масштаба переброса нет
-    // вообще, иначе ширина и высота (едущие на разное расстояние — например,
-    // ширина с 1400px, высота с 200px, обе к 170px) перелетают и оседают не в
-    // унисон, и плитку на мгновение расплющивает/сжимает меньше финального.
-    const dur = 2.3 + Math.random() * 0.9; // 2.3–3.2s — общая длительность перелёта
-    const overshoot = 1.25 + Math.random() * 0.55; // 1.25–1.8 — сила "пружины" у позиции/поворота
-    const startRot = (Math.random() - 0.5) * 20; // ±10° — на старте слегка повело
-    const rotDur = dur * (0.7 + Math.random() * 0.25); // поворот выпрямляется чуть раньше или позже перелёта
-    const BOUNCE = `cubic-bezier(0.34,${overshoot.toFixed(2)},0.64,1)`; // для left/top/transform — переброс тут безопасен
-    const SMOOTH = "cubic-bezier(0.16,1,0.3,1)"; // ease-out-expo, БЕЗ переброса — для width/height/scale
-
-    el.style.transform = `rotate(${startRot}deg)`;
-
-    const r1 = requestAnimationFrame(() => {
-      const r2 = requestAnimationFrame(() => {
-        if (!ref.current) return;
-        ref.current.style.transition = [
-          `left ${dur.toFixed(2)}s ${BOUNCE}`,
-          `top ${dur.toFixed(2)}s ${BOUNCE}`,
-          `width ${dur.toFixed(2)}s ${SMOOTH}`,
-          `height ${dur.toFixed(2)}s ${SMOOTH}`,
-          `transform ${rotDur.toFixed(2)}s ${BOUNCE}`,
-          `border-radius ${dur.toFixed(2)}s ease-out`,
-        ].join(",");
-        ref.current.style.left = `${thumb.dstX}px`;
-        ref.current.style.top = `${thumb.dstY}px`;
-        ref.current.style.width = `${thumb.dstSize}px`;
-        ref.current.style.height = `${thumb.dstSize}px`;
-        ref.current.style.borderRadius = "16px";
-        ref.current.style.transform = "rotate(0deg)";
-        // Узор "садится" внутрь ячейки отдельным, чуть запаздывающим тактом —
-        // тоже без переброса (масштаб не должен пружинить, даже равномерный).
-        if (imgRef.current) {
-          const scaleDelay = dur * 0.2;
-          imgRef.current.style.transition = `transform ${(dur * 0.75).toFixed(2)}s ${SMOOTH} ${scaleDelay.toFixed(2)}s`;
-          imgRef.current.style.transform = "scale(0.9)";
-        }
-      });
-      return () => cancelAnimationFrame(r2);
-    });
-    return () => cancelAnimationFrame(r1);
-  }, []);
+// RingTileView — одна плитка кольца. Внешний div (ref) целиком двигает, крутит
+// и анимирует прилёт animate() каждый кадр (импреративно, transform на этом же
+// узле) — своей анимации на монтировании больше не нужно, прилёт из точки
+// захвата уже даёт нужный эффект появления. Размер (boxSize) фиксирован и
+// одинаков у всех плиток, не меняется со временем.
+function RingTileView({ tile, boxSize, index, slotRefsArray }: {
+  tile: RingTile; boxSize: number; index: number;
+  slotRefsArray: React.MutableRefObject<(HTMLDivElement | null)[]>;
+}) {
+  // Стабильная ссылка на конкретный индекс — index у существующей плитки
+  // никогда не меняется (плитки только добавляются, никогда не переставляются),
+  // поэтому useCallback гарантированно не пересоздаётся между рендерами, и
+  // React не будет лишний раз отвязывать/привязывывать DOM-узел ref'а.
+  const setRef = useCallback((el: HTMLDivElement | null) => {
+    slotRefsArray.current[index] = el;
+  }, [slotRefsArray, index]);
 
   return (
-    <div
-      ref={ref}
-      style={{
-        position: "absolute",
-        left: `${thumb.srcX}px`,
-        top: `${thumb.srcY}px`,
-        width: `${thumb.srcW}px`,
-        height: `${thumb.srcH}px`,
-        borderRadius: "0px",
-        overflow: "hidden",
-        opacity: 1,
-        pointerEvents: "none",
-        backgroundColor: thumb.bgColor || "transparent",
-      }}
-    >
-      <img ref={imgRef} src={thumb.src} alt="" style={{ width: "100%", height: "100%", display: "block", objectFit: "contain", transformOrigin: "center center" }} />
+    <div ref={setRef} style={{ position: "absolute", width: `${boxSize}px`, height: `${boxSize}px`, transformOrigin: "center center" }}>
+      <div
+        style={{
+          width: "100%",
+          height: "100%",
+          borderRadius: "12px",
+          overflow: "hidden",
+          backgroundColor: tile.bgColor || "transparent",
+        }}
+      >
+        <img src={tile.src} alt="" style={{ width: "100%", height: "100%", objectFit: "contain", display: "block", transform: "scale(0.9)" }} />
+      </div>
     </div>
   );
 }
