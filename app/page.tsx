@@ -109,7 +109,7 @@ const CUBE_RING_IDX = MAX_RINGS + 1;
 const IMG_COUNT = (() => {
   if (typeof window === "undefined") return 30;
   const H = window.innerHeight, W = window.innerWidth;
-  const tileSize = Math.floor((H - 20 * 6) / 5) * RING_SIZE_FACTOR;
+  const tileSize = Math.floor((Math.min(W, H) - 20 * 6) / 5) * RING_SIZE_FACTOR;
   const gap = tileSize * 0.15;
   const spacing = tileSize + gap;
   const R0 = spacing / (2 * Math.sin(Math.PI / RING_CAPACITY_REF));
@@ -117,14 +117,16 @@ const IMG_COUNT = (() => {
   return getRingCapacity(CUBE_RING_IDX, R0, spacing, maxRadius);
 })();
 const IMG_SIZE_DESKTOP = 60; // запасной вариант для SSR (window ещё недоступен)
-// Кубики теперь того же размера, что и мозаики в кольцах — чуть крупнее, чем
-// были раньше. Формула та же, что и calcTileSize()*RING_SIZE_FACTOR внутри
-// компонента (GAP=20 продублирован как литерал: эта функция модульного
-// уровня, а GAP объявлена внутри Home и оттуда недоступна).
+// Кубики теперь того же размера, что и мозаики в кольцах. Формула та же, что
+// и calcRingTileSize() внутри компонента (GAP=20 продублирован как литерал:
+// эта функция модульного уровня, а GAP объявлена внутри Home и оттуда
+// недоступна). min(innerWidth,innerHeight), а не просто innerHeight — на
+// узком мобильном экране именно ШИРИНА ограничивающее измерение, иначе кольцо
+// считается только по высоте и вылезает за пределы экрана по ширине.
 const getImgSize = () =>
   typeof window === "undefined"
     ? IMG_SIZE_DESKTOP
-    : Math.floor((window.innerHeight - 20 * 6) / 5) * RING_SIZE_FACTOR;
+    : Math.floor((Math.min(window.innerWidth, window.innerHeight) - 20 * 6) / 5) * RING_SIZE_FACTOR;
 
 const FLOATING_INIT = Array.from({ length: IMG_COUNT }, (_, i) => {
   const seed = i * 137 + 42;
@@ -1104,13 +1106,16 @@ export default function Home() {
     const OVERLAY_TOTAL = 10000;
     const OVERLAY_FADE = 600;
 
-    const interval = (OVERLAY_TOTAL - OVERLAY_FADE) / allWords.length;
+    // Вдвое быстрее — слово меняется вдвое чаще. Общая длительность экрана
+    // загрузки (OVERLAY_TOTAL) не трогаю — от неё зависят другие таймеры
+    // (взрыв текста, старт игрушки). Раз слов теперь "показов" вдвое больше,
+    // чем самих слов в массиве, зацикливаю через % — иначе на второй половине
+    // окна слова бы кончились и последнее просто зависло бы статично.
+    const interval = (OVERLAY_TOTAL - OVERLAY_FADE) / allWords.length / 2;
     let idx = 0;
     const timer = setInterval(() => {
-      if (idx < allWords.length) {
-        setOverlayWord(allWords[idx]);
-        idx++;
-      }
+      setOverlayWord(allWords[idx % allWords.length]);
+      idx++;
     }, interval);
 
     const fadeTimer = setTimeout(() => {
@@ -1465,7 +1470,7 @@ export default function Home() {
       // следующей фазы). Вместо этого — финал: трейлы кубиков выключаются, и
       // сами кубики выстраиваются в ещё одно, самое внешнее кольцо (см. animate()).
       {
-        const ringTileSizeNow = calcTileSize() * RING_SIZE_FACTOR;
+        const ringTileSizeNow = calcRingTileSize();
         const ringGapNow = ringTileSizeNow * 0.15;
         const ringSpacingNow = ringTileSizeNow + ringGapNow;
         const R0Now = ringSpacingNow / (2 * Math.sin(Math.PI / RING_CAPACITY_REF));
@@ -1528,7 +1533,7 @@ export default function Home() {
       if (!activeRef.current) return;
       // См. проверку в runPhase0 — то же ограничение, на всякий случай и здесь.
       {
-        const ringTileSizeNow = calcTileSize() * RING_SIZE_FACTOR;
+        const ringTileSizeNow = calcRingTileSize();
         const ringGapNow = ringTileSizeNow * 0.15;
         const ringSpacingNow = ringTileSizeNow + ringGapNow;
         const R0Now = ringSpacingNow / (2 * Math.sin(Math.PI / RING_CAPACITY_REF));
@@ -1611,7 +1616,7 @@ export default function Home() {
           finaleHomingRef.current = states.map(s => ({ startX: s.x, startY: s.y, startAng: s.ang, startedAt: performance.now() }));
         }
         const fRingCx = W * 0.5, fRingCy = H * 0.5;
-        const fTileSize = calcTileSize() * RING_SIZE_FACTOR;
+        const fTileSize = calcRingTileSize();
         const fGap = fTileSize * 0.15;
         const fSpacing = fTileSize + fGap;
         const fR0 = fSpacing / (2 * Math.sin(Math.PI / RING_CAPACITY_REF));
@@ -1921,7 +1926,7 @@ export default function Home() {
       // кольцах, с самой первой. maxRadius — жёсткий потолок: ни одно кольцо,
       // сколько бы их ни появилось со временем, не может вылезти за экран.
       const ringCx = W * 0.5, ringCy = H * 0.5;
-      const ringTileSize = calcTileSize() * RING_SIZE_FACTOR;
+      const ringTileSize = calcRingTileSize();
       const ringGap = ringTileSize * 0.15;
       const ringSpacing = ringTileSize + ringGap;
       const R0 = ringSpacing / (2 * Math.sin(Math.PI / RING_CAPACITY_REF));
@@ -2098,6 +2103,11 @@ export default function Home() {
 
   const calcTileSize = () => Math.floor((window.innerHeight - GAP * 6) / 5);
   const getRowWidth = () => (calcTileSize() + GAP) * ALL_IMAGES.length + GAP;
+  // Для колец мозаик/кубиков — то же самое, но от МЕНЬШЕЙ стороны экрана, не
+  // только высоты. На узком мобильном экране ширина меньше высоты, и именно
+  // она ограничивающее измерение — иначе кольцо считается только по высоте и
+  // вылезает за пределы экрана по ширине (не помещается на мобильном).
+  const calcRingTileSize = () => Math.floor((Math.min(window.innerWidth, window.innerHeight) - GAP * 6) / 5) * RING_SIZE_FACTOR;
 
   const iDoDesignRef = useRef<HTMLDivElement>(null);
   const textFallTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2641,9 +2651,16 @@ export default function Home() {
                 sugPhys.current.renderW = visW * scale;
                 sugPhys.current.renderH = visH * scale;
 
-                // Радиальный профиль — луч из центра силуэта по каждому из
-                // N_ANGLES направлений, дальняя непрозрачная точка вдоль луча
-                const cx0 = (minX + maxX) / 2, cy0 = (minY + maxY) / 2;
+                // Радиальный профиль — луч из ЦЕНТРА ВСЕГО ИЗОБРАЖЕНИЯ (не силуэта!)
+                // по каждому из N_ANGLES направлений, дальняя непрозрачная точка
+                // вдоль луча. Важно: object-fit:contain центрирует НАТУРАЛЬНУЮ
+                // картинку целиком (50%/50%) внутри квадратного контейнера — а
+                // значит sg.x/sg.y в физике соответствуют центру ВСЕГО canvas
+                // (nw/2, nh/2), а НЕ центру плотного альфа-бокса силуэта. Если бы
+                // лучи считались от центра альфа-бокса (как было раньше) — при
+                // асимметричных прозрачных полях в PNG коллизия была бы смещена
+                // относительно того, что реально видно на экране.
+                const cx0 = nw / 2, cy0 = nh / 2;
                 const maxR = Math.sqrt(nw * nw + nh * nh);
                 const isOpaque = (px: number, py: number) =>
                   px >= 0 && px < nw && py >= 0 && py < nh && data[(py * nw + px) * 4 + 3] > ALPHA_THRESHOLD;
@@ -2781,7 +2798,7 @@ function RingTileView({ tile, boxSize, index, slotRefsArray }: {
         style={{
           width: "100%",
           height: "100%",
-          borderRadius: "12px",
+          borderRadius: `${boxSize * 0.14}px`, // та же пропорция скругления, что и у кубиков (.floating-img: ~10/75 десктоп, ~4/25 мобильный) — не фиксированный px, иначе на маленьких мобильных плитках выглядит непропорционально круглым
           overflow: "hidden",
           backgroundColor: tile.bgColor || "transparent",
         }}
