@@ -1305,6 +1305,15 @@ export default function Home() {
   // композиции занять почти весь экран; по мере появления новых, более
   // дальних колец плавно уменьшается, чтобы всё по-прежнему помещалось.
   const compositionScaleRef = useRef(1);
+  // Кэш геометрии колец — зависит только от ringN и ringTileSize, которые НЕ
+  // меняются каждый кадр (ringN — только при добавлении новой мозаики,
+  // ringTileSize — только при ресайзе окна), а не пересчитывается заново 60
+  // раз в секунду без необходимости (лишняя нагрузка на мобильных).
+  const ringGeometryCacheRef = useRef<{
+    ringN: number; ringTileSize: number;
+    ringCaps: number[]; naturalOutermostR: number;
+    innermostR: number; innermostFillCount: number;
+  } | null>(null);
   // Угол вращения центрального восьмиугольника — крутится в сторону,
   // противоположную кольцу 2 (самому маленькому из 4 мозаичных колец, по той
   // же логике чередования, что и у самих колец, см. getRingDirection).
@@ -2126,12 +2135,39 @@ export default function Home() {
       const tiles = ringTilesRef.current;
       const ringN = tiles.length;
 
+      // Геометрия колец (вместимость каждого, самый дальний и самый ближний
+      // радиус из уже сформировавшихся, заполненность ближайшего) — зависит
+      // ТОЛЬКО от ringN и ringTileSize, которые не меняются каждый кадр, а
+      // не пересчитывается заново 60 раз в секунду без необходимости (см.
+      // ringGeometryCacheRef выше).
+      let ringCaps: number[], naturalOutermostR: number, innermostR: number, innermostFillCount: number;
+      const geomCached = ringGeometryCacheRef.current;
+      if (geomCached && geomCached.ringN === ringN && geomCached.ringTileSize === ringTileSize) {
+        ringCaps = geomCached.ringCaps;
+        naturalOutermostR = geomCached.naturalOutermostR;
+        innermostR = geomCached.innermostR;
+        innermostFillCount = geomCached.innermostFillCount;
+      } else {
+        ringCaps = [];
+        let cum = 0, k = 0;
+        while (cum < Math.max(ringN, 1)) {
+          const cap = getRingCapacity(k, R0, ringSpacing, HUGE_RADIUS);
+          ringCaps.push(cap);
+          cum += cap;
+          k++;
+          if (k > 500) break; // защита от зацикливания в вырожденных случаях
+        }
+        naturalOutermostR = computeNaturalOutermostRadius(ringN, R0, ringSpacing, ringTileSize);
+        innermostR = computeInnermostRadius(ringN, R0, ringSpacing);
+        innermostFillCount = computeInnermostRingFillCount(ringN, R0, ringSpacing);
+        ringGeometryCacheRef.current = { ringN, ringTileSize, ringCaps, naturalOutermostR, innermostR, innermostFillCount };
+      }
+
       // Целевой масштаб — чтобы САМОЕ ДАЛЬНЕЕ из уже существующих колец (+
       // кольцо кубиков, если все 4 мозаичных уже готовы) помещалось в экран с
       // небольшим отступом (0.48 от меньшей стороны — тот же отступ, что
       // раньше был "потолком" на отдельные кольца).
       const availableRadius = Math.min(W, H) * 0.48;
-      const naturalOutermostR = computeNaturalOutermostRadius(ringN, R0, ringSpacing, ringTileSize);
       const targetCompositionScale = availableRadius / Math.max(naturalOutermostR, 1);
       // Плавное сглаживание к цели — не мгновенный скачок при появлении
       // нового кольца, а быстрая, но всё ещё плавная "усадка" за доли секунды.
@@ -2152,7 +2188,6 @@ export default function Home() {
       // формироваться кольцо 2 (единственное "внутреннее" среди 4 мозаичных) —
       // им становится оно, и восьмиугольник плавно (тот же LERP, что и у
       // общего масштаба композиции) уменьшается, чтобы не накладываться на него.
-      const innermostR = computeInnermostRadius(ringN, R0, ringSpacing);
       const targetOctagonSize = 2 * innermostR - ringTileSize - 2 * ringGap;
       if (octagonSizeRef.current === 0) octagonSizeRef.current = targetOctagonSize; // без анимации "из нуля" при самом первом кадре
       octagonSizeRef.current += (targetOctagonSize - octagonSizeRef.current) * Math.min(1, SCALE_LERP_SPEED * dt);
@@ -2169,9 +2204,7 @@ export default function Home() {
       }
       // Число сторон центральной фигуры — по числу мозаик в ТЕКУЩЕМ ближайшем
       // к центру кольце (0 → круг, 1-2 → квадрат, 3+ → N мозаик = N сторон;
-      // см. sidesForRingFill). Пересчитывается каждый кадр (дёшево — если
-      // раньше уже было именно столько сторон, обновление пути пропускается).
-      const innermostFillCount = computeInnermostRingFillCount(ringN, R0, ringSpacing);
+      // см. sidesForRingFill).
       const desiredSides = sidesForRingFill(innermostFillCount);
       const renderSides = desiredSides === 0 ? CIRCLE_SIDES_APPROX : desiredSides;
       if (renderSides !== currentShapeSidesRef.current) {
@@ -2179,20 +2212,6 @@ export default function Home() {
         if (centerShapePathRef.current) centerShapePathRef.current.setAttribute("d", roundedPolygonPath(renderSides));
       }
 
-      // Вместимость каждого кольца — из его радиуса, при том же шаге ringSpacing
-      // между соседями (см. getRingCapacity в начале файла). Без потолка —
-      // естественная геометрия, сжатие целиком делает compScale выше.
-      const ringCaps: number[] = [];
-      {
-        let cum = 0, k = 0;
-        while (cum < Math.max(ringN, 1)) {
-          const cap = getRingCapacity(k, R0, ringSpacing, HUGE_RADIUS);
-          ringCaps.push(cap);
-          cum += cap;
-          k++;
-          if (k > 500) break; // защита от зацикливания в вырожденных случаях
-        }
-      }
       const numRings = ringCaps.length;
       for (let k = ringRotationRefs.current.length; k < numRings; k++) ringRotationRefs.current.push(0);
       for (let k = 0; k < numRings; k++) {
@@ -3131,7 +3150,16 @@ export default function Home() {
 // узле) — своей анимации на монтировании больше не нужно, прилёт из точки
 // захвата уже даёт нужный эффект появления. Размер (boxSize) фиксирован и
 // одинаков у всех плиток, не меняется со временем.
-function RingTileView({ tile, boxSize, index, slotRefsArray }: {
+// React.memo — без него КАЖДОЕ обновление ringTiles (а оно случается ДВАЖДЫ
+// на каждую новую мозаику: сырой кроп, потом обработанная версия) заново
+// перерисовывало АБСОЛЮТНО ВСЕ уже существующие плитки, даже те, что вообще
+// не изменились. На мобильном, когда плиток уже полсотни+, это создавало
+// заметную задержку главного потока именно в момент появления новой плитки —
+// то есть ровно тогда, когда у неё самой начинается 300мс анимация прилёта,
+// отсюда и "тряска". С memo — плитки, чей объект tile не изменился (map
+// возвращает ту же ссылку для всех, кроме только что добавленной/обновлённой),
+// корректно пропускают повторный рендер.
+const RingTileView = React.memo(function RingTileView({ tile, boxSize, index, slotRefsArray }: {
   tile: RingTile; boxSize: number; index: number;
   slotRefsArray: React.MutableRefObject<(HTMLDivElement | null)[]>;
 }) {
@@ -3158,4 +3186,4 @@ function RingTileView({ tile, boxSize, index, slotRefsArray }: {
       </div>
     </div>
   );
-}
+});
