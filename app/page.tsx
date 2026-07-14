@@ -1175,13 +1175,6 @@ function generate3DShapePoints(
 
 export default function Home() {
   const [videoSrc, setVideoSrc] = useState("/me.mp4");
-  // Отдельное превью видео поверх мозаичной композиции — за 10с до автоскролла
-  // (см. эффект "Автоскролл" ниже, срабатывающий на 50-й секунде) и держится
-  // 10с, ровно до момента, когда автоскролл начинается. Отдельно от
-  // videoRef/videoOpacity выше — те завязаны на ПОЗИЦИЮ скролла (показ видео
-  // в последней секции), а это — на ВРЕМЯ, до того как скролл вообще начался.
-  const [preScrollVideoOpacity, setPreScrollVideoOpacity] = useState(0);
-  const preScrollVideoRef = useRef<HTMLVideoElement>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const textRef = useRef<HTMLDivElement>(null);
@@ -2269,10 +2262,16 @@ export default function Home() {
               // overflow:hidden+border-radius давало графические артефакты на
               // мобильных GPU (только на мобильном — там как раз плитки такие
               // маленькие; на десктопе отношение всегда было в разумных пределах).
+              // Делим потолок на compScale — иначе после умножения на compScale
+              // ниже (который может доходить до ~3x в начале, пока композиция
+              // ещё большая) ИТОГОВЫЙ масштаб снова доходил бы до тех же
+              // проблемных 30-40 крат, несмотря на этот клэмп (именно это и
+              // вызывало тряску мозаик при "прилёте" на мобильном).
               const MAX_ARRIVAL_SCALE = 12;
+              const effectiveMaxArrivalScale = MAX_ARRIVAL_SCALE / Math.max(compScale, 0.1);
               const rawSx = tile.captureW / ringTileSize, rawSy = tile.captureH / ringTileSize;
-              sx = 1 + (Math.min(rawSx, MAX_ARRIVAL_SCALE) - 1) * remain;
-              sy = 1 + (Math.min(rawSy, MAX_ARRIVAL_SCALE) - 1) * remain;
+              sx = 1 + (Math.min(rawSx, effectiveMaxArrivalScale) - 1) * remain;
+              sy = 1 + (Math.min(rawSy, effectiveMaxArrivalScale) - 1) * remain;
             }
           }
           // Общий масштаб композиции применяется поверх — визуальный размер
@@ -2699,26 +2698,6 @@ export default function Home() {
     return () => { clearTimeout(timer); fired = true; };
   }, []);
 
-  // Превью видео (me.mp4/iome.mp4) поверх мозаичной композиции — за 10с до
-  // автоскролла (тот срабатывает на 50000мс, см. эффект выше) и держится
-  // ровно до момента, когда автоскролл начинается: плавно появляется на
-  // 40000мс (50000-10000), плавно пропадает на 50000мс (сама смена
-  // прозрачности — мгновенная через state, а плавность даёт CSS-transition
-  // на самом video-элементе, см. JSX).
-  useEffect(() => {
-    const AUTOSCROLL_AT_MS = 50000;
-    const PREVIEW_DURATION_MS = 10000;
-    const showTimer = setTimeout(() => {
-      setPreScrollVideoOpacity(1);
-      preScrollVideoRef.current?.play().catch(() => { });
-    }, AUTOSCROLL_AT_MS - PREVIEW_DURATION_MS);
-    const hideTimer = setTimeout(() => {
-      setPreScrollVideoOpacity(0);
-      preScrollVideoRef.current?.pause();
-    }, AUTOSCROLL_AT_MS);
-    return () => { clearTimeout(showTimer); clearTimeout(hideTimer); };
-  }, []);
-
   useEffect(() => {
     const vw = window.innerWidth, rw = getRowWidth();
     trackRefs.current.forEach((track, i) => {
@@ -2926,30 +2905,6 @@ export default function Home() {
             </div>
           ))}
         </div>
-
-        {/* Превью видео за 10с до автоскролла — поверх всей мозаичной
-            композиции (кольца, кубики), "сквозь" неё — умеренная прозрачность
-            (0.55), чтобы мозаики оставались видны под видео, а не полностью
-            им перекрывались. Тот же src, что и у основного фонового видео
-            (me.mp4/iome.mp4 на iOS) — см. videoSrc выше. */}
-        <video
-          ref={preScrollVideoRef}
-          src={videoSrc}
-          muted
-          loop
-          playsInline
-          style={{
-            position: "absolute",
-            inset: 0,
-            width: "100%",
-            height: "100%",
-            objectFit: "cover",
-            zIndex: 6,
-            opacity: preScrollVideoOpacity * 0.55,
-            pointerEvents: "none",
-            transition: "opacity 1s ease",
-          }}
-        />
 
         {/* Сухарик — только на время экрана загрузки, исчезает вместе с ним */}
         {overlayOpacity > 0 && (
