@@ -245,10 +245,12 @@ const IMG_SIZE_DESKTOP = 60; // запасной вариант для SSR (wind
 // недоступна). min(innerWidth,innerHeight), а не просто innerHeight — на
 // узком мобильном экране именно ШИРИНА ограничивающее измерение, иначе кольцо
 // считается только по высоте и вылезает за пределы экрана по ширине.
-const getImgSize = () =>
-  typeof window === "undefined"
-    ? IMG_SIZE_DESKTOP
-    : Math.floor((Math.min(window.innerWidth, window.innerHeight) - 20 * 6) / 5) * RING_SIZE_FACTOR;
+const getImgSize = (w?: number, h?: number) => {
+  const ww = w ?? (typeof window === "undefined" ? undefined : window.innerWidth);
+  const hh = h ?? (typeof window === "undefined" ? undefined : window.innerHeight);
+  if (ww === undefined || hh === undefined) return IMG_SIZE_DESKTOP;
+  return Math.floor((Math.min(ww, hh) - 20 * 6) / 5) * RING_SIZE_FACTOR;
+};
 
 const FLOATING_INIT = Array.from({ length: IMG_COUNT }, (_, i) => {
   const seed = i * 137 + 42;
@@ -1339,6 +1341,18 @@ export default function Home() {
   );
   const rafRef = useRef<number | null>(null);
   const lastTimeRef = useRef<number>(0);
+  // Стабильные размеры вьюпорта — обновляются ТОЛЬКО по явному событию resize
+  // (с debounce), а не читаются заново из window.innerWidth/innerHeight каждый
+  // кадр. На мобильных браузерах эти значения могут микро-колебаться кадр к
+  // кадру даже без скролла (особенность рендеринга viewport) — а поскольку от
+  // них зависит буквально вся геометрия колец (ringTileSize/R0/ringSpacing и,
+  // через них, позиция и размер каждой плитки), чтение "напрямую" каждый кадр
+  // вызывало постоянное дрожание ВСЕЙ композиции разом.
+  const stableDimsRef = useRef(
+    typeof window !== "undefined"
+      ? { w: window.innerWidth, h: window.innerHeight }
+      : { w: 1920, h: 1080 }
+  );
   const gyroRef = useRef({ gx: 0, gy: 0 });
   const shakeRef = useRef({ lastAcc: 0, lastShakeTime: 0 });
   const prevTextRectRef = useRef<DOMRect | null>(null);
@@ -1746,6 +1760,25 @@ export default function Home() {
     };
   }, []);
 
+  // Обновляет stableDimsRef ТОЛЬКО по явному resize (см. её объявление выше)
+  // — с debounce в 150мс, чтобы не фиксировать промежуточные значения, пока
+  // сам ресайз/поворот экрана ещё продолжается.
+  useEffect(() => {
+    let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+    const updateDims = () => {
+      stableDimsRef.current = { w: window.innerWidth, h: window.innerHeight };
+    };
+    const onResize = () => {
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(updateDims, 150);
+    };
+    window.addEventListener("resize", onResize);
+    return () => {
+      window.removeEventListener("resize", onResize);
+      if (resizeTimer) clearTimeout(resizeTimer);
+    };
+  }, []);
+
   useEffect(() => {
     const DAMPING = 0.988, MAX_SPEED = 1400, BOUNCE = 0.35, CORRECTION_BIAS = 0.4;
     const ROT_DAMPING = 0.985, MAX_ROT_SPEED = 14;
@@ -1753,7 +1786,7 @@ export default function Home() {
     const animate = (time: number) => {
       const dt = lastTimeRef.current ? Math.min((time - lastTimeRef.current) / 1000, 0.05) : 0.016;
       lastTimeRef.current = time;
-      const W = window.innerWidth, H = window.innerHeight, S = getImgSize();
+      const W = stableDimsRef.current.w, H = stableDimsRef.current.h, S = getImgSize(W, H);
       const states = physState.current;
 
       states.forEach((s, i) => {
@@ -2230,19 +2263,34 @@ export default function Home() {
 
         // Заполненность этого кольца поменялась — плавно раздвигаем уже
         // существующие плитки (интерполируем эффективное число участников),
-        // вместо мгновенного скачка на новый угол.
+        // вместо мгновенного скачка на новый угол. Если новый переход
+        // стартует, пока предыдущий ещё не завершился (в пределах тех же
+        // COUNT_TRANSITION_MS), "from" берём из ТЕКУЩЕГО, уже частично
+        // проинтерполированного effectiveCount — а не из устаревшего
+        // prevCount — иначе плитки визуально "прыгали" бы обратно к
+        // prevCount в момент рестарта перехода, прежде чем продолжить
+        // интерполяцию к новой цели (реальный, резкий скачок позиции).
         const prevCount = ringPrevCountsRef.current[k];
+        let effectiveCount = countInRing;
+        const existingTransition = ringCountTransitionsRef.current.get(k);
+        if (existingTransition) {
+          const ttExisting = (nowMs - existingTransition.start) / COUNT_TRANSITION_MS;
+          effectiveCount = ttExisting < 1
+            ? existingTransition.from + (existingTransition.to - existingTransition.from) * easeOutCubic(ttExisting)
+            : existingTransition.to;
+        } else if (prevCount !== undefined) {
+          effectiveCount = prevCount;
+        }
         if (prevCount !== undefined && prevCount !== countInRing && prevCount >= 1) {
-          ringCountTransitionsRef.current.set(k, { from: prevCount, to: countInRing, start: nowMs });
+          ringCountTransitionsRef.current.set(k, { from: effectiveCount, to: countInRing, start: nowMs });
         }
         ringPrevCountsRef.current[k] = countInRing;
 
-        let effectiveCount = countInRing;
         const transition = ringCountTransitionsRef.current.get(k);
         if (transition) {
           const tt = (nowMs - transition.start) / COUNT_TRANSITION_MS;
           if (tt < 1) effectiveCount = transition.from + (transition.to - transition.from) * easeOutCubic(tt);
-          else ringCountTransitionsRef.current.delete(k);
+          else { effectiveCount = transition.to; ringCountTransitionsRef.current.delete(k); }
         }
 
         const ringR = getRingRadius(k, R0, ringSpacing, HUGE_RADIUS) * compScale;
@@ -2309,7 +2357,7 @@ export default function Home() {
       if (trailCanvas && !autoDrawActiveRef.current) {
         const ctx = trailCanvas.getContext("2d");
         if (ctx) {
-          ctx.strokeStyle = "#ffffff"; ctx.lineWidth = window.innerWidth <= 768 ? 1.6 : 3.0; ctx.lineCap = "round";
+          ctx.strokeStyle = "#ffffff"; ctx.lineWidth = W <= 768 ? 1.6 : 3.0; ctx.lineCap = "round";
           states.forEach(s => {
             if (!s.initialized) return;
             const last = s.trail[s.trail.length - 1];
@@ -2391,7 +2439,7 @@ export default function Home() {
   // только высоты. На узком мобильном экране ширина меньше высоты, и именно
   // она ограничивающее измерение — иначе кольцо считается только по высоте и
   // вылезает за пределы экрана по ширине (не помещается на мобильном).
-  const calcRingTileSize = () => Math.floor((Math.min(window.innerWidth, window.innerHeight) - GAP * 6) / 5) * RING_SIZE_FACTOR;
+  const calcRingTileSize = () => Math.floor((Math.min(stableDimsRef.current.w, stableDimsRef.current.h) - GAP * 6) / 5) * RING_SIZE_FACTOR;
 
   const iDoDesignRef = useRef<HTMLDivElement>(null);
   const textFallTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
