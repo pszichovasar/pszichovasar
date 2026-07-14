@@ -55,6 +55,119 @@ function computeTotalRingsCapacity(maxRings: number, R0: number, radialGap: numb
 // целиком, отрисовка новых мозаик останавливается полностью.
 const MAX_RINGS = 4;
 
+// "Естественный" (без какого-либо потолка/сжатия) радиус до дальнего края
+// ТЕКУЩЕЙ активной композиции — то есть максимум среди радиусов всех колец,
+// которые уже начали заполняться (не обязательно последнее по счёту — ring1
+// уже дальше от центра, чем ring2, который заполняется следом), плюс кольцо
+// кубиков, если все MAX_RINGS мозаичных колец уже готовы. Используется, чтобы
+// понять, во сколько раз всю композицию нужно сжать целиком, чтобы она
+// поместилась на экране — единый глобальный масштаб, а не отдельный потолок
+// на каждое кольцо по отдельности.
+function computeNaturalOutermostRadius(numMosaicTiles: number, R0: number, spacing: number, tileSize: number): number {
+  const HUGE = 1e9; // без потолка — именно несжатая, "естественная" геометрия
+  let cum = 0;
+  let maxR = 0;
+  let completedAllRings = true; // дошли ли до конца цикла естественно, а не вышли по break
+  for (let k = 0; k < MAX_RINGS; k++) {
+    if (numMosaicTiles <= cum && k > 0) { completedAllRings = false; break; } // это кольцо ещё не начало формироваться
+    const Rk = getRingRadius(k, R0, spacing, HUGE);
+    if (Rk > maxR) maxR = Rk;
+    cum += getRingCapacity(k, R0, spacing, HUGE);
+  }
+  if (completedAllRings && numMosaicTiles >= cum) {
+    // Все MAX_RINGS колец готовы — учитываем ещё и кольцо кубиков ("ring3 + шаг").
+    const ring3R = getRingRadius(MAX_RINGS - 1, R0, spacing, HUGE);
+    const cubeRingR = ring3R + spacing;
+    if (cubeRingR > maxR) maxR = cubeRingR;
+  }
+  // + половина диагонали повёрнутой квадратной плитки (худший случай, когда
+  // угол плитки смотрит ровно наружу) — тот же приём, что и раньше.
+  return maxR + tileSize * Math.SQRT2 / 2;
+}
+
+// Радиус САМОГО ВНУТРЕННЕГО (ближайшего к центру) из уже начавших
+// формироваться колец — используется, чтобы центральный восьмиугольник
+// подстраивал свой размер именно под НЕГО (а не всегда под кольцо 0):
+// изначально это кольцо 0, но как только начинает формироваться кольцо 2
+// (единственное "внутреннее" среди 4 мозаичных — см. getRingRadius), оно
+// становится новым самым внутренним, и восьмиугольнику нужно уменьшиться,
+// чтобы не накладываться на него.
+function computeInnermostRadius(numMosaicTiles: number, R0: number, spacing: number): number {
+  const HUGE = 1e9;
+  let cum = 0;
+  let minR = Infinity;
+  for (let k = 0; k < MAX_RINGS; k++) {
+    if (numMosaicTiles <= cum && k > 0) break; // это кольцо ещё не начало формироваться
+    const Rk = getRingRadius(k, R0, spacing, HUGE);
+    if (Rk < minR) minR = Rk;
+    cum += getRingCapacity(k, R0, spacing, HUGE);
+  }
+  return minR === Infinity ? R0 : minR;
+}
+
+// То же самое "самое внутреннее из начавших формироваться колец", что и в
+// computeInnermostRadius выше, но возвращает не радиус, а сколько мозаик
+// сейчас в ЭТОМ конкретном кольце — используется, чтобы центральный
+// восьмиугольник знал, сколько сторон ему нужно (см. sidesForRingFill и
+// animate()).
+function computeInnermostRingFillCount(numMosaicTiles: number, R0: number, spacing: number): number {
+  const HUGE = 1e9;
+  const info: { radius: number; start: number; cap: number }[] = [];
+  let cum = 0;
+  for (let k = 0; k < MAX_RINGS; k++) {
+    const radius = getRingRadius(k, R0, spacing, HUGE);
+    const cap = getRingCapacity(k, R0, spacing, HUGE);
+    info.push({ radius, start: cum, cap });
+    cum += cap;
+  }
+  let nearest: typeof info[0] | null = null;
+  for (const r of info) {
+    if (numMosaicTiles > r.start && (!nearest || r.radius < nearest.radius)) nearest = r;
+  }
+  if (!nearest) return 0; // вообще ничего ещё не начало формироваться
+  return Math.min(nearest.cap, numMosaicTiles - nearest.start);
+}
+
+// Сколько сторон у центральной фигуры для заданного числа мозаик в текущем
+// ближайшем кольце: 0 → круг (представлен как 0, отдельно обрабатывается в
+// animate()/JSX), 1 и 2 → квадрат (4), 3 и больше → ровно столько сторон,
+// сколько мозаик (треугольник, квадрат, пятиугольник, ...).
+function sidesForRingFill(count: number): number {
+  if (count <= 0) return 0;
+  if (count < 3) return 4;
+  return count;
+}
+
+// Генерирует SVG path для скруглённого N-угольника в нормализованных (0..1)
+// координатах — тот же алгоритм, что и раньше для фиксированного
+// восьмиугольника, обобщённый на любое число сторон (в т.ч. большое N,
+// используемое для приближения круга).
+function roundedPolygonPath(n: number, roundFrac: number = 0.22): string {
+  const R = 0.5, CX = 0.5, CY = 0.5;
+  const verts: [number, number][] = [];
+  for (let i = 0; i < n; i++) {
+    const angle = (Math.PI * 2 * i) / n - Math.PI / 2 + Math.PI / n;
+    verts.push([CX + R * Math.cos(angle), CY + R * Math.sin(angle)]);
+  }
+  const lerp = (a: [number, number], b: [number, number], t: number): [number, number] =>
+    [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+  let path = "";
+  for (let i = 0; i < n; i++) {
+    const prev = verts[(i - 1 + n) % n];
+    const cur = verts[i];
+    const next = verts[(i + 1) % n];
+    const p1 = lerp(cur, prev, roundFrac);
+    const p2 = lerp(cur, next, roundFrac);
+    path += (i === 0 ? `M ${p1[0].toFixed(4)} ${p1[1].toFixed(4)} ` : `L ${p1[0].toFixed(4)} ${p1[1].toFixed(4)} `);
+    path += `Q ${cur[0].toFixed(4)} ${cur[1].toFixed(4)} ${p2[0].toFixed(4)} ${p2[1].toFixed(4)} `;
+  }
+  path += "Z";
+  return path;
+}
+// Круг — самый первый момент (0 мозаик в ближайшем кольце) — приближается
+// многоугольником с большим числом сторон (визуально неотличимо от круга).
+const CIRCLE_SIDES_APPROX = 64;
+
 // Опорное число мозаик, задающее РАЗМЕР кольца 0 (его радиус R0, см. animate()).
 // Вместимость КАЖДОГО кольца (включая кольцо 0) на самом деле каждый раз
 // пересчитывается из его собственного радиуса — так плотность (шаг между
@@ -118,12 +231,12 @@ const IMG_COUNT = (() => {
   const gap = tileSize * 0.15;
   const spacing = tileSize + gap;
   const R0 = spacing / (2 * Math.sin(Math.PI / RING_CAPACITY_REF));
-  // Вычитаем половину размера плитки — иначе потолок ограничивает только
-  // РАДИУС (расстояние до ЦЕНТРА плитки), а сама плитка выступает за него ещё
-  // на tileSize/2 и может вылезти за экран (особенно заметно при большом
-  // RING_SIZE_FACTOR, когда плитки крупные).
-  const maxRadius = Math.min(W, H) * 0.48 - tileSize / 2;
-  return getRingCapacity(CUBE_RING_IDX, R0, spacing, maxRadius);
+  // Потолка на радиус больше нет — вписывание в экран делает общий масштаб
+  // композиции (см. compositionScaleRef в animate()), а не отдельный потолок
+  // на каждое кольцо. Вместимость (и, значит, число кубиков) считается по
+  // "естественной", несжатой геометрии.
+  const HUGE_RADIUS = 1e9;
+  return getRingCapacity(CUBE_RING_IDX, R0, spacing, HUGE_RADIUS);
 })();
 const IMG_SIZE_DESKTOP = 60; // запасной вариант для SSR (window ещё недоступен)
 // Кубики теперь того же размера, что и мозаики в кольцах. Формула та же, что
@@ -1062,6 +1175,13 @@ function generate3DShapePoints(
 
 export default function Home() {
   const [videoSrc, setVideoSrc] = useState("/me.mp4");
+  // Отдельное превью видео поверх мозаичной композиции — за 10с до автоскролла
+  // (см. эффект "Автоскролл" ниже, срабатывающий на 50-й секунде) и держится
+  // 10с, ровно до момента, когда автоскролл начинается. Отдельно от
+  // videoRef/videoOpacity выше — те завязаны на ПОЗИЦИЮ скролла (показ видео
+  // в последней секции), а это — на ВРЕМЯ, до того как скролл вообще начался.
+  const [preScrollVideoOpacity, setPreScrollVideoOpacity] = useState(0);
+  const preScrollVideoRef = useRef<HTMLVideoElement>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const textRef = useRef<HTMLDivElement>(null);
@@ -1098,15 +1218,15 @@ export default function Home() {
     const OVERLAY_FADE = 1200;
 
     // SPEED_FACTOR — во сколько раз быстрее самого "естественного" темпа
-    // (когда каждое слово показывается ровно 1 раз за всё окно). Слов теперь
-    // "показов" в SPEED_FACTOR раз больше, чем самих слов в массиве,
-    // зацикливаю через % — иначе под конец окна слова бы кончились и
-    // последнее просто зависло бы статично.
-    const SPEED_FACTOR = 4;
+    // (когда каждое слово показывается ровно 1 раз за всё окно OVERLAY_TOTAL).
+    const SPEED_FACTOR = 8;
     const interval = (OVERLAY_TOTAL - OVERLAY_FADE) / allWords.length / SPEED_FACTOR;
-    // Ровно столько показов слов помещается в окне (по построению — без
-    // округления, т.к. interval сам получен делением на allWords.length/SPEED_FACTOR).
-    const totalTicks = allWords.length * SPEED_FACTOR;
+    // Слова показываются РОВНО ПО ОДНОМУ РАЗУ — без зацикливания. Раз при
+    // таком SPEED_FACTOR один проход по всем словам укладывается быстрее, чем
+    // раньше заполнявшееся окно OVERLAY_TOTAL, реальная длительность экрана
+    // загрузки теперь короче — см. пересчитанные ниже таймеры (старт игрушки,
+    // взрыв текста).
+    const totalTicks = allWords.length;
     // Насколько дольше держится САМЫЙ ПОСЛЕДНИЙ показ (dépression., прямо
     // перед затемнением) — не каждое появление этого слова в цикле, а именно
     // финальное, самое драматичное. НЕ ускоряем вместе с остальным — просили
@@ -1159,6 +1279,15 @@ export default function Home() {
   // и направление вращения (см. getRingRadius/getRingDirection в начале файла).
   // Вместимость каждого кольца — своя, из его радиуса (плотность одинаковая).
   const [ringTiles, setRingTiles] = useState<RingTile[]>([]);
+  // Постоянно дублирует ПОСЛЕДНЮЮ созданную мозаику — фигура в самом центре
+  // композиции, отдельно от колец (см. makeMosaicFromSnap/makeMosaic и animate()).
+  const [centerOctagon, setCenterOctagon] = useState<{ src: string; bgColor?: string } | null>(null);
+  const centerOctagonRef = useRef<HTMLDivElement>(null);
+  // SVG-path центральной фигуры (форма меняется — круг/треугольник/квадрат/...
+  // — см. sidesForRingFill в animate()) и последнее применённое число сторон,
+  // чтобы не перегенерировать строку пути каждый кадр без необходимости.
+  const centerShapePathRef = useRef<SVGPathElement>(null);
+  const currentShapeSidesRef = useRef(-1);
   // Зеркало ringTiles в реф — animate() императивный, его эффект настроен один
   // раз при монтировании, и без этого видел бы устаревшее состояние.
   const ringTilesRef = useRef<RingTile[]>([]);
@@ -1177,6 +1306,21 @@ export default function Home() {
   const finaleReachedRef = useRef(false);
   const finaleHomingRef = useRef<{ startX: number; startY: number; startAng: number; startedAt: number }[] | null>(null);
   const cubeRingRotationRef = useRef(0);
+  // Глобальный масштаб ВСЕЙ композиции колец (мозаик + кубиков) целиком, как
+  // единое целое — плавно сглаживается к "целевому" значению каждый кадр (см.
+  // animate()), а не меняется мгновенно. Изначально (пока колец мало) даёт
+  // композиции занять почти весь экран; по мере появления новых, более
+  // дальних колец плавно уменьшается, чтобы всё по-прежнему помещалось.
+  const compositionScaleRef = useRef(1);
+  // Угол вращения центрального восьмиугольника — крутится в сторону,
+  // противоположную кольцу 2 (самому маленькому из 4 мозаичных колец, по той
+  // же логике чередования, что и у самих колец, см. getRingDirection).
+  const octagonRotationRef = useRef(0);
+  // Плавно сглаживаемый размер восьмиугольника — подстраивается под радиус
+  // ТЕКУЩЕГО самого внутреннего кольца (см. computeInnermostRadius), а не
+  // всегда под кольцо 0: как только начинает формироваться кольцо 2 (самое
+  // внутреннее), плавно уменьшается, чтобы не накладываться на него.
+  const octagonSizeRef = useRef(0);
   const captureCountRef = useRef(0);
   const mousePosRef = useRef({ x: 0, y: 0 });
   const autoTrailRef = useRef<{ x: number; y: number }[]>([]);
@@ -1357,11 +1501,17 @@ export default function Home() {
       // Мозаика ДОБАВЛЯЕТСЯ в конец растущего кольца — никогда не заменяет
       // существующие. captureX/Y/W/H — та же рамка, что и у crop (где узор
       // реально был на экране) — используется для анимации прилёта в кольцо.
+      // Центральная фигура ПОСТОЯННО дублирует последнюю созданную мозаику —
+      // обновляется при каждой новой, а не только один раз в начале.
       thumbIdRef.current++;
       const newId = thumbIdRef.current;
       setRingTiles(prev => [...prev, { id: newId, src, captureX: minX, captureY: minY, captureW: cropW, captureH: cropH, createdAt: performance.now() }]);
+      setCenterOctagon({ src });
       const mosaic = buildColoredMosaic([pts], minX, minY, cropW, cropH);
-      if (mosaic) setRingTiles(prev => prev.map(t => t.id === newId ? { ...t, src: mosaic.src, bgColor: mosaic.bgColor } : t));
+      if (mosaic) {
+        setRingTiles(prev => prev.map(t => t.id === newId ? { ...t, src: mosaic.src, bgColor: mosaic.bgColor } : t));
+        setCenterOctagon({ src: mosaic.src, bgColor: mosaic.bgColor });
+      }
     };
 
     const makeMosaic = (trails: { x: number, y: number }[][], _snap?: HTMLCanvasElement) => {
@@ -1390,12 +1540,17 @@ export default function Home() {
       if (ctx2) ctx2.drawImage(c, minX * dpr, minY * dpr, cropW * dpr, cropH * dpr, 0, 0, crop.width, crop.height);
       const src = crop.toDataURL("image/png");
 
-      // См. makeMosaicFromSnap — та же ничем не ограниченная добавка в кольцо.
+      // См. makeMosaicFromSnap — та же ничем не ограниченная добавка в кольцо,
+      // и то же постоянное дублирование последней мозаики в центральную фигуру.
       thumbIdRef.current++;
       const newId = thumbIdRef.current;
       setRingTiles(prev => [...prev, { id: newId, src, captureX: minX, captureY: minY, captureW: cropW, captureH: cropH, createdAt: performance.now() }]);
+      setCenterOctagon({ src });
       const mosaic = buildColoredMosaic(trails, minX, minY, cropW, cropH);
-      if (mosaic) setRingTiles(prev => prev.map(t => t.id === newId ? { ...t, src: mosaic.src, bgColor: mosaic.bgColor } : t));
+      if (mosaic) {
+        setRingTiles(prev => prev.map(t => t.id === newId ? { ...t, src: mosaic.src, bgColor: mosaic.bgColor } : t));
+        setCenterOctagon({ src: mosaic.src, bgColor: mosaic.bgColor });
+      }
     };
 
     // Фаза 0: собираем трейлы кубиков → мозаика, затем фаза 1
@@ -1489,7 +1644,7 @@ export default function Home() {
         const ringGapNow = ringTileSizeNow * 0.15;
         const ringSpacingNow = ringTileSizeNow + ringGapNow;
         const R0Now = ringSpacingNow / (2 * Math.sin(Math.PI / RING_CAPACITY_REF));
-        const maxRadiusNow = Math.min(window.innerWidth, window.innerHeight) * 0.48 - ringTileSizeNow * Math.SQRT2 / 2; // диагональ повёрнутого квадрата (худший случай — угол смотрит наружу)
+        const maxRadiusNow = 1e9; // потолка на кольцо больше нет — вписывание в экран делает общий масштаб композиции (см. animate()), вместимость колец теперь считается по "естественной", несжатой геометрии
         const totalCap = computeTotalRingsCapacity(MAX_RINGS, R0Now, ringSpacingNow, maxRadiusNow);
         // thumbIdRef — синхронный счётчик (инкрементируется в момент создания
         // плитки, до асинхронного setRingTiles), в отличие от
@@ -1552,7 +1707,7 @@ export default function Home() {
         const ringGapNow = ringTileSizeNow * 0.15;
         const ringSpacingNow = ringTileSizeNow + ringGapNow;
         const R0Now = ringSpacingNow / (2 * Math.sin(Math.PI / RING_CAPACITY_REF));
-        const maxRadiusNow = Math.min(window.innerWidth, window.innerHeight) * 0.48 - ringTileSizeNow * Math.SQRT2 / 2; // см. runPhase0
+        const maxRadiusNow = 1e9; // см. runPhase0 — тот же переход на "естественную" геометрию без потолка
         const totalCap = computeTotalRingsCapacity(MAX_RINGS, R0Now, ringSpacingNow, maxRadiusNow);
         // См. runPhase0 — thumbIdRef синхронный, ringTilesRef.current.length
         // мог отставать и пропускать одну лишнюю мозаику при коротких паузах.
@@ -1569,12 +1724,14 @@ export default function Home() {
       runDrawPhase(pts, runPhase0); // → трейлы
     };
 
-    // Старт — ровно когда гаснет экран загрузки. OVERLAY_TOTAL (20000) уже
-    // включает OVERLAY_FADE (1200) в исходном расчёте, но последнее слово
-    // (dépression.) держится ещё на LAST_WORD_EXTRA_MS (1000) дольше обычного
-    // — это сдвигает и момент запуска fade, и момент его завершения на те же
-    // 1000мс вперёд: 20000+1000=21000, а не просто 20000.
-    schedTimer = setTimeout(runPhase0, 21000);
+    // Старт — ровно когда гаснет экран загрузки. Слова показываются РОВНО ПО
+    // ОДНОМУ РАЗУ, без зацикливания — при текущем темпе (interval,
+    // SPEED_FACTOR=8, вдвое быстрее прежнего) один проход по всем словам
+    // укладывается ещё быстрее, поэтому реальный момент угасания экрана
+    // теперь 4550мс, а не 6900 — посчитано точно: 25 обычных слов по
+    // interval + последнее (dépression.) на LAST_WORD_EXTRA_MS дольше + сам
+    // OVERLAY_FADE на исчезание.
+    schedTimer = setTimeout(runPhase0, 4550);
 
     const onMouseMove = (e: MouseEvent) => { mousePosRef.current = { x: e.clientX, y: e.clientY }; };
     window.addEventListener("mousemove", onMouseMove);
@@ -1638,21 +1795,18 @@ export default function Home() {
         const fGap = fTileSize * 0.15;
         const fSpacing = fTileSize + fGap;
         const fR0 = fSpacing / (2 * Math.sin(Math.PI / RING_CAPACITY_REF));
-        // Вычитаем половину размера мозаичной плитки — иначе кольцо 3 могло
-        // выступать своим краем за экран (см. тот же приём в animate() выше).
-        const fMaxRadius = Math.min(W, H) * 0.48 - fTileSize * Math.SQRT2 / 2; // диагональ повёрнутого квадрата
-        // Радиус кольца кубиков привязан НАПРЯМУЮ к фактическому (уже
-        // применённому потолку) радиусу кольца 3, а не считается отдельно —
-        // если бы оба считались независимо через getRingRadius(...,maxRadius),
-        // на узких экранах потолок мог обрезать ОБА до одного и того же
-        // значения (кольцо кубиков совпало бы по радиусу с кольцом 3, отсюда
-        // и наложение на фото). Так гарантированно на один шаг дальше, всегда.
-        // Дополнительно ограничиваем сверху — с учётом уже половины размера
-        // САМОГО КУБИКА (S/2, а не мозаики) — иначе "ring3 + шаг" мог сам по
-        // себе вылезти за экран, поскольку эта надбавка нигде не ограничена.
-        const cubeMaxRadius = Math.min(W, H) * 0.48 - S * Math.SQRT2 / 2; // диагональ повёрнутого квадрата
-        const ring3ActualR = getRingRadius(MAX_RINGS - 1, fR0, fSpacing, fMaxRadius);
-        const cubeRingR = Math.min(ring3ActualR + fSpacing, cubeMaxRadius);
+        // Потолка на радиус больше нет — вписывание в экран теперь делает
+        // ОБЩИЙ масштаб композиции (compositionScaleRef, считается и плавно
+        // сглаживается в секции колец мозаик ниже по этому же кадру — здесь
+        // используем значение с предыдущего кадра, отставание в 1 кадр
+        // (~16мс) незаметно).
+        const HUGE_RADIUS_F = 1e9;
+        // Радиус кольца кубиков привязан НАПРЯМУЮ к радиусу кольца 3, а не
+        // считается отдельно независимым потолком — гарантированно на один
+        // шаг дальше, всегда (без риска совпасть по радиусу с кольцом 3).
+        const ring3ActualR = getRingRadius(MAX_RINGS - 1, fR0, fSpacing, HUGE_RADIUS_F);
+        const compScaleF = compositionScaleRef.current;
+        const cubeRingR = (ring3ActualR + fSpacing) * compScaleF;
         const cubeRingDir = getRingDirection(CUBE_RING_IDX);
         cubeRingRotationRef.current += cubeRingDir * 0.1257 * dt;
 
@@ -1683,10 +1837,15 @@ export default function Home() {
 
           const el = floatingRefs.current[i];
           if (el) {
+            // Размер элемента (width/height) остаётся ФИКСИРОВАННЫМ (S) — сам
+            // визуальный размер меняется через transform:scale(), а не через
+            // layout-свойства, которые пересчитывались бы каждый кадр при
+            // плавном изменении масштаба композиции (та же причина, что и у
+            // мозаик — иначе на мобильных GPU риск графических артефактов).
             const h = S / 2;
             el.style.left = `${s.x - h}px`; el.style.top = `${s.y - h}px`;
             el.style.width = `${S}px`; el.style.height = `${S}px`;
-            el.style.transform = `rotate(${s.ang}rad)`;
+            el.style.transform = `rotate(${s.ang}rad) scale(${compScaleF})`;
           }
         });
       } else {
@@ -1954,35 +2113,87 @@ export default function Home() {
       // кольцо 1 (наружное, больше радиусом), потом кольцо 2 (внутреннее,
       // меньше кольца 0), и так далее чередуя направление вращения
       // (getRingDirection) и радиус (getRingRadius) — см. определения этих
-      // функций в начале файла. ВМЕСТИМОСТЬ каждого кольца теперь СВОЯ —
-      // считается из ЕГО РАДИУСА так, чтобы шаг между соседними мозаиками
-      // (плотность) был ОДИНАКОВЫМ во всех кольцах: у большого кольца длиннее
-      // окружность — значит, и мозаик в нём помещается больше, у маленького —
-      // меньше, но РАССТОЯНИЕ между ними всегда одно и то же (см. ringSpacing).
-      // ringTileSize — маленький, ФИКСИРОВАННЫЙ размер (доля от плитки сетки,
-      // см. RING_SIZE_FACTOR), одинаковый для абсолютно всех плиток во всех
-      // кольцах, с самой первой. maxRadius — жёсткий потолок: ни одно кольцо,
-      // сколько бы их ни появилось со временем, не может вылезти за экран.
+      // функций в начале файла. ВМЕСТИМОСТЬ каждого кольца — своя, из ЕГО
+      // РАДИУСА, так что шаг между соседними мозаиками (плотность) одинаков
+      // во всех кольцах. Больше нет отдельного потолка радиуса на каждое
+      // кольцо — вместо этого ВСЯ композиция целиком (все кольца + кольцо
+      // кубиков) скейлится ОДНИМ общим, плавно сглаживаемым коэффициентом
+      // (compositionScaleRef), который каждый кадр подстраивается так, чтобы
+      // самое дальнее из уже существующих колец укладывалось в экран с
+      // небольшим отступом — изначально (пока колец мало) композиция большая,
+      // занимает почти весь экран, а по мере появления новых, более дальних
+      // колец — плавно, целиком сжимается, чтобы по-прежнему помещаться.
       const ringCx = W * 0.5, ringCy = H * 0.5;
       const ringTileSize = calcRingTileSize();
       const ringGap = ringTileSize * 0.15;
       const ringSpacing = ringTileSize + ringGap;
       const R0 = ringSpacing / (2 * Math.sin(Math.PI / RING_CAPACITY_REF));
-      // Вычитаем половину размера плитки — потолок иначе ограничивал бы
-      // только радиус (до центра плитки), а сама плитка выступает за него ещё
-      // на ringTileSize/2 и может вылезти за экран.
-      const maxRadius = Math.min(W, H) * 0.48 - ringTileSize * Math.SQRT2 / 2; // диагональ повёрнутого квадрата — плитка "приклеена к ободу" и повёрнута, худший случай — угол смотрит наружу
+      const HUGE_RADIUS = 1e9; // потолка на отдельное кольцо больше нет — сжатие делает общий масштаб ниже
       const ringHalf = ringTileSize / 2;
       const tiles = ringTilesRef.current;
       const ringN = tiles.length;
 
+      // Целевой масштаб — чтобы САМОЕ ДАЛЬНЕЕ из уже существующих колец (+
+      // кольцо кубиков, если все 4 мозаичных уже готовы) помещалось в экран с
+      // небольшим отступом (0.48 от меньшей стороны — тот же отступ, что
+      // раньше был "потолком" на отдельные кольца).
+      const availableRadius = Math.min(W, H) * 0.48;
+      const naturalOutermostR = computeNaturalOutermostRadius(ringN, R0, ringSpacing, ringTileSize);
+      const targetCompositionScale = availableRadius / Math.max(naturalOutermostR, 1);
+      // Плавное сглаживание к цели — не мгновенный скачок при появлении
+      // нового кольца, а быстрая, но всё ещё плавная "усадка" за доли секунды.
+      const SCALE_LERP_SPEED = 3.5;
+      compositionScaleRef.current += (targetCompositionScale - compositionScaleRef.current) * Math.min(1, SCALE_LERP_SPEED * dt);
+      const compScale = compositionScaleRef.current;
+
+      // Центральная фигура — постоянно дублирует ПОСЛЕДНЮЮ созданную мозаику
+      // (не только самую первую), всегда точно в центре
+      // (радиус 0), поэтому нужно только вращать (в сторону,
+      // противоположную кольцу 2 — самому маленькому из мозаичных колец) и
+      // масштабировать вместе со всей остальной композицией. Размер — такой,
+      // чтобы зазор между его краем и внутренним краем ТЕКУЩЕГО самого
+      // внутреннего кольца был РОВНО таким же, как и между самими кольцами
+      // (ringGap): innerR - ringTileSize/2 - octagonSize/2 = ringGap →
+      // octagonSize = 2*innerR - ringTileSize - 2*ringGap (проверено численно).
+      // "Самое внутреннее" сначала — кольцо 0, а как только начинает
+      // формироваться кольцо 2 (единственное "внутреннее" среди 4 мозаичных) —
+      // им становится оно, и восьмиугольник плавно (тот же LERP, что и у
+      // общего масштаба композиции) уменьшается, чтобы не накладываться на него.
+      const innermostR = computeInnermostRadius(ringN, R0, ringSpacing);
+      const targetOctagonSize = 2 * innermostR - ringTileSize - 2 * ringGap;
+      if (octagonSizeRef.current === 0) octagonSizeRef.current = targetOctagonSize; // без анимации "из нуля" при самом первом кадре
+      octagonSizeRef.current += (targetOctagonSize - octagonSizeRef.current) * Math.min(1, SCALE_LERP_SPEED * dt);
+      const octagonSize = octagonSizeRef.current;
+      const octagonEl = centerOctagonRef.current;
+      if (octagonEl) {
+        const octagonDir = -getRingDirection(2); // противоположно "самому маленькому кругу"
+        octagonRotationRef.current += octagonDir * 0.1257 * dt;
+        octagonEl.style.left = `${ringCx - octagonSize / 2}px`;
+        octagonEl.style.top = `${ringCy - octagonSize / 2}px`;
+        octagonEl.style.width = `${octagonSize}px`;
+        octagonEl.style.height = `${octagonSize}px`;
+        octagonEl.style.transform = `rotate(${octagonRotationRef.current}rad) scale(${compScale})`;
+      }
+      // Число сторон центральной фигуры — по числу мозаик в ТЕКУЩЕМ ближайшем
+      // к центру кольце (0 → круг, 1-2 → квадрат, 3+ → N мозаик = N сторон;
+      // см. sidesForRingFill). Пересчитывается каждый кадр (дёшево — если
+      // раньше уже было именно столько сторон, обновление пути пропускается).
+      const innermostFillCount = computeInnermostRingFillCount(ringN, R0, ringSpacing);
+      const desiredSides = sidesForRingFill(innermostFillCount);
+      const renderSides = desiredSides === 0 ? CIRCLE_SIDES_APPROX : desiredSides;
+      if (renderSides !== currentShapeSidesRef.current) {
+        currentShapeSidesRef.current = renderSides;
+        if (centerShapePathRef.current) centerShapePathRef.current.setAttribute("d", roundedPolygonPath(renderSides));
+      }
+
       // Вместимость каждого кольца — из его радиуса, при том же шаге ringSpacing
-      // между соседями (см. getRingCapacity в начале файла).
+      // между соседями (см. getRingCapacity в начале файла). Без потолка —
+      // естественная геометрия, сжатие целиком делает compScale выше.
       const ringCaps: number[] = [];
       {
         let cum = 0, k = 0;
         while (cum < Math.max(ringN, 1)) {
-          const cap = getRingCapacity(k, R0, ringSpacing, maxRadius);
+          const cap = getRingCapacity(k, R0, ringSpacing, HUGE_RADIUS);
           ringCaps.push(cap);
           cum += cap;
           k++;
@@ -2022,7 +2233,7 @@ export default function Home() {
           else ringCountTransitionsRef.current.delete(k);
         }
 
-        const ringR = getRingRadius(k, R0, ringSpacing, maxRadius);
+        const ringR = getRingRadius(k, R0, ringSpacing, HUGE_RADIUS) * compScale;
         for (let idxInRing = 0; idxInRing < countInRing; idxInRing++) {
           const i = ringStart + idxInRing;
           const el = ringSlotRefs.current[i];
@@ -2035,10 +2246,11 @@ export default function Home() {
           const targetX = rx - ringHalf, targetY = ry - ringHalf;
 
           // Анимация прилёта из точки захвата — цель (rx,ry) сама постоянно
-          // движется (кольцо крутится), поэтому смещение пересчитывается каждый
-          // кадр относительно ТЕКУЩЕЙ позиции слота, а не фиксированной точки —
-          // плитка плавно "догоняет" движущееся место, а не бежит к точке,
-          // которая к моменту прилёта уже давно съехала.
+          // движется (кольцо крутится И сжимается общим масштабом), поэтому
+          // смещение пересчитывается каждый кадр относительно ТЕКУЩЕЙ позиции
+          // слота, а не фиксированной точки — плитка плавно "догоняет"
+          // движущееся место, а не бежит к точке, которая к моменту прилёта
+          // уже давно съехала.
           let offsetX = 0, offsetY = 0, sx = 1, sy = 1;
           if (tile) {
             const elapsed = nowMs - tile.createdAt;
@@ -2063,6 +2275,10 @@ export default function Home() {
               sy = 1 + (Math.min(rawSy, MAX_ARRIVAL_SCALE) - 1) * remain;
             }
           }
+          // Общий масштаб композиции применяется поверх — визуальный размер
+          // плитки (в т.ч. во время анимации прилёта) тоже сжимается вместе
+          // со всей композицией, а не остаётся прежним.
+          sx *= compScale; sy *= compScale;
 
           el.style.left = `${targetX}px`;
           el.style.top = `${targetY}px`;
@@ -2185,11 +2401,12 @@ export default function Home() {
     return { x: 0, y: 0, vx: 180, vy: -220, ang: 0, rotSpeed: 0.3, initialized: false, size: s, renderW: s, renderH: s, radialProfile: null as Float32Array | null };
   })());
 
-  // Через 21.4с после монтирования — взрыв текста (буквы/слова разлетаются).
+  // Через 4.95с после монтирования — взрыв текста (буквы/слова разлетаются).
   // Раньше это ждало window.onload + 11с, что на медленной сети рассинхронизировалось
-  // с загрузочным экраном (тот всегда гаснет на 21с от монтирования — из них 20с
-  // основное окно плюс 1с лишней задержки на последнем слове dépression.);
-  // теперь оба используют одну и ту же точку отсчёта — момент монтирования компонента.
+  // с загрузочным экраном (тот теперь гаснет на 4.55с от монтирования — слова
+  // показываются ровно по одному разу, без зацикливания, на удвоенном темпе
+  // SPEED_FACTOR=8); теперь оба используют одну и ту же точку отсчёта —
+  // момент монтирования компонента.
   useEffect(() => {
     const startExplosionTimer = () => {
       textFallTimerRef.current = setTimeout(() => {
@@ -2331,7 +2548,7 @@ export default function Home() {
           else overlay.innerHTML = "";
         };
         requestAnimationFrame(step);
-      }, 21400); // 21000 (реальный момент гашения экрана загрузки, с учётом лишней 1с на dépression.) + те же 400мс запаса
+      }, 4950); // 4550 (реальный момент гашения экрана загрузки при SPEED_FACTOR=8) + те же 400мс запаса
     }; // end startExplosionTimer
 
     startExplosionTimer();
@@ -2482,6 +2699,26 @@ export default function Home() {
     return () => { clearTimeout(timer); fired = true; };
   }, []);
 
+  // Превью видео (me.mp4/iome.mp4) поверх мозаичной композиции — за 10с до
+  // автоскролла (тот срабатывает на 50000мс, см. эффект выше) и держится
+  // ровно до момента, когда автоскролл начинается: плавно появляется на
+  // 40000мс (50000-10000), плавно пропадает на 50000мс (сама смена
+  // прозрачности — мгновенная через state, а плавность даёт CSS-transition
+  // на самом video-элементе, см. JSX).
+  useEffect(() => {
+    const AUTOSCROLL_AT_MS = 50000;
+    const PREVIEW_DURATION_MS = 10000;
+    const showTimer = setTimeout(() => {
+      setPreScrollVideoOpacity(1);
+      preScrollVideoRef.current?.play().catch(() => { });
+    }, AUTOSCROLL_AT_MS - PREVIEW_DURATION_MS);
+    const hideTimer = setTimeout(() => {
+      setPreScrollVideoOpacity(0);
+      preScrollVideoRef.current?.pause();
+    }, AUTOSCROLL_AT_MS);
+    return () => { clearTimeout(showTimer); clearTimeout(hideTimer); };
+  }, []);
+
   useEffect(() => {
     const vw = window.innerWidth, rw = getRowWidth();
     trackRefs.current.forEach((track, i) => {
@@ -2619,14 +2856,56 @@ export default function Home() {
           <div ref={overlayRef} style={{ position: "absolute", inset: 0, zIndex: 10, pointerEvents: (showContact || !!selectedImg) ? "none" : "auto", cursor: "none" }} />
         </div>
 
-        {/* Несколько колец мозаик — растут без ограничений. Кольцо 0 заполняется
-            первым, дальше формируется кольцо 1 (наружное, крутится в другую
-            сторону), потом кольцо 2 (внутреннее, меньше кольца 0), и так далее
-            чередуя направление/радиус — см. getRingRadius/getRingDirection в
-            начале файла. Вместимость каждого кольца — своя, из его радиуса
-            (см. animate()), чтобы плотность была одинаковой во всех кольцах.
-            Размер плитки — ФИКСИРОВАН и ОДИНАКОВ везде (tileSize). */}
         <div style={{ position: "absolute", inset: 0, zIndex: 3, pointerEvents: "none", opacity: pinkOpacity * 0.5 }}>
+          {/* Центральная фигура — постоянно дублирует ПОСЛЕДНЮЮ созданную
+              мозаику (не только самую первую), всегда точно в
+              центре композиции (радиус 0), с теми же отступами (scale(0.9) на
+              картинке) и той же логикой скругления углов, что и у остальных
+              плиток — форма меняется (см. ниже), поэтому
+              вместо border-radius используется SVG clip-path (objectBoundingBox
+              — координаты 0..1, автоматически подстраиваются под размер
+              элемента, в отличие от clip-path:path(), который работает только
+              в абсолютных пикселях). Вращается в сторону, противоположную
+              кольцу 2 (самому маленькому из мозаичных колец, см. animate()).
+              Число сторон АДАПТИВНОЕ — зависит от того, сколько мозаик в
+              текущем ближайшем к центру кольце (см. sidesForRingFill/
+              roundedPolygonPath в начале файла и их использование в
+              animate()): 0 мозаик — круг, 1-2 — квадрат, 3 и больше — ровно
+              столько сторон, сколько мозаик. Путь обновляется императивно
+              через centerShapePathRef, а не пересоздаётся в JSX каждый раз.
+              Рендерится ПЕРВЫМ (до остальных плиток) — в одном стековом
+              контексте (тот же zIndex:3) порядок в DOM определяет, что сверху;
+              так фигура оказывается ПОД соседними плитками кольца 0, а не
+              поверх них. */}
+          {centerOctagon && (
+            <>
+              <svg width="0" height="0" style={{ position: "absolute" }}>
+                <defs>
+                  <clipPath id="centerOctagonClip" clipPathUnits="objectBoundingBox">
+                    <path ref={centerShapePathRef} d={roundedPolygonPath(CIRCLE_SIDES_APPROX)} />
+                  </clipPath>
+                </defs>
+              </svg>
+
+              <div
+                ref={centerOctagonRef}
+                style={{
+                  position: "absolute",
+                  clipPath: "url(#centerOctagonClip)",
+                  backgroundColor: centerOctagon.bgColor || "transparent",
+                }}
+              >
+                <img src={centerOctagon.src} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", transform: "scale(0.9)" }} />
+              </div>
+            </>
+          )}
+          {/* Несколько колец мозаик — растут без ограничений. Кольцо 0 заполняется
+              первым, дальше формируется кольцо 1 (наружное, крутится в другую
+              сторону), потом кольцо 2 (внутреннее, меньше кольца 0), и так далее
+              чередуя направление/радиус — см. getRingRadius/getRingDirection в
+              начале файла. Вместимость каждого кольца — своя, из его радиуса
+              (см. animate()), чтобы плотность была одинаковой во всех кольцах.
+              Размер плитки — ФИКСИРОВАН и ОДИНАКОВ везде (tileSize). */}
           {ringTiles.map((tile, i) => (
             <RingTileView
               key={tile.id}
@@ -2647,6 +2926,30 @@ export default function Home() {
             </div>
           ))}
         </div>
+
+        {/* Превью видео за 10с до автоскролла — поверх всей мозаичной
+            композиции (кольца, кубики), "сквозь" неё — умеренная прозрачность
+            (0.55), чтобы мозаики оставались видны под видео, а не полностью
+            им перекрывались. Тот же src, что и у основного фонового видео
+            (me.mp4/iome.mp4 на iOS) — см. videoSrc выше. */}
+        <video
+          ref={preScrollVideoRef}
+          src={videoSrc}
+          muted
+          loop
+          playsInline
+          style={{
+            position: "absolute",
+            inset: 0,
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+            zIndex: 6,
+            opacity: preScrollVideoOpacity * 0.55,
+            pointerEvents: "none",
+            transition: "opacity 1s ease",
+          }}
+        />
 
         {/* Сухарик — только на время экрана загрузки, исчезает вместе с ним */}
         {overlayOpacity > 0 && (
