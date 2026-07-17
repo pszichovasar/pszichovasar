@@ -22,8 +22,23 @@ function shuffleWithSeed(arr: string[], seed: number): string[] {
 // кольцах. maxRadius — жёсткий потолок (доля от min(W,H)) — без него наружные
 // кольца рано или поздно вылезают за пределы экрана; с потолком самые дальние
 // наружные кольца просто "упрутся" в него и перестанут расти дальше.
+// Кольцо 0 — исходное (радиус R0). Кольцо 1 (первое переполнение) — наружное,
+// больше R0. Кольцо 2 (второе переполнение) — внутреннее, меньше R0. Кольцо 3
+// — снова наружное, ещё дальше. Чередование ЗАКАНЧИВАЕТСЯ на кольце 3 — начиная
+// с кольца 4 (и до MAX_RINGS-1) рост идёт ТОЛЬКО наружу, тем же шагом radialGap,
+// без дальнейшего чередования с внутренними кольцами (гладкое продолжение от
+// кольца 3: R0+2*radialGap → R0+3*radialGap → R0+4*radialGap → ...).
+// minRadius — защита от ухода в 0/отрицательное на очень глубоких внутренних
+// кольцах. maxRadius — жёсткий потолок (доля от min(W,H)) — без него наружные
+// кольца рано или поздно вылезают за пределы экрана; с потолком самые дальние
+// наружные кольца просто "упрутся" в него и перестанут расти дальше.
 function getRingRadius(ringIdx: number, R0: number, radialGap: number, maxRadius: number): number {
   if (ringIdx === 0) return Math.min(R0, maxRadius);
+  if (ringIdx >= 4) {
+    // Только наружу, без чередования — гладкое продолжение от кольца 3.
+    const raw = R0 + (ringIdx - 1) * radialGap;
+    return Math.min(maxRadius, raw);
+  }
   const step = Math.ceil(ringIdx / 2);
   const outward = ringIdx % 2 === 1;
   const minRadius = radialGap * 0.6;
@@ -51,9 +66,10 @@ function computeTotalRingsCapacity(maxRings: number, R0: number, radialGap: numb
   return total;
 }
 
-// Максимум колец — после того как последнее (4-е, индексы 0..3) заполнено
-// целиком, отрисовка новых мозаик останавливается полностью.
-const MAX_RINGS = 4;
+// Максимум колец — после того как последнее (15-е, индексы 0..14) заполнено
+// целиком, отрисовка новых мозаик останавливается полностью. Кольца 0-3 —
+// чередование внутрь/наружу (см. getRingRadius); кольца 4-14 — только наружу.
+const MAX_RINGS = 15;
 
 // "Естественный" (без какого-либо потолка/сжатия) радиус до дальнего края
 // ТЕКУЩЕЙ активной композиции — то есть максимум среди радиусов всех колец,
@@ -75,9 +91,9 @@ function computeNaturalOutermostRadius(numMosaicTiles: number, R0: number, spaci
     cum += getRingCapacity(k, R0, spacing, HUGE);
   }
   if (completedAllRings && numMosaicTiles >= cum) {
-    // Все MAX_RINGS колец готовы — учитываем ещё и кольцо кубиков ("ring3 + шаг").
-    const ring3R = getRingRadius(MAX_RINGS - 1, R0, spacing, HUGE);
-    const cubeRingR = ring3R + spacing;
+    // Все MAX_RINGS колец готовы — учитываем ещё и кольцо кубиков ("последнее + шаг").
+    const lastRingR = getRingRadius(MAX_RINGS - 1, R0, spacing, HUGE);
+    const cubeRingR = lastRingR + spacing;
     if (cubeRingR > maxR) maxR = cubeRingR;
   }
   // + половина диагонали повёрнутой квадратной плитки (худший случай, когда
@@ -105,11 +121,13 @@ function computeInnermostRadius(numMosaicTiles: number, R0: number, spacing: num
   return minR === Infinity ? R0 : minR;
 }
 
-// То же самое "самое внутреннее из начавших формироваться колец", что и в
-// computeInnermostRadius выше, но возвращает не радиус, а сколько мозаик
-// сейчас в ЭТОМ конкретном кольце — используется, чтобы центральный
-// восьмиугольник знал, сколько сторон ему нужно (см. sidesForRingFill и
-// animate()).
+// "Самое внутреннее из уже начавших формироваться колец" — единая функция,
+// отдаёт сразу его радиус, сколько мозаик в нём сейчас, и его ИНДЕКС (0 или
+// 2 — единственные два кандидата: ring0 изначально, ring2 — как только
+// начинает формироваться, единственное "внутреннее" среди 4 мозаичных).
+// Используется центральной фигурой — чтобы знать (а) сколько сторон ей нужно
+// (см. sidesForRingFill), и (б) угол поворота ИМЕННО этого кольца, чтобы
+// совмещать середины своих сторон с плитками (см. animate()).
 function computeInnermostRingFillCount(numMosaicTiles: number, R0: number, spacing: number): number {
   const HUGE = 1e9;
   const info: { radius: number; start: number; cap: number }[] = [];
@@ -126,6 +144,26 @@ function computeInnermostRingFillCount(numMosaicTiles: number, R0: number, spaci
   }
   if (!nearest) return 0; // вообще ничего ещё не начало формироваться
   return Math.min(nearest.cap, numMosaicTiles - nearest.start);
+}
+
+// То же самое "самое внутреннее" кольцо, что и выше, но возвращает его
+// ИНДЕКС (0 или 2) — нужен, чтобы взять угол поворота именно ЭТОГО кольца
+// (ringRotationRefs[idx]) для совмещения сторон фигуры с плитками.
+function computeInnermostRingIndex(numMosaicTiles: number, R0: number, spacing: number): number {
+  const HUGE = 1e9;
+  const info: { radius: number; start: number; ringIdx: number }[] = [];
+  let cum = 0;
+  for (let k = 0; k < MAX_RINGS; k++) {
+    const radius = getRingRadius(k, R0, spacing, HUGE);
+    const cap = getRingCapacity(k, R0, spacing, HUGE);
+    info.push({ radius, start: cum, ringIdx: k });
+    cum += cap;
+  }
+  let nearest: typeof info[0] | null = null;
+  for (const r of info) {
+    if (numMosaicTiles > r.start && (!nearest || r.radius < nearest.radius)) nearest = r;
+  }
+  return nearest ? nearest.ringIdx : 0;
 }
 
 // Сколько сторон у центральной фигуры для заданного числа мозаик в текущем
@@ -146,7 +184,12 @@ function roundedPolygonPath(n: number, roundFrac: number = 0.22): string {
   const R = 0.5, CX = 0.5, CY = 0.5;
   const verts: [number, number][] = [];
   for (let i = 0; i < n; i++) {
-    const angle = (Math.PI * 2 * i) / n - Math.PI / 2 + Math.PI / n;
+    // Угол вершины i — "чистый", без зашитого смещения: та же угловая система
+    // координат (cos/sin от 0), что и у самих плиток в кольце (см. animate()),
+    // чтобы поворот, выставляемый снаружи (см. computeInnermostRingIndex/
+    // ringRotationRefs в animate()), однозначно совмещал СЕРЕДИНЫ сторон
+    // фигуры с плитками, без дополнительной, скрытой здесь поправки.
+    const angle = (Math.PI * 2 * i) / n;
     verts.push([CX + R * Math.cos(angle), CY + R * Math.sin(angle)]);
   }
   const lerp = (a: [number, number], b: [number, number], t: number): [number, number] =>
@@ -332,19 +375,6 @@ type RingTile = {
   captureX: number; captureY: number; captureW: number; captureH: number;
   createdAt: number;
 };
-
-// Линейная интерполяция значения из радиального профиля силуэта сухарика
-// (см. onLoad на <img src="/sug.png">) по произвольному углу — используется
-// для коллизии "по форме" вместо повёрнутого прямоугольника.
-function sampleRadialProfile(profile: Float32Array, angle: number): number {
-  const n = profile.length;
-  const norm = ((angle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
-  const idx = (norm / (Math.PI * 2)) * n;
-  const i0 = Math.floor(idx) % n;
-  const i1 = (i0 + 1) % n;
-  const frac = idx - Math.floor(idx);
-  return profile[i0] * (1 - frac) + profile[i1] * frac;
-}
 
 // Кольцо 0 — исходное (радиус R0). Кольцо 1 (первое переполнение) — наружное,
 // больше R0. Кольцо 2 (второе переполнение) — внутреннее, меньше R0. Дальше
@@ -1225,12 +1255,18 @@ export default function Home() {
     // Насколько дольше держится САМЫЙ ПОСЛЕДНИЙ показ (dépression., прямо
     // перед затемнением) — не каждое появление этого слова в цикле, а именно
     // финальное, самое драматичное. НЕ ускоряем вместе с остальным — просили
-    // оставить этот момент как есть.
-    const LAST_WORD_EXTRA_MS = 1000;
+    // оставить этот момент как есть. Увеличено с 1000 до 1500 — 500мс из них
+    // теперь уходит на паузу ПЕРЕД началом перечёркивания (см.
+    // PRE_STRIKETHROUGH_DELAY_MS ниже), а не сразу на саму анимацию линии.
+    const LAST_WORD_EXTRA_MS = 1500;
+    // Сколько слово держится ОДНО, без линии, прежде чем перечёркивание
+    // начнёт рисоваться.
+    const PRE_STRIKETHROUGH_DELAY_MS = 500;
 
     let idx = 0;
     let wordTimer: ReturnType<typeof setTimeout>;
     let fadeTimer: ReturnType<typeof setTimeout>;
+    let strikethroughTimer: ReturnType<typeof setTimeout>;
 
     const runFade = () => {
       setOverlayWord(""); // убираем последнее слово сразу при старте fade
@@ -1250,7 +1286,11 @@ export default function Home() {
       const isVeryLastTick = idx === totalTicks - 1; // самый последний показ во всей последовательности
       setOverlayWord(allWords[wordIdx]);
       setOverlayWordKey(k => k + 1);
-      if (isVeryLastTick) setShowStrikethrough(true); // перечёркивание — только на финальном "dépression."
+      if (isVeryLastTick) {
+        // Слово сначала просто держится одно — перечёркивание запускается
+        // только спустя PRE_STRIKETHROUGH_DELAY_MS, а не сразу же.
+        strikethroughTimer = setTimeout(() => setShowStrikethrough(true), PRE_STRIKETHROUGH_DELAY_MS);
+      }
       idx++;
       if (idx >= totalTicks) {
         fadeTimer = setTimeout(runFade, interval + LAST_WORD_EXTRA_MS);
@@ -1260,7 +1300,7 @@ export default function Home() {
     };
     showWord(); // первый показ сразу, без начальной задержки
 
-    return () => { clearTimeout(wordTimer); clearTimeout(fadeTimer); };
+    return () => { clearTimeout(wordTimer); clearTimeout(fadeTimer); clearTimeout(strikethroughTimer); };
   }, []);
   const [videoOpacity, setVideoOpacity] = useState(0);
 
@@ -1314,12 +1354,8 @@ export default function Home() {
   const ringGeometryCacheRef = useRef<{
     ringN: number; ringTileSize: number;
     ringCaps: number[]; naturalOutermostR: number;
-    innermostR: number; innermostFillCount: number;
+    innermostR: number; innermostFillCount: number; innermostRingIdx: number;
   } | null>(null);
-  // Угол вращения центрального восьмиугольника — крутится в сторону,
-  // противоположную кольцу 2 (самому маленькому из 4 мозаичных колец, по той
-  // же логике чередования, что и у самих колец, см. getRingDirection).
-  const octagonRotationRef = useRef(0);
   // Плавно сглаживаемый размер восьмиугольника — подстраивается под радиус
   // ТЕКУЩЕГО самого внутреннего кольца (см. computeInnermostRadius), а не
   // всегда под кольцо 0: как только начинает формироваться кольцо 2 (самое
@@ -1747,7 +1783,7 @@ export default function Home() {
     // теперь 4550мс, а не 6900 — посчитано точно: 25 обычных слов по
     // interval + последнее (dépression.) на LAST_WORD_EXTRA_MS дольше + сам
     // OVERLAY_FADE на исчезание.
-    schedTimer = setTimeout(runPhase0, 4550);
+    schedTimer = setTimeout(runPhase0, 5050);
 
     const onMouseMove = (e: MouseEvent) => { mousePosRef.current = { x: e.clientX, y: e.clientY }; };
     window.addEventListener("mousemove", onMouseMove);
@@ -1836,12 +1872,13 @@ export default function Home() {
         // используем значение с предыдущего кадра, отставание в 1 кадр
         // (~16мс) незаметно).
         const HUGE_RADIUS_F = 1e9;
-        // Радиус кольца кубиков привязан НАПРЯМУЮ к радиусу кольца 3, а не
-        // считается отдельно независимым потолком — гарантированно на один
-        // шаг дальше, всегда (без риска совпасть по радиусу с кольцом 3).
-        const ring3ActualR = getRingRadius(MAX_RINGS - 1, fR0, fSpacing, HUGE_RADIUS_F);
+        // Радиус кольца кубиков привязан НАПРЯМУЮ к радиусу ПОСЛЕДНЕГО (14-го)
+        // мозаичного кольца, а не считается отдельно независимым потолком —
+        // гарантированно на один шаг дальше, всегда (без риска совпасть по
+        // радиусу с последним мозаичным кольцом).
+        const lastRingActualR = getRingRadius(MAX_RINGS - 1, fR0, fSpacing, HUGE_RADIUS_F);
         const compScaleF = compositionScaleRef.current;
-        const cubeRingR = (ring3ActualR + fSpacing) * compScaleF;
+        const cubeRingR = (lastRingActualR + fSpacing) * compScaleF;
         const cubeRingDir = getRingDirection(CUBE_RING_IDX);
         cubeRingRotationRef.current += cubeRingDir * 0.1257 * dt;
 
@@ -2092,26 +2129,21 @@ export default function Home() {
         sg.y += sg.vy * dt;
         sg.ang += sg.rotSpeed * dt;
 
-        // Отскок — по РЕАЛЬНОМУ радиальному профилю силуэта (см. onLoad), а
-        // не по повёрнутому прямоугольнику: для каждого из 4 направлений
-        // (лево, право, верх, низ) берём фактический радиус силуэта в ту
-        // сторону, с поправкой на ТЕКУЩИЙ (уже обновлённый) поворот sg.ang —
-        // силуэт асимметричен, поэтому лево/право и верх/низ получают РАЗНЫЕ
-        // значения, а не общий shX/shY.
-        let shXLeft: number, shXRight: number, shYTop: number, shYBottom: number;
-        if (sg.radialProfile) {
-          shXLeft = sampleRadialProfile(sg.radialProfile, Math.PI - sg.ang);
-          shXRight = sampleRadialProfile(sg.radialProfile, -sg.ang);
-          shYTop = sampleRadialProfile(sg.radialProfile, -Math.PI / 2 - sg.ang);
-          shYBottom = sampleRadialProfile(sg.radialProfile, Math.PI / 2 - sg.ang);
-        } else {
-          // Профиль ещё не готов (картинка не успела загрузиться) — временно
-          // повёрнутый прямоугольник по пропорциям, до готовности onLoad.
-          const hw0 = sg.renderW / 2, hh0 = sg.renderH / 2;
-          const cosA = Math.abs(Math.cos(sg.ang)), sinA = Math.abs(Math.sin(sg.ang));
-          shXLeft = shXRight = hw0 * cosA + hh0 * sinA;
-          shYTop = shYBottom = hw0 * sinA + hh0 * cosA;
-        }
+        // Отскок — по ТОЧНОЙ формуле повёрнутого прямоугольника (см. onLoad):
+        // для каждого из 4 направлений (лево, право, верх, низ) — стандартная
+        // проекция половин сторон прямоугольника на оси экрана с поправкой на
+        // ТЕКУЩИЙ (уже обновлённый) поворот sg.ang. Математически точно для
+        // прямоугольной формы — а сухарик, судя по альфа-каналу реального
+        // файла, практически полностью заполняет свой прямоугольный альфа-бокс
+        // (1096/1098 по ширине, 192/194 по высоте), так что отклонение от
+        // истинного силуэта пренебрежимо мало, в отличие от прежнего
+        // радиально-профильного подхода, где резкие перепады формы у
+        // некоторых углов (мелкие бугорки корки) давали ощутимую (десятки px)
+        // недооценку края независимо от разрешения выборки лучей.
+        const hw0 = sg.renderW / 2, hh0 = sg.renderH / 2;
+        const cosA = Math.abs(Math.cos(sg.ang)), sinA = Math.abs(Math.sin(sg.ang));
+        const shXLeft = hw0 * cosA + hh0 * sinA, shXRight = shXLeft;
+        const shYTop = hw0 * sinA + hh0 * cosA, shYBottom = shYTop;
 
         // Отскок от краёв с передачей момента вращения (torque) — тот же
         // BOUNCE, что и у кубиков, но по форме вместо простого квадрата.
@@ -2169,17 +2201,18 @@ export default function Home() {
       const ringN = tiles.length;
 
       // Геометрия колец (вместимость каждого, самый дальний и самый ближний
-      // радиус из уже сформировавшихся, заполненность ближайшего) — зависит
-      // ТОЛЬКО от ringN и ringTileSize, которые не меняются каждый кадр, а
-      // не пересчитывается заново 60 раз в секунду без необходимости (см.
-      // ringGeometryCacheRef выше).
-      let ringCaps: number[], naturalOutermostR: number, innermostR: number, innermostFillCount: number;
+      // радиус из уже сформировавшихся, заполненность и индекс ближайшего) —
+      // зависит ТОЛЬКО от ringN и ringTileSize, которые не меняются каждый
+      // кадр, а не пересчитывается заново 60 раз в секунду без необходимости
+      // (см. ringGeometryCacheRef выше).
+      let ringCaps: number[], naturalOutermostR: number, innermostR: number, innermostFillCount: number, innermostRingIdx: number;
       const geomCached = ringGeometryCacheRef.current;
       if (geomCached && geomCached.ringN === ringN && geomCached.ringTileSize === ringTileSize) {
         ringCaps = geomCached.ringCaps;
         naturalOutermostR = geomCached.naturalOutermostR;
         innermostR = geomCached.innermostR;
         innermostFillCount = geomCached.innermostFillCount;
+        innermostRingIdx = geomCached.innermostRingIdx;
       } else {
         ringCaps = [];
         let cum = 0, k = 0;
@@ -2193,7 +2226,8 @@ export default function Home() {
         naturalOutermostR = computeNaturalOutermostRadius(ringN, R0, ringSpacing, ringTileSize);
         innermostR = computeInnermostRadius(ringN, R0, ringSpacing);
         innermostFillCount = computeInnermostRingFillCount(ringN, R0, ringSpacing);
-        ringGeometryCacheRef.current = { ringN, ringTileSize, ringCaps, naturalOutermostR, innermostR, innermostFillCount };
+        innermostRingIdx = computeInnermostRingIndex(ringN, R0, ringSpacing);
+        ringGeometryCacheRef.current = { ringN, ringTileSize, ringCaps, naturalOutermostR, innermostR, innermostFillCount, innermostRingIdx };
       }
 
       // Целевой масштаб — чтобы САМОЕ ДАЛЬНЕЕ из уже существующих колец (+
@@ -2208,36 +2242,19 @@ export default function Home() {
       compositionScaleRef.current += (targetCompositionScale - compositionScaleRef.current) * Math.min(1, SCALE_LERP_SPEED * dt);
       const compScale = compositionScaleRef.current;
 
-      // Центральная фигура — постоянно дублирует ПОСЛЕДНЮЮ созданную мозаику
-      // (не только самую первую), всегда точно в центре
-      // (радиус 0), поэтому нужно только вращать (в сторону,
-      // противоположную кольцу 2 — самому маленькому из мозаичных колец) и
-      // масштабировать вместе со всей остальной композицией. Размер — такой,
-      // чтобы зазор между его краем и внутренним краем ТЕКУЩЕГО самого
-      // внутреннего кольца был РОВНО таким же, как и между самими кольцами
-      // (ringGap): innerR - ringTileSize/2 - octagonSize/2 = ringGap →
-      // octagonSize = 2*innerR - ringTileSize - 2*ringGap (проверено численно).
-      // "Самое внутреннее" сначала — кольцо 0, а как только начинает
-      // формироваться кольцо 2 (единственное "внутреннее" среди 4 мозаичных) —
-      // им становится оно, и восьмиугольник плавно (тот же LERP, что и у
-      // общего масштаба композиции) уменьшается, чтобы не накладываться на него.
-      const targetOctagonSize = 2 * innermostR - ringTileSize - 2 * ringGap;
-      if (octagonSizeRef.current === 0) octagonSizeRef.current = targetOctagonSize; // без анимации "из нуля" при самом первом кадре
-      octagonSizeRef.current += (targetOctagonSize - octagonSizeRef.current) * Math.min(1, SCALE_LERP_SPEED * dt);
-      const octagonSize = octagonSizeRef.current;
-      const octagonEl = centerOctagonRef.current;
-      if (octagonEl) {
-        const octagonDir = -getRingDirection(2); // противоположно "самому маленькому кругу"
-        octagonRotationRef.current += octagonDir * 0.1257 * dt;
-        octagonEl.style.left = `${ringCx - octagonSize / 2}px`;
-        octagonEl.style.top = `${ringCy - octagonSize / 2}px`;
-        octagonEl.style.width = `${octagonSize}px`;
-        octagonEl.style.height = `${octagonSize}px`;
-        octagonEl.style.transform = `rotate(${octagonRotationRef.current}rad) scale(${compScale})`;
+      // Углы поворота колец — обновляются ЗДЕСЬ, до того как их использует
+      // центральная фигура ниже (иначе фигура читала бы устаревший, ещё не
+      // обновлённый в этом кадре угол).
+      const numRings = ringCaps.length;
+      for (let k = ringRotationRefs.current.length; k < numRings; k++) ringRotationRefs.current.push(0);
+      for (let k = 0; k < numRings; k++) {
+        ringRotationRefs.current[k] += getRingDirection(k) * 0.1257 * dt; // полный оборот ~50 сек, знак чередуется
       }
+
       // Число сторон центральной фигуры — по числу мозаик в ТЕКУЩЕМ ближайшем
       // к центру кольце (0 → круг, 1-2 → квадрат, 3+ → N мозаик = N сторон;
-      // см. sidesForRingFill).
+      // см. sidesForRingFill). Считается ДО поворота фигуры ниже — формула
+      // поворота использует именно это число сторон.
       const desiredSides = sidesForRingFill(innermostFillCount);
       const renderSides = desiredSides === 0 ? CIRCLE_SIDES_APPROX : desiredSides;
       if (renderSides !== currentShapeSidesRef.current) {
@@ -2245,10 +2262,38 @@ export default function Home() {
         if (centerShapePathRef.current) centerShapePathRef.current.setAttribute("d", roundedPolygonPath(renderSides));
       }
 
-      const numRings = ringCaps.length;
-      for (let k = ringRotationRefs.current.length; k < numRings; k++) ringRotationRefs.current.push(0);
-      for (let k = 0; k < numRings; k++) {
-        ringRotationRefs.current[k] += getRingDirection(k) * 0.1257 * dt; // полный оборот ~50 сек, знак чередуется
+      // Центральная фигура — постоянно дублирует ПОСЛЕДНЮЮ созданную мозаику
+      // (не только самую первую), всегда точно в центре (радиус 0).
+      // Размер — такой, чтобы зазор между его краем и внутренним краем
+      // ТЕКУЩЕГО самого внутреннего кольца был РОВНО таким же, как и между
+      // самими кольцами (ringGap): innerR - ringTileSize/2 - octagonSize/2 =
+      // ringGap → octagonSize = 2*innerR - ringTileSize - 2*ringGap (проверено
+      // численно). "Самое внутреннее" сначала — кольцо 0, а как только
+      // начинает формироваться кольцо 2 (единственное "внутреннее" среди 4
+      // мозаичных) — им становится оно, и фигура плавно (тот же LERP, что и у
+      // общего масштаба композиции) уменьшается, чтобы не накладываться на него.
+      const targetOctagonSize = 2 * innermostR - ringTileSize - 2 * ringGap;
+      if (octagonSizeRef.current === 0) octagonSizeRef.current = targetOctagonSize; // без анимации "из нуля" при самом первом кадре
+      octagonSizeRef.current += (targetOctagonSize - octagonSizeRef.current) * Math.min(1, SCALE_LERP_SPEED * dt);
+      const octagonSize = octagonSizeRef.current;
+      const octagonEl = centerOctagonRef.current;
+      if (octagonEl) {
+        // Поворот — НЕ независимое вращение, а напрямую привязан к углу
+        // поворота ТОГО ЖЕ самого внутреннего кольца (ringRotationRefs[idx]),
+        // за вычетом π/N (N — текущее число сторон): середина каждой стороны
+        // фигуры при таком повороте точно совпадает по углу с плиткой того же
+        // порядкового номера в кольце — проверено численно. Раз это то же
+        // самое кольцо, что определяет размер и число сторон фигуры (см.
+        // выше), при смене "ближайшего" кольца (0 → 2) поворот плавно и
+        // непрерывно переключается на угол нового кольца — без скачка, т.к.
+        // оба кольца крутятся с одинаковой угловой скоростью (0.1257 рад/с,
+        // см. цикл выше), а меняется только то, чей именно угол берётся.
+        const alignedRotation = ringRotationRefs.current[innermostRingIdx] - Math.PI / renderSides;
+        octagonEl.style.left = `${ringCx - octagonSize / 2}px`;
+        octagonEl.style.top = `${ringCy - octagonSize / 2}px`;
+        octagonEl.style.width = `${octagonSize}px`;
+        octagonEl.style.height = `${octagonSize}px`;
+        octagonEl.style.transform = `rotate(${alignedRotation}rad) scale(${compScale})`;
       }
 
       const nowMs = performance.now();
@@ -2459,12 +2504,10 @@ export default function Home() {
     const s = typeof window !== 'undefined' && window.innerWidth <= 768 ? 110 : 320;
     // renderW/renderH — реальные размеры картинки внутри квадратного контейнера
     // (с учётом object-fit:contain и её собственного aspect ratio). Уточняются
-    // в onLoad на <img>; до загрузки — считаем квадратом (как сейчас).
-    // radialProfile — радиальный профиль силуэта (расстояние до края по 72
-    // направлениям вокруг центра), тоже уточняется в onLoad. Отскок от стен
-    // считается по НЕМУ, а не по прямоугольнику — то есть по форме, а не по
-    // габаритному боксу.
-    return { x: 0, y: 0, vx: 180, vy: -220, ang: 0, rotSpeed: 0.3, initialized: false, size: s, renderW: s, renderH: s, radialProfile: null as Float32Array | null };
+    // в onLoad на <img>; до загрузки — считаем квадратом (как сейчас). Отскок
+    // от стен считается по точной формуле повёрнутого прямоугольника с этими
+    // размерами (см. animate()).
+    return { x: 0, y: 0, vx: 180, vy: -220, ang: 0, rotSpeed: 0.3, initialized: false, size: s, renderW: s, renderH: s };
   })());
 
   // Через 4.95с после монтирования — взрыв текста (буквы/слова разлетаются).
@@ -2614,7 +2657,7 @@ export default function Home() {
           else overlay.innerHTML = "";
         };
         requestAnimationFrame(step);
-      }, 4950); // 4550 (реальный момент гашения экрана загрузки при SPEED_FACTOR=8) + те же 400мс запаса
+      }, 5450); // 5050 (реальный момент гашения экрана загрузки, с учётом паузы перед перечёркиванием) + те же 400мс запаса
     }; // end startExplosionTimer
 
     startExplosionTimer();
@@ -2983,30 +3026,22 @@ export default function Home() {
               // Точные видимые размеры картинки — обрезаем прозрачные поля по
               // альфа-каналу (в PNG может быть лишний прозрачный отступ вокруг
               // самого силуэта), а не берём naturalWidth/naturalHeight как есть.
-              // Плюс строим радиальный профиль силуэта (расстояние до края по
-              // 72 направлениям вокруг центра) — отскок от стен считается по
-              // НЕМУ, а не по прямоугольнику: так коллизия идёт по форме.
+              // Отскок от стен считается по ТОЧНОЙ формуле повёрнутого
+              // прямоугольника (см. animate()) — раньше был отдельный
+              // радиальный профиль силуэта, но для такой формы (сухарик почти
+              // полностью заполняет свой альфа-бокс — проверено на реальном
+              // файле: 1096/1098 по ширине, 192/194 по высоте) прямоугольник
+              // даёт математически точную коллизию, а не приближённую: у
+              // радиального профиля были резкие перепады формы на некоторых
+              // углах (мелкие бугорки корки), дававшие ощутимую (десятки px)
+              // недооценку края независимо от разрешения выборки лучей.
               const img = e.currentTarget;
               const nw = img.naturalWidth || 1, nh = img.naturalHeight || 1;
               const s = sugPhys.current.size;
-              const N_ANGLES = 360; // было 72 — для сильно вытянутых форм (как этот сухарик, 5.71:1) в узком диапазоне углов "выход через верх/низ" (±10° от вертикали при таком соотношении сторон) раньше попадало всего ~4 луча — недостаточно, чтобы поймать мелкие бугорки неровной корки; сейчас ~20
-              const buildEllipseProfile = (rw: number, rh: number) => {
-                const rx = rw / 2, ry = rh / 2;
-                const profile = new Float32Array(N_ANGLES);
-                for (let a = 0; a < N_ANGLES; a++) {
-                  const th = (a / N_ANGLES) * Math.PI * 2;
-                  const c = Math.cos(th), sN = Math.sin(th);
-                  const denom = Math.sqrt((ry * c) ** 2 + (rx * sN) ** 2) || 1;
-                  profile[a] = (rx * ry) / denom;
-                }
-                return profile;
-              };
               const fallback = () => {
                 const aspect = nw / nh;
                 if (aspect >= 1) { sugPhys.current.renderW = s; sugPhys.current.renderH = s / aspect; }
                 else { sugPhys.current.renderH = s; sugPhys.current.renderW = s * aspect; }
-                // Без альфа-данных — эллипс по пропорциям картинки, лучше чем прямоугольник
-                sugPhys.current.radialProfile = buildEllipseProfile(sugPhys.current.renderW, sugPhys.current.renderH);
               };
               try {
                 const off = document.createElement("canvas");
@@ -3030,57 +3065,6 @@ export default function Home() {
                 const scale = Math.min(s / nw, s / nh); // тот же масштаб, что даёт object-fit:contain
                 sugPhys.current.renderW = visW * scale;
                 sugPhys.current.renderH = visH * scale;
-
-                // Радиальный профиль — луч из ЦЕНТРА ВСЕГО ИЗОБРАЖЕНИЯ (не силуэта!)
-                // по каждому из N_ANGLES направлений, дальняя непрозрачная точка
-                // вдоль луча. Важно: object-fit:contain центрирует НАТУРАЛЬНУЮ
-                // картинку целиком (50%/50%) внутри квадратного контейнера — а
-                // значит sg.x/sg.y в физике соответствуют центру ВСЕГО canvas
-                // (nw/2, nh/2), а НЕ центру плотного альфа-бокса силуэта. Если бы
-                // лучи считались от центра альфа-бокса (как было раньше) — при
-                // асимметричных прозрачных полях в PNG коллизия была бы смещена
-                // относительно того, что реально видно на экране.
-                const cx0 = nw / 2, cy0 = nh / 2;
-                const maxR = Math.sqrt(nw * nw + nh * nh);
-                const isOpaque = (px: number, py: number) =>
-                  px >= 0 && px < nw && py >= 0 && py < nh && data[(py * nw + px) * 4 + 3] > ALPHA_THRESHOLD;
-                const profile = new Float32Array(N_ANGLES);
-                for (let a = 0; a < N_ANGLES; a++) {
-                  const th = (a / N_ANGLES) * Math.PI * 2;
-                  const dx = Math.cos(th), dy = Math.sin(th);
-                  let found = 0;
-                  for (let r = 0; r < maxR; r += 2) {
-                    if (isOpaque(Math.round(cx0 + dx * r), Math.round(cy0 + dy * r))) found = r;
-                    else if (found > 0 && r - found > 6) break; // вышли за пределы силуэта — дальше не ищем
-                  }
-                  profile[a] = found * scale * 1.06; // +6% общий защитный запас
-                }
-                // Дилатация (max-filter) по кругу — у форм с резкими выступами
-                // (проверено на реальном файле сухарика: профиль падает с 534px
-                // на 8.5° до 439px уже на 9°, скачок ~95px за полградуса) любая
-                // линейная интерполяция между точками по разные стороны от
-                // такого скачка сильно занижает значение в промежутке —
-                // причём БОЛЬШЕ лучей эту проблему принципиально не решает,
-                // т.к. скачок остаётся резким при любом разрешении. Радиус ±4
-                // сэмпла (±4° при N_ANGLES=360) устраняет почти всю
-                // недооценку (было ~30px, стало <1px — проверено).
-                const FILTER_RADIUS = 4;
-                const filtered = new Float32Array(N_ANGLES);
-                for (let a = 0; a < N_ANGLES; a++) {
-                  let m = 0;
-                  for (let k = -FILTER_RADIUS; k <= FILTER_RADIUS; k++) {
-                    const idx = ((a + k) % N_ANGLES + N_ANGLES) % N_ANGLES;
-                    if (profile[idx] > m) m = profile[idx];
-                  }
-                  filtered[a] = m;
-                }
-                // Подстраховка на случай совсем плоского профиля (например,
-                // альфа не нашлась ни по одному лучу) — эллипс по факту. видимым размерам
-                if (filtered.every(v => v < 1)) {
-                  sugPhys.current.radialProfile = buildEllipseProfile(sugPhys.current.renderW, sugPhys.current.renderH);
-                } else {
-                  sugPhys.current.radialProfile = filtered;
-                }
               } catch (_) {
                 fallback(); // CORS/canvas недоступен — используем пропорции всего файла
               }
