@@ -211,6 +211,37 @@ function roundedPolygonPath(n: number, roundFrac: number = 0.22): string {
 // многоугольником с большим числом сторон (визуально неотличимо от круга).
 const CIRCLE_SIDES_APPROX = 64;
 
+// Тестовый контент для новой секции-презентации (галерея с бесконечными
+// лентами) — art1.png..art10.png из public/.
+const ART_IMAGES = Array.from({ length: 14 }, (_, i) => `/art${i + 1}.png`);
+// Сколько параллельных ячеек показываем одновременно — МЕНЬШЕ, чем картинок
+// (каждая ячейка всё равно листает весь набор ART_IMAGES по кругу, просто
+// одновременно видимых ячеек меньше — значит, каждая крупнее).
+const GALLERY_CELL_COUNT = 6;
+
+// Генерирует @keyframes для бесконечной вертикальной ленты (как уличный
+// рекламный баннер) — картинка держится holdMs, затем плавный переход к
+// следующей за transitionMs, и так по кругу. Стыковка (100% → 0%) происходит
+// БЕСШОВНО: последняя картинка "отпускается" ровно за transitionMs ДО конца
+// цикла, доезжая до положения первой картинки точно к 100% — на следующей
+// итерации анимация просто продолжает с той же самой позиции, без видимого
+// скачка (проверено численно: последний переход всегда длится ровно
+// transitionMs, кто бы ни был count).
+function buildStripKeyframeCSS(name: string, count: number, holdMs: number, transitionMs: number): string {
+  const slotMs = holdMs + transitionMs;
+  const totalMs = slotMs * count;
+  const stops: string[] = [];
+  for (let i = 0; i < count; i++) {
+    const holdStartPct = (i * slotMs / totalMs) * 100;
+    const holdEndPct = ((i * slotMs + holdMs) / totalMs) * 100;
+    const posPct = -(i * (100 / count));
+    stops.push(`${holdStartPct.toFixed(4)}%{transform:translateY(${posPct}%)}`);
+    stops.push(`${holdEndPct.toFixed(4)}%{transform:translateY(${posPct}%)}`);
+  }
+  stops.push(`100%{transform:translateY(0%)}`); // назад к первой картинке — бесшовная петля
+  return `@keyframes ${name}{${stops.join("")}}`;
+}
+
 // Опорное число мозаик, задающее РАЗМЕР кольца 0 (его радиус R0, см. animate()).
 // Вместимость КАЖДОГО кольца (включая кольцо 0) на самом деле каждый раз
 // пересчитывается из его собственного радиуса — так плотность (шаг между
@@ -1212,6 +1243,14 @@ export default function Home() {
   const textRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const trackRefs = useRef<(HTMLDivElement | null)[]>([null, null, null, null, null]);
+  // Новая секция-презентация с галереей — отдельный "первый экран" поверх
+  // существующей секции мозаик (та уже занимает scroll position 0), плавно
+  // исчезает по мере первого скролла (см. applyAnimations), открывая её.
+  const introGalleryRef = useRef<HTMLDivElement>(null);
+  // Точный размер ячейки галереи в пикселях — считается явно через JS (а не
+  // через CSS aspect-ratio внутри grid, которое может вести себя непредсказуемо
+  // в паре с max-width/max-height у элементов сетки в разных браузерах).
+  const [galleryCellPx, setGalleryCellPx] = useState(0);
 
   const [contactHovered, setContactHovered] = useState(false);
   const [shaking, setShaking] = useState(false);
@@ -1356,11 +1395,6 @@ export default function Home() {
     ringCaps: number[]; naturalOutermostR: number;
     innermostR: number; innermostFillCount: number; innermostRingIdx: number;
   } | null>(null);
-  // Плавно сглаживаемый размер восьмиугольника — подстраивается под радиус
-  // ТЕКУЩЕГО самого внутреннего кольца (см. computeInnermostRadius), а не
-  // всегда под кольцо 0: как только начинает формироваться кольцо 2 (самое
-  // внутреннее), плавно уменьшается, чтобы не накладываться на него.
-  const octagonSizeRef = useRef(0);
   const captureCountRef = useRef(0);
   const mousePosRef = useRef({ x: 0, y: 0 });
   const autoTrailRef = useRef<{ x: number; y: number }[]>([]);
@@ -1812,6 +1846,32 @@ export default function Home() {
     return () => {
       window.removeEventListener("resize", onResize);
       if (resizeTimer) clearTimeout(resizeTimer);
+    };
+  }, []);
+
+  // Точный размер ячейки галереи (см. galleryCellPx выше) — наибольший квадрат,
+  // помещающийся в сетку (3x2 на десктопе, 2x3 на мобильном) с учётом зазора
+  // GAP между ячейками. Пересчитывается по тому же принципу debounce, что и
+  // stableDimsRef выше.
+  useEffect(() => {
+    let cellResizeTimer: ReturnType<typeof setTimeout> | null = null;
+    const computeCellSize = () => {
+      const isMobile = window.innerWidth <= 768;
+      const cols = isMobile ? 2 : 3;
+      const rows = isMobile ? 3 : 2;
+      const availW = (window.innerWidth - GAP * (cols - 1)) / cols;
+      const availH = (window.innerHeight - GAP * (rows - 1)) / rows;
+      setGalleryCellPx(Math.max(0, Math.floor(Math.min(availW, availH))));
+    };
+    computeCellSize();
+    const onCellResize = () => {
+      if (cellResizeTimer) clearTimeout(cellResizeTimer);
+      cellResizeTimer = setTimeout(computeCellSize, 150);
+    };
+    window.addEventListener("resize", onCellResize);
+    return () => {
+      window.removeEventListener("resize", onCellResize);
+      if (cellResizeTimer) clearTimeout(cellResizeTimer);
     };
   }, []);
 
@@ -2268,14 +2328,15 @@ export default function Home() {
       // ТЕКУЩЕГО самого внутреннего кольца был РОВНО таким же, как и между
       // самими кольцами (ringGap): innerR - ringTileSize/2 - octagonSize/2 =
       // ringGap → octagonSize = 2*innerR - ringTileSize - 2*ringGap (проверено
-      // численно). "Самое внутреннее" сначала — кольцо 0, а как только
-      // начинает формироваться кольцо 2 (единственное "внутреннее" среди 4
-      // мозаичных) — им становится оно, и фигура плавно (тот же LERP, что и у
-      // общего масштаба композиции) уменьшается, чтобы не накладываться на него.
-      const targetOctagonSize = 2 * innermostR - ringTileSize - 2 * ringGap;
-      if (octagonSizeRef.current === 0) octagonSizeRef.current = targetOctagonSize; // без анимации "из нуля" при самом первом кадре
-      octagonSizeRef.current += (targetOctagonSize - octagonSizeRef.current) * Math.min(1, SCALE_LERP_SPEED * dt);
-      const octagonSize = octagonSizeRef.current;
+      // численно). Используется НАПРЯМУЮ, без плавного сглаживания — иначе
+      // зазор мог бы на короткое время отличаться от целевого, пока размер
+      // "догоняет" цель. "Самое внутреннее" сначала — кольцо 0, а как только
+      // начинает формироваться кольцо 2 (единственное "внутреннее" среди
+      // мозаичных) — им становится оно; сама смена происходит один раз за
+      // всё время и может выглядеть как мгновенный скачок размера — это
+      // приемлемо, поскольку зазор при этом остаётся математически точным
+      // всегда, а не только "почти всегда".
+      const octagonSize = 2 * innermostR - ringTileSize - 2 * ringGap;
       const octagonEl = centerOctagonRef.current;
       if (octagonEl) {
         // Поворот — НЕ независимое вращение, а напрямую привязан к углу
@@ -2670,6 +2731,16 @@ export default function Home() {
   const applyAnimations = (scrollY: number, deltaY = 0) => {
     const unit = scrollY / SCROLL_PER_UNIT;
     setPinkOpacity(Math.max(0, 1 - Math.max(0, (unit - 0.8) / 0.4)));
+    // Новая секция-презентация (галерея) — полностью видна на unit=0, плавно
+    // гаснет к unit=0.15 (первые же движения скролла), открывая секцию
+    // мозаик под ней. pointer-events выключаются вместе с прозрачностью —
+    // иначе невидимая, но всё ещё "живая" секция блокировала бы клики/
+    // курсор для того, что находится под ней.
+    if (introGalleryRef.current) {
+      const introOpacity = Math.max(0, 1 - unit / 0.15);
+      introGalleryRef.current.style.opacity = String(introOpacity);
+      introGalleryRef.current.style.pointerEvents = introOpacity > 0.02 ? "auto" : "none";
+    }
     // Слова исчезают вместе с кубиками
     // Удаляем все слова-взрыва из DOM при любом скролле
     if (unit > 0.5 && wordPhysRef.current.length > 0) {
@@ -2937,6 +3008,43 @@ export default function Home() {
       )}
 
       <main ref={mainRef} style={{ position: "fixed", width: "100vw", height: "100vh", top: 0, left: 0, overflow: "hidden", touchAction: "none" }}>
+
+        {/* СЕКЦИЯ-ПРЕЗЕНТАЦИЯ С ГАЛЕРЕЕЙ — новый самый первый экран, поверх
+            секции мозаик (та по-прежнему занимает scroll position 0 — эта
+            секция просто лежит НАД ней, зависит только от unit, см.
+            applyAnimations). В каждом квадрате — бесконечная вертикальная
+            лента (как уличный рекламный баннер): держит картинку 2с, потом
+            плавно едет к следующей. У каждой плитки свой сдвиг по времени
+            (отрицательный animation-delay), поэтому плитки переключаются не
+            синхронно — визуально "живее". Скругление — 14% от размера самой
+            плитки (та же пропорция, что и у мозаик/кубиков по всему сайту:
+            там ~13-14% через boxSize*0.14, здесь — то же самое через
+            CSS-проценты, которые растут вместе с адаптивным размером плитки).
+            Тестовый контент — ART_IMAGES (art1..art14.png из public/). */}
+        <div ref={introGalleryRef} style={{ position: "absolute", inset: 0, zIndex: 9000, background: "#000", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <style>{`
+            .intro-gallery-grid{display:grid;grid-template-columns:repeat(3,${galleryCellPx}px);grid-template-rows:repeat(2,${galleryCellPx}px);gap:${GAP}px;}
+            @media(max-width:768px){.intro-gallery-grid{grid-template-columns:repeat(2,${galleryCellPx}px);grid-template-rows:repeat(3,${galleryCellPx}px);}}
+            ${buildStripKeyframeCSS("introStripCycle", ART_IMAGES.length, 2000, 600)}
+          `}</style>
+          {galleryCellPx > 0 && (
+            <div className="intro-gallery-grid">
+              {Array.from({ length: GALLERY_CELL_COUNT }, (_, tileIdx) => {
+                const cycleSec = (ART_IMAGES.length * (2000 + 600)) / 1000; // см. buildStripKeyframeCSS — та же арифметика (holdMs+transitionMs)*count
+                const delaySec = -(tileIdx * cycleSec / GALLERY_CELL_COUNT); // отрицательный сдвиг — своя фаза цикла у каждой плитки
+                return (
+                  <div key={tileIdx} style={{ width: `${galleryCellPx}px`, height: `${galleryCellPx}px`, position: "relative", overflow: "hidden", borderRadius: "14%", background: "#111" }}>
+                    <div style={{ position: "absolute", top: 0, left: 0, width: "100%", height: `${ART_IMAGES.length * 100}%`, animation: `introStripCycle ${cycleSec}s linear infinite`, animationDelay: `${delaySec}s` }}>
+                      {ART_IMAGES.map((src, imgIdx) => (
+                        <img key={imgIdx} src={src} alt="" style={{ width: "100%", height: `${100 / ART_IMAGES.length}%`, objectFit: "cover", display: "block" }} />
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
 
         {/* ЧЁРНЫЙ ФОН */}
         <div style={{ position: "absolute", inset: 0, background: "#000", zIndex: 2, opacity: pinkOpacity, pointerEvents: "none" }}>
