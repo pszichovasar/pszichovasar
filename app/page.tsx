@@ -214,31 +214,49 @@ const CIRCLE_SIDES_APPROX = 64;
 // Тестовый контент для новой секции-презентации (галерея с бесконечными
 // лентами) — art1.png..art10.png из public/.
 const ART_IMAGES = Array.from({ length: 14 }, (_, i) => `/art${i + 1}.png`);
+// То, что реально рисуется в ленте — те же картинки + дубликат первой в
+// конце, для бесшовной петли (см. buildStripKeyframeCSS).
+const ART_IMAGES_LOOP = [...ART_IMAGES, ART_IMAGES[0]];
 // Сколько параллельных ячеек показываем одновременно — МЕНЬШЕ, чем картинок
 // (каждая ячейка всё равно листает весь набор ART_IMAGES по кругу, просто
 // одновременно видимых ячеек меньше — значит, каждая крупнее).
 const GALLERY_CELL_COUNT = 6;
+// Картинка держится 8с, плавный (ease-in-out) переход к следующей — 4с.
+const GALLERY_HOLD_MS = 8000;
+const GALLERY_TRANSITION_MS = 4000;
 
 // Генерирует @keyframes для бесконечной вертикальной ленты (как уличный
 // рекламный баннер) — картинка держится holdMs, затем плавный переход к
-// следующей за transitionMs, и так по кругу. Стыковка (100% → 0%) происходит
-// БЕСШОВНО: последняя картинка "отпускается" ровно за transitionMs ДО конца
-// цикла, доезжая до положения первой картинки точно к 100% — на следующей
-// итерации анимация просто продолжает с той же самой позиции, без видимого
-// скачка (проверено численно: последний переход всегда длится ровно
-// transitionMs, кто бы ни был count).
-function buildStripKeyframeCSS(name: string, count: number, holdMs: number, transitionMs: number): string {
+// следующей за transitionMs, и так по кругу.
+//
+// ВАЖНО про бесшовность: в DOM должно быть count+1 картинок — count реальных
+// плюс ДУБЛИКАТ первой, приклеенный в конец ленты (см. использование ниже).
+// Без дубликата последний переход (last → 0%) должен был бы отмотать ленту
+// НАЗАД через ВСЕ count-1 промежуточных позиций за то же transitionMs, что и
+// обычный шаг на одну картинку — то есть проходить в (count-1) раз БОЛЬШЕЕ
+// расстояние за то же время (был реальный баг: с дубликатом лента "долетала"
+// туда за секунды на многократно повышенной скорости — то самое "быстрая
+// прокрутка через всю ленту"). С дубликатом же последний переход — это ОБЫЧНЫЙ
+// шаг на один слот вперёд (к дубликату, который выглядит идентично первой
+// картинке), а не прыжок назад — визуально неотличимо от плавного продолжения
+// (проверено численно: расстояние и длительность последнего перехода в
+// точности совпадают с любым другим переходом). animation-timing-function на
+// каждом стопе — не на всей анимации сразу — задаёт плавность (ease-in-out)
+// именно САМОМУ ПЕРЕХОДУ между картинками, а не всему циклу целиком (иначе
+// кривая смещала бы и границы самих периодов ожидания, ломая расчёт длительностей).
+function buildStripKeyframeCSS(name: string, count: number, holdMs: number, transitionMs: number, easing: string = "ease-in-out"): string {
   const slotMs = holdMs + transitionMs;
   const totalMs = slotMs * count;
   const stops: string[] = [];
   for (let i = 0; i < count; i++) {
     const holdStartPct = (i * slotMs / totalMs) * 100;
     const holdEndPct = ((i * slotMs + holdMs) / totalMs) * 100;
-    const posPct = -(i * (100 / count));
-    stops.push(`${holdStartPct.toFixed(4)}%{transform:translateY(${posPct}%)}`);
-    stops.push(`${holdEndPct.toFixed(4)}%{transform:translateY(${posPct}%)}`);
+    const posPct = -(i * (100 / (count + 1))); // count+1 слотов — см. комментарий выше
+    stops.push(`${holdStartPct.toFixed(4)}%{transform:translateY(${posPct}%);animation-timing-function:${easing};}`);
+    stops.push(`${holdEndPct.toFixed(4)}%{transform:translateY(${posPct}%);animation-timing-function:${easing};}`);
   }
-  stops.push(`100%{transform:translateY(0%)}`); // назад к первой картинке — бесшовная петля
+  const dupPosPct = -(count * (100 / (count + 1))); // позиция дубликата первой картинки — визуально то же, что 0%
+  stops.push(`100%{transform:translateY(${dupPosPct}%)}`);
   return `@keyframes ${name}{${stops.join("")}}`;
 }
 
@@ -1250,7 +1268,17 @@ export default function Home() {
   // Точный размер ячейки галереи в пикселях — считается явно через JS (а не
   // через CSS aspect-ratio внутри grid, которое может вести себя непредсказуемо
   // в паре с max-width/max-height у элементов сетки в разных браузерах).
-  const [galleryCellPx, setGalleryCellPx] = useState(0);
+  const [galleryGrid, setGalleryGrid] = useState({ cellPx: 0, cols: 3, rows: 2 });
+  // Случайный (а не равномерно распределённый) сдвиг фазы цикла для каждой
+  // ячейки — чтобы они листали ленту не синхронно, а независимо друг от
+  // друга, в разное время. useMemo с пустыми deps — считается ОДИН раз при
+  // монтировании: если бы Math.random() вызывался прямо в JSX при каждом
+  // рендере, у ячеек на каждый ре-рендер менялась бы задержка, и анимация
+  // дёргано перезапускалась бы заново.
+  const galleryDelays = useMemo(() => {
+    const cycleSec = (ART_IMAGES.length * (GALLERY_HOLD_MS + GALLERY_TRANSITION_MS)) / 1000;
+    return Array.from({ length: GALLERY_CELL_COUNT }, () => -(Math.random() * cycleSec));
+  }, []);
 
   const [contactHovered, setContactHovered] = useState(false);
   const [shaking, setShaking] = useState(false);
@@ -1265,6 +1293,10 @@ export default function Home() {
   const touchStartRef = useRef(0);
   const [pinkOpacity, setPinkOpacity] = useState(1);
   const [overlayOpacity, setOverlayOpacity] = useState(1);
+  // Зеркало overlayOpacity в реф — обработчики скролла (onWheel/onTM) настроены
+  // один раз при монтировании и иначе видели бы устаревшее (всегда 1)
+  // значение из замыкания, а не актуальное состояние экрана загрузки.
+  const overlayOpacityRef = useRef(1);
   const [overlayWord, setOverlayWord] = useState(""); // текущее слово на экране загрузки
   const [overlayWordKey, setOverlayWordKey] = useState(0); // растёт на каждую смену слова — форсирует remount span'а, чтобы CSS-анимация (пульс+свечение) перезапускалась с нуля на каждом слове, а не проигрывалась один раз и застывала
   const [showStrikethrough, setShowStrikethrough] = useState(false); // включается только на самом последнем показе слова (dépression.) перед затемнением
@@ -1366,6 +1398,7 @@ export default function Home() {
   // раз при монтировании, и без этого видел бы устаревшее состояние.
   const ringTilesRef = useRef<RingTile[]>([]);
   useEffect(() => { ringTilesRef.current = ringTiles; }, [ringTiles]);
+  useEffect(() => { overlayOpacityRef.current = overlayOpacity; }, [overlayOpacity]);
   const thumbIdRef = useRef(0);
   // Одно число на кольцо (растёт по мере появления новых колец) — каждое
   // кольцо крутится с собственным накопленным углом, см. getRingDirection().
@@ -1849,19 +1882,22 @@ export default function Home() {
     };
   }, []);
 
-  // Точный размер ячейки галереи (см. galleryCellPx выше) — наибольший квадрат,
+  // Точный размер ячейки галереи (см. galleryGrid выше) — наибольший квадрат,
   // помещающийся в сетку (3x2 на десктопе, 2x3 на мобильном) с учётом зазора
-  // GAP между ячейками. Пересчитывается по тому же принципу debounce, что и
-  // stableDimsRef выше.
+  // GAP между ячейками И такого же отступа от краёв экрана (считаем края как
+  // ещё два "зазора" — cols+1 промежутков по ширине, rows+1 по высоте; тогда
+  // при центрировании флексом отступ до края на лимитирующей оси автоматически
+  // получается РОВНО GAP — проверено численно). Пересчитывается по тому же
+  // принципу debounce, что и stableDimsRef выше.
   useEffect(() => {
     let cellResizeTimer: ReturnType<typeof setTimeout> | null = null;
     const computeCellSize = () => {
       const isMobile = window.innerWidth <= 768;
       const cols = isMobile ? 2 : 3;
       const rows = isMobile ? 3 : 2;
-      const availW = (window.innerWidth - GAP * (cols - 1)) / cols;
-      const availH = (window.innerHeight - GAP * (rows - 1)) / rows;
-      setGalleryCellPx(Math.max(0, Math.floor(Math.min(availW, availH))));
+      const availW = (window.innerWidth - GAP * (cols + 1)) / cols;
+      const availH = (window.innerHeight - GAP * (rows + 1)) / rows;
+      setGalleryGrid({ cellPx: Math.max(0, Math.floor(Math.min(availW, availH))), cols, rows });
     };
     computeCellSize();
     const onCellResize = () => {
@@ -2791,7 +2827,9 @@ export default function Home() {
 
   useEffect(() => {
     const onWheel = (e: WheelEvent) => {
-      if (showContact) return; e.preventDefault();
+      if (showContact) return;
+      e.preventDefault();
+      if (overlayOpacityRef.current > 0.01) return; // экран загрузки ещё активен — скролл вообще не обрабатываем
       scrollRef.current = Math.max(0, Math.min(scrollRef.current + e.deltaY, TOTAL_SCROLL));
       applyAnimations(scrollRef.current, e.deltaY);
     };
@@ -2801,9 +2839,11 @@ export default function Home() {
       videoRef.current?.paused && videoRef.current.play().catch(() => { });
     };
     const onTM = (e: TouchEvent) => {
-      if (showContact) return; e.preventDefault();
+      if (showContact) return;
+      e.preventDefault();
       const dy = tSY - e.touches[0].clientY, dx = Math.abs(tSX - e.touches[0].clientX);
       if (Math.abs(dy) > 5 || dx > 5) tMoved = true; tSY = e.touches[0].clientY;
+      if (overlayOpacityRef.current > 0.01) return; // см. onWheel — тот же самый guard
       scrollRef.current = Math.max(0, Math.min(scrollRef.current + dy * 2.5, TOTAL_SCROLL));
       applyAnimations(scrollRef.current, dy * 2.5);
     };
@@ -2932,6 +2972,7 @@ export default function Home() {
           from{transform:translateY(-50%) scaleX(0);}
           to{transform:translateY(-50%) scaleX(1);}
         }
+        ${buildStripKeyframeCSS("introStripCycle", ART_IMAGES.length, GALLERY_HOLD_MS, GALLERY_TRANSITION_MS)}
         .floating-img{position:absolute;width:75px;height:75px;border-radius:10px;overflow:hidden;pointer-events:none;will-change:transform,left,top;transform-origin:center center;animation:floatIn 0.4s ease forwards;animation-delay:var(--delay);opacity:0;transform:scale(0.6) rotate(var(--rot));box-shadow:0 4px 16px rgba(0,0,0,0.18);}
         .floating-img img{width:100%;height:100%;object-fit:cover;display:block;}
         @media(max-width:768px){.floating-img{width:25px;height:25px;border-radius:4px;}}
@@ -3022,21 +3063,16 @@ export default function Home() {
             CSS-проценты, которые растут вместе с адаптивным размером плитки).
             Тестовый контент — ART_IMAGES (art1..art14.png из public/). */}
         <div ref={introGalleryRef} style={{ position: "absolute", inset: 0, zIndex: 9000, background: "#000", display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <style>{`
-            .intro-gallery-grid{display:grid;grid-template-columns:repeat(3,${galleryCellPx}px);grid-template-rows:repeat(2,${galleryCellPx}px);gap:${GAP}px;}
-            @media(max-width:768px){.intro-gallery-grid{grid-template-columns:repeat(2,${galleryCellPx}px);grid-template-rows:repeat(3,${galleryCellPx}px);}}
-            ${buildStripKeyframeCSS("introStripCycle", ART_IMAGES.length, 2000, 600)}
-          `}</style>
-          {galleryCellPx > 0 && (
-            <div className="intro-gallery-grid">
+          {galleryGrid.cellPx > 0 && (
+            <div style={{ display: "grid", gridTemplateColumns: `repeat(${galleryGrid.cols},${galleryGrid.cellPx}px)`, gridTemplateRows: `repeat(${galleryGrid.rows},${galleryGrid.cellPx}px)`, gap: `${GAP}px` }}>
               {Array.from({ length: GALLERY_CELL_COUNT }, (_, tileIdx) => {
-                const cycleSec = (ART_IMAGES.length * (2000 + 600)) / 1000; // см. buildStripKeyframeCSS — та же арифметика (holdMs+transitionMs)*count
-                const delaySec = -(tileIdx * cycleSec / GALLERY_CELL_COUNT); // отрицательный сдвиг — своя фаза цикла у каждой плитки
+                const cycleSec = (ART_IMAGES.length * (GALLERY_HOLD_MS + GALLERY_TRANSITION_MS)) / 1000; // см. buildStripKeyframeCSS — та же арифметика (holdMs+transitionMs)*count, count = ART_IMAGES.length (БЕЗ дубликата)
+                const delaySec = galleryDelays[tileIdx]; // случайная (не синхронная) фаза — см. galleryDelays выше
                 return (
-                  <div key={tileIdx} style={{ width: `${galleryCellPx}px`, height: `${galleryCellPx}px`, position: "relative", overflow: "hidden", borderRadius: "14%", background: "#111" }}>
-                    <div style={{ position: "absolute", top: 0, left: 0, width: "100%", height: `${ART_IMAGES.length * 100}%`, animation: `introStripCycle ${cycleSec}s linear infinite`, animationDelay: `${delaySec}s` }}>
-                      {ART_IMAGES.map((src, imgIdx) => (
-                        <img key={imgIdx} src={src} alt="" style={{ width: "100%", height: `${100 / ART_IMAGES.length}%`, objectFit: "cover", display: "block" }} />
+                  <div key={tileIdx} style={{ width: `${galleryGrid.cellPx}px`, height: `${galleryGrid.cellPx}px`, position: "relative", overflow: "hidden", borderRadius: "14%", background: "#111" }}>
+                    <div style={{ position: "absolute", top: 0, left: 0, width: "100%", height: `${ART_IMAGES_LOOP.length * 100}%`, animation: `introStripCycle ${cycleSec}s infinite`, animationDelay: `${delaySec}s` }}>
+                      {ART_IMAGES_LOOP.map((src, imgIdx) => (
+                        <img key={imgIdx} src={src} alt="" style={{ width: "100%", height: `${100 / ART_IMAGES_LOOP.length}%`, objectFit: "cover", display: "block" }} />
                       ))}
                     </div>
                   </div>
