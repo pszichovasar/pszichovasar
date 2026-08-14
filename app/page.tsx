@@ -225,6 +225,27 @@ const GALLERY_CELL_COUNT = 6;
 const GALLERY_HOLD_MS = 8000;
 const GALLERY_TRANSITION_MS = 4000;
 
+// "Problem solver" — набор шрифтов и цветов фона, между которыми хаотично
+// (по движению курсора) переключается новая секция-заглушка. Шрифты —
+// широко доступные системные (без необходимости грузить веб-шрифты),
+// намеренно визуально разные (засечки/без засечек/моно/дисплейный) — сама
+// "пляска" стилей отражает суть концепции (хаос до решения). Цвета фона —
+// только светлые/пастельные, чтобы чёрный текст оставался читаемым при любом
+// из них (без необходимости параллельно менять ещё и цвет текста).
+const PROBLEM_SOLVER_FONTS = [
+  "Arial, sans-serif",
+  "Georgia, serif",
+  "'Courier New', monospace",
+  "Impact, sans-serif",
+  "'Times New Roman', serif",
+  "Verdana, sans-serif",
+  "'Trebuchet MS', sans-serif",
+  "'Palatino Linotype', serif",
+];
+const PROBLEM_SOLVER_BG_COLORS = [
+  "#ffffff", "#fff3cd", "#ffe0ec", "#e0f0ff", "#e6ffe0", "#fff0e0", "#f0e6ff", "#e0fff5",
+];
+
 // Генерирует @keyframes для бесконечной вертикальной ленты (как уличный
 // рекламный баннер) — картинка держится holdMs, затем плавный переход к
 // следующей за transitionMs, и так по кругу.
@@ -1298,6 +1319,13 @@ export default function Home() {
   const [showGalleryVideo, setShowGalleryVideo] = useState(false);
   const galleryVideoTimerStartedRef = useRef(false);
 
+  // "Problem solver" — новая секция НАД галереей (см. JSX и applyAnimations).
+  // Текущий шрифт/курсив/цвет фона — меняются по движению курсора вне поля
+  // ввода (см. эффект ниже), сами по себе не анимируются по таймеру.
+  const [problemStyle, setProblemStyle] = useState({ font: PROBLEM_SOLVER_FONTS[0], italic: false, bg: PROBLEM_SOLVER_BG_COLORS[0] });
+  const problemSolverRef = useRef<HTMLDivElement>(null);
+  const problemInputRef = useRef<HTMLInputElement>(null);
+
   const [contactHovered, setContactHovered] = useState(false);
   const [shaking, setShaking] = useState(false);
   const [showContact, setShowContact] = useState(false);
@@ -1310,16 +1338,22 @@ export default function Home() {
   const scrollRef = useRef(0);
   const touchStartRef = useRef(0);
   const [pinkOpacity, setPinkOpacity] = useState(1);
-  const [overlayOpacity, setOverlayOpacity] = useState(1);
+  const [overlayOpacity, setOverlayOpacity] = useState(0);
   // Зеркало overlayOpacity в реф — обработчики скролла (onWheel/onTM) настроены
   // один раз при монтировании и иначе видели бы устаревшее (всегда 1)
   // значение из замыкания, а не актуальное состояние экрана загрузки.
-  const overlayOpacityRef = useRef(1);
+  const overlayOpacityRef = useRef(0);
   const [overlayWord, setOverlayWord] = useState(""); // текущее слово на экране загрузки
   const [overlayWordKey, setOverlayWordKey] = useState(0); // растёт на каждую смену слова — форсирует remount span'а, чтобы CSS-анимация (пульс+свечение) перезапускалась с нуля на каждом слове, а не проигрывалась один раз и застывала
   const [showStrikethrough, setShowStrikethrough] = useState(false); // включается только на самом последнем показе слова (dépression.) перед затемнением
 
   useEffect(() => {
+    // Экран загрузки временно отключён целиком (см. overlayOpacity — теперь
+    // стартует с 0, а не с 1) — незачем впустую крутить ~26 таймеров смены
+    // слов ради экрана, который всё равно не показывается. Чтобы вернуть —
+    // убрать этот return и вернуть overlayOpacity/overlayOpacityRef к
+    // useState(1)/useRef(1).
+    return;
     // Все слова: более короткий текст
     const allWords = [
       "Mon", "seul", "ami", "est", "une", "boule", "rose.",
@@ -1427,6 +1461,30 @@ export default function Home() {
     setTimeout(() => setShowGalleryVideo(true), 10000);
   }, [overlayOpacity]);
   const thumbIdRef = useRef(0);
+  // "Problem solver" — движение курсора (вне поля ввода) хаотично меняет
+  // шрифт/курсив/цвет фона секции. mousemove сам по себе фискально не
+  // срабатывает, пока курсор неподвижен — то есть "нет движения → нет
+  // изменений" получается естественно, без отдельного отслеживания простоя.
+  // Раз изменение происходит на КАЖДЫЙ вызов mousemove, а не по таймеру —
+  // лёгкий throttle (80мс) нужен, чтобы не заваливать реакт лишними
+  // ре-рендерами при быстром/дрожащем движении мыши.
+  useEffect(() => {
+    let lastChangeAt = 0;
+    const onMove = (e: MouseEvent) => {
+      const target = e.target as Node | null;
+      if (target && problemInputRef.current && problemInputRef.current.contains(target)) return; // курсор над самим полем ввода — не меняем
+      const now = performance.now();
+      if (now - lastChangeAt < 80) return;
+      lastChangeAt = now;
+      setProblemStyle({
+        font: PROBLEM_SOLVER_FONTS[Math.floor(Math.random() * PROBLEM_SOLVER_FONTS.length)],
+        italic: Math.random() < 0.5,
+        bg: PROBLEM_SOLVER_BG_COLORS[Math.floor(Math.random() * PROBLEM_SOLVER_BG_COLORS.length)],
+      });
+    };
+    window.addEventListener("mousemove", onMove);
+    return () => window.removeEventListener("mousemove", onMove);
+  }, []);
   // Одно число на кольцо (растёт по мере появления новых колец) — каждое
   // кольцо крутится с собственным накопленным углом, см. getRingDirection().
   const ringRotationRefs = useRef<number[]>([0]);
@@ -2794,13 +2852,21 @@ export default function Home() {
   const applyAnimations = (scrollY: number, deltaY = 0) => {
     const unit = scrollY / SCROLL_PER_UNIT;
     setPinkOpacity(Math.max(0, 1 - Math.max(0, (unit - 0.8) / 0.4)));
-    // Новая секция-презентация (галерея) — полностью видна на unit=0, плавно
-    // гаснет к unit=0.15 (первые же движения скролла), открывая секцию
+    // "Problem solver" — самая первая секция теперь ОНА, а не галерея.
+    // Полностью видна на unit=0, гаснет к unit=0.075 (первая половина
+    // прежнего окна 0-0.15), открывая галерею под собой.
+    if (problemSolverRef.current) {
+      const problemOpacity = Math.max(0, 1 - unit / 0.075);
+      problemSolverRef.current.style.opacity = String(problemOpacity);
+      problemSolverRef.current.style.pointerEvents = problemOpacity > 0.02 ? "auto" : "none";
+    }
+    // Секция-презентация (галерея) — теперь ВТОРАЯ, гаснет во ВТОРОЙ половине
+    // того же окна (unit 0.075 → 0.15, а не 0 → 0.15), открывая секцию
     // мозаик под ней. pointer-events выключаются вместе с прозрачностью —
     // иначе невидимая, но всё ещё "живая" секция блокировала бы клики/
     // курсор для того, что находится под ней.
     if (introGalleryRef.current) {
-      const introOpacity = Math.max(0, 1 - unit / 0.15);
+      const introOpacity = Math.max(0, Math.min(1, (0.15 - unit) / 0.075));
       introGalleryRef.current.style.opacity = String(introOpacity);
       introGalleryRef.current.style.pointerEvents = introOpacity > 0.02 ? "auto" : "none";
     }
@@ -3076,6 +3142,48 @@ export default function Home() {
       )}
 
       <main ref={mainRef} style={{ position: "fixed", width: "100vw", height: "100vh", top: 0, left: 0, overflow: "hidden", touchAction: "none" }}>
+
+        {/* PROBLEM SOLVER — новая, самая первая секция (над галереей, см.
+            applyAnimations — гаснет первой, unit 0→0.075, открывая галерею
+            под собой). Фон и стиль/курсив заголовка "solve:" хаотично меняются
+            движением курсора ВНЕ поля ввода (см. эффект с problemStyle выше)
+            — само поле ввода остаётся стабильно белым и читаемым. Гейтинг по
+            overlayOpacity — та же явная схема, что и у галереи ниже: секция
+            не существует в DOM, пока не погас экран загрузки. */}
+        <div ref={problemSolverRef} style={{ position: "absolute", inset: 0, zIndex: 10000, background: problemStyle.bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", transition: "background-color 0.25s ease", padding: "0 4vw" }}>
+          {overlayOpacity <= 0.01 && (
+            <>
+              <div style={{
+                fontFamily: problemStyle.font,
+                fontStyle: problemStyle.italic ? "italic" : "normal",
+                fontWeight: 900,
+                fontSize: "clamp(48px, 11vw, 160px)",
+                color: "#000",
+                marginBottom: "clamp(20px,4vh,56px)",
+                transition: "font-style 0.15s ease",
+                userSelect: "none",
+              }}>
+                solve:
+              </div>
+              <input
+                ref={problemInputRef}
+                type="text"
+                style={{
+                  width: "100%",
+                  maxWidth: "1400px",
+                  fontSize: "clamp(20px, 3vw, 40px)",
+                  padding: "clamp(14px,2vw,28px) clamp(20px,3vw,36px)",
+                  border: "3px solid #000",
+                  borderRadius: "12px",
+                  outline: "none",
+                  background: "#fff",
+                  color: "#000",
+                  fontFamily: "Arial, sans-serif",
+                }}
+              />
+            </>
+          )}
+        </div>
 
         {/* СЕКЦИЯ-ПРЕЗЕНТАЦИЯ С ГАЛЕРЕЕЙ — новый самый первый экран, поверх
             секции мозаик (та по-прежнему занимает scroll position 0 — эта
