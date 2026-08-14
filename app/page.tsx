@@ -213,7 +213,7 @@ const CIRCLE_SIDES_APPROX = 64;
 
 // Тестовый контент для новой секции-презентации (галерея с бесконечными
 // лентами) — art1.png..art10.png из public/.
-const ART_IMAGES = Array.from({ length: 14 }, (_, i) => `/art${i + 1}.png`);
+const ART_IMAGES = Array.from({ length: 24 }, (_, i) => `/art${i + 1}.png`);
 // То, что реально рисуется в ленте — те же картинки + дубликат первой в
 // конце, для бесшовной петли (см. buildStripKeyframeCSS).
 const ART_IMAGES_LOOP = [...ART_IMAGES, ART_IMAGES[0]];
@@ -1269,16 +1269,34 @@ export default function Home() {
   // через CSS aspect-ratio внутри grid, которое может вести себя непредсказуемо
   // в паре с max-width/max-height у элементов сетки в разных браузерах).
   const [galleryGrid, setGalleryGrid] = useState({ cellPx: 0, cols: 3, rows: 2 });
-  // Случайный (а не равномерно распределённый) сдвиг фазы цикла для каждой
-  // ячейки — чтобы они листали ленту не синхронно, а независимо друг от
-  // друга, в разное время. useMemo с пустыми deps — считается ОДИН раз при
-  // монтировании: если бы Math.random() вызывался прямо в JSX при каждом
-  // рендере, у ячеек на каждый ре-рендер менялась бы задержка, и анимация
-  // дёргано перезапускалась бы заново.
+  // Сдвиг фазы цикла для каждой ячейки — гарантированно РАЗНЫЙ у каждой (не
+  // просто случайный: чисто случайные задержки иногда СЛУЧАЙНО совпадали по
+  // фазе, т.к. остаток от деления на длительность одного шага slotMs мог
+  // оказаться близким у двух ячеек — тогда они переключались почти
+  // одновременно, несмотря на разные "сырые" числа задержки — проверено
+  // численно, зазор мог быть всего ~270мс). Теперь фаза (delay mod slotMs)
+  // РАВНОМЕРНО разнесена между ячейками — гарантированный минимальный зазор
+  // slotMs/GALLERY_CELL_COUNT (сейчас это 2с) — плюс случайный целый номер
+  // слота поверх (не меняет фазу, только то, с какой картинки ячейка
+  // стартует) — для визуального разнообразия без риска синхронности.
+  // useMemo с пустыми deps — считается ОДИН раз при монтировании: если бы
+  // Math.random() вызывался прямо в JSX при каждом рендере, у ячеек на
+  // каждый ре-рендер менялась бы задержка, и анимация дёргано
+  // перезапускалась бы заново.
   const galleryDelays = useMemo(() => {
-    const cycleSec = (ART_IMAGES.length * (GALLERY_HOLD_MS + GALLERY_TRANSITION_MS)) / 1000;
-    return Array.from({ length: GALLERY_CELL_COUNT }, () => -(Math.random() * cycleSec));
+    const slotMs = GALLERY_HOLD_MS + GALLERY_TRANSITION_MS;
+    const cycleSec = (ART_IMAGES.length * slotMs) / 1000;
+    return Array.from({ length: GALLERY_CELL_COUNT }, (_, i) => {
+      const phaseMs = i * (slotMs / GALLERY_CELL_COUNT); // гарантированно равномерно разнесённая фаза
+      const randomSlot = Math.floor(Math.random() * ART_IMAGES.length); // случайный номер слота — не влияет на фазу
+      return -((phaseMs + randomSlot * slotMs) / 1000) % cycleSec;
+    });
   }, []);
+  // Видео fit.mp4 "сквозь" ячейки — появляется спустя 10с ПОСЛЕ того, как
+  // сама секция-галерея становится активной (т.е. после экрана загрузки, а
+  // не от монтирования страницы — см. эффект ниже).
+  const [showGalleryVideo, setShowGalleryVideo] = useState(false);
+  const galleryVideoTimerStartedRef = useRef(false);
 
   const [contactHovered, setContactHovered] = useState(false);
   const [shaking, setShaking] = useState(false);
@@ -1399,6 +1417,15 @@ export default function Home() {
   const ringTilesRef = useRef<RingTile[]>([]);
   useEffect(() => { ringTilesRef.current = ringTiles; }, [ringTiles]);
   useEffect(() => { overlayOpacityRef.current = overlayOpacity; }, [overlayOpacity]);
+  // Через 10с после того, как секция-галерея стала активной (экран загрузки
+  // полностью погас) — показываем видео сквозь ячейки. Guard
+  // (galleryVideoTimerStartedRef) — чтобы таймер стартовал ровно один раз, а
+  // не при каждом промежуточном значении overlayOpacity во время его затухания.
+  useEffect(() => {
+    if (overlayOpacity > 0.01 || galleryVideoTimerStartedRef.current) return;
+    galleryVideoTimerStartedRef.current = true;
+    setTimeout(() => setShowGalleryVideo(true), 10000);
+  }, [overlayOpacity]);
   const thumbIdRef = useRef(0);
   // Одно число на кольцо (растёт по мере появления новых колец) — каждое
   // кольцо крутится с собственным накопленным углом, см. getRingDirection().
@@ -3063,22 +3090,73 @@ export default function Home() {
             CSS-проценты, которые растут вместе с адаптивным размером плитки).
             Тестовый контент — ART_IMAGES (art1..art14.png из public/). */}
         <div ref={introGalleryRef} style={{ position: "absolute", inset: 0, zIndex: 9000, background: "#000", display: "flex", alignItems: "center", justifyContent: "center" }}>
-          {galleryGrid.cellPx > 0 && (
-            <div style={{ display: "grid", gridTemplateColumns: `repeat(${galleryGrid.cols},${galleryGrid.cellPx}px)`, gridTemplateRows: `repeat(${galleryGrid.rows},${galleryGrid.cellPx}px)`, gap: `${GAP}px` }}>
-              {Array.from({ length: GALLERY_CELL_COUNT }, (_, tileIdx) => {
-                const cycleSec = (ART_IMAGES.length * (GALLERY_HOLD_MS + GALLERY_TRANSITION_MS)) / 1000; // см. buildStripKeyframeCSS — та же арифметика (holdMs+transitionMs)*count, count = ART_IMAGES.length (БЕЗ дубликата)
-                const delaySec = galleryDelays[tileIdx]; // случайная (не синхронная) фаза — см. galleryDelays выше
-                return (
-                  <div key={tileIdx} style={{ width: `${galleryGrid.cellPx}px`, height: `${galleryGrid.cellPx}px`, position: "relative", overflow: "hidden", borderRadius: "14%", background: "#111" }}>
-                    <div style={{ position: "absolute", top: 0, left: 0, width: "100%", height: `${ART_IMAGES_LOOP.length * 100}%`, animation: `introStripCycle ${cycleSec}s infinite`, animationDelay: `${delaySec}s` }}>
-                      {ART_IMAGES_LOOP.map((src, imgIdx) => (
-                        <img key={imgIdx} src={src} alt="" style={{ width: "100%", height: `${100 / ART_IMAGES_LOOP.length}%`, objectFit: "cover", display: "block" }} />
-                      ))}
+          {overlayOpacity <= 0.01 && galleryGrid.cellPx > 0 && (
+            <>
+              <div style={{ display: "grid", gridTemplateColumns: `repeat(${galleryGrid.cols},${galleryGrid.cellPx}px)`, gridTemplateRows: `repeat(${galleryGrid.rows},${galleryGrid.cellPx}px)`, gap: `${GAP}px` }}>
+                {Array.from({ length: GALLERY_CELL_COUNT }, (_, tileIdx) => {
+                  const cycleSec = (ART_IMAGES.length * (GALLERY_HOLD_MS + GALLERY_TRANSITION_MS)) / 1000; // см. buildStripKeyframeCSS — та же арифметика (holdMs+transitionMs)*count, count = ART_IMAGES.length (БЕЗ дубликата)
+                  const delaySec = galleryDelays[tileIdx]; // случайная (не синхронная) фаза — см. galleryDelays выше
+                  return (
+                    <div key={tileIdx} style={{ width: `${galleryGrid.cellPx}px`, height: `${galleryGrid.cellPx}px`, position: "relative", overflow: "hidden", borderRadius: "14%", background: "#111" }}>
+                      <div style={{ position: "absolute", top: 0, left: 0, width: "100%", height: `${ART_IMAGES_LOOP.length * 100}%`, animation: `introStripCycle ${cycleSec}s infinite`, animationDelay: `${delaySec}s` }}>
+                        {ART_IMAGES_LOOP.map((src, imgIdx) => (
+                          <img key={imgIdx} src={src} alt="" style={{ width: "100%", height: `${100 / ART_IMAGES_LOOP.length}%`, objectFit: "cover", display: "block" }} />
+                        ))}
+                      </div>
                     </div>
-                  </div>
+                  );
+                })}
+              </div>
+              {/* Видео fit.mp4 "сквозь" ячейки — ОДНО общее полноэкранное видео,
+                  но видимое только в форме и на месте ячеек (SVG-маска с
+                  скруглёнными прямоугольниками, вычисленными из той же
+                  раскладки, что и сама сетка — центрирование флексом плюс
+                  раскладка по строкам/столбцам). Плавно проявляется (1с)
+                  через showGalleryVideo, вместо мгновенного появления. */}
+              {(() => {
+                const vw = stableDimsRef.current.w, vh = stableDimsRef.current.h;
+                const gridW = galleryGrid.cols * galleryGrid.cellPx + (galleryGrid.cols - 1) * GAP;
+                const gridH = galleryGrid.rows * galleryGrid.cellPx + (galleryGrid.rows - 1) * GAP;
+                const gridLeft = (vw - gridW) / 2;
+                const gridTop = (vh - gridH) / 2;
+                const cellRects = Array.from({ length: GALLERY_CELL_COUNT }, (_, i) => {
+                  const row = Math.floor(i / galleryGrid.cols);
+                  const col = i % galleryGrid.cols;
+                  return {
+                    x: gridLeft + col * (galleryGrid.cellPx + GAP),
+                    y: gridTop + row * (galleryGrid.cellPx + GAP),
+                    s: galleryGrid.cellPx,
+                  };
+                });
+                return (
+                  <>
+                    <svg width="0" height="0" style={{ position: "absolute" }}>
+                      <defs>
+                        <mask id="introVideoMask" maskUnits="userSpaceOnUse" x={0} y={0} width={vw} height={vh}>
+                          {cellRects.map((r, i) => (
+                            <rect key={i} x={r.x} y={r.y} width={r.s} height={r.s} rx={r.s * 0.14} fill="#fff" />
+                          ))}
+                        </mask>
+                      </defs>
+                    </svg>
+                    <video
+                      src="/fit.mp4"
+                      autoPlay
+                      muted
+                      loop
+                      playsInline
+                      style={{
+                        position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover",
+                        WebkitMaskImage: "url(#introVideoMask)", maskImage: "url(#introVideoMask)",
+                        opacity: showGalleryVideo ? 1 : 0,
+                        transition: "opacity 1s ease",
+                        pointerEvents: "none",
+                      } as React.CSSProperties}
+                    />
+                  </>
                 );
-              })}
-            </div>
+              })()}
+            </>
           )}
         </div>
 
