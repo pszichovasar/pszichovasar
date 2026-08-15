@@ -213,7 +213,7 @@ const CIRCLE_SIDES_APPROX = 64;
 
 // Тестовый контент для новой секции-презентации (галерея с бесконечными
 // лентами) — art1.png..art10.png из public/.
-const ART_IMAGES = Array.from({ length: 24 }, (_, i) => `/art${i + 1}.png`);
+const ART_IMAGES = Array.from({ length: 27 }, (_, i) => `/art${i + 1}.png`);
 // То, что реально рисуется в ленте — те же картинки + дубликат первой в
 // конце, для бесшовной петли (см. buildStripKeyframeCSS).
 const ART_IMAGES_LOOP = [...ART_IMAGES, ART_IMAGES[0]];
@@ -226,11 +226,16 @@ const GALLERY_HOLD_MS = 8000;
 const GALLERY_TRANSITION_MS = 4000;
 // Пороги в единицах unit (scrollY/SCROLL_PER_UNIT) для вступительной
 // последовательности: Problem solver гаснет первым (0 → PROBLEM_SOLVER_END),
-// затем галерея (PROBLEM_SOLVER_END → GALLERY_END) — расширено с прежних
-// 0.15 до 0.375 (в 4 раза шире именно окно галереи), чтобы её не
-// пролистывать слишком быстро. После GALLERY_END — открывается секция мозаик.
+// затем галерея (PROBLEM_SOLVER_END → GALLERY_END) — расширено ещё раз, с
+// 0.3 до 0.6 (само окно), чтобы галерею не пролистывать слишком быстро.
+// GALLERY_FADE_START_UNIT — где НАЧИНАЕТСЯ сам уход в прозрачность: до этой
+// точки opacity держится ровно 1 (никакого просвечивания секции мозаик
+// сквозь галерею), и гаснет только в последних 10% окна — раньше прозрачность
+// убывала линейно на всём окне, и мозаики частично просвечивали сквозь
+// галерею большую часть скролла (обычный побочный эффект долгого кросс-фейда).
 const PROBLEM_SOLVER_END_UNIT = 0.075;
-const GALLERY_END_UNIT = 0.375;
+const GALLERY_END_UNIT = 0.675;
+const GALLERY_FADE_START_UNIT = GALLERY_END_UNIT - (GALLERY_END_UNIT - PROBLEM_SOLVER_END_UNIT) * 0.1;
 
 // "Problem solver" — набор шрифтов и цветов фона, между которыми хаотично
 // (по движению курсора) переключается новая секция-заглушка. Специально
@@ -240,7 +245,7 @@ const GALLERY_END_UNIT = 0.375;
 // ниже) — системные (Georgia/Impact/Times) добавлены для ещё большего
 // разнообразия без дополнительной загрузки. Цвета фона — только светлые/
 // пастельные, чтобы чёрный текст оставался читаемым при любом из них.
-const GOOGLE_FONTS_HREF = "https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Bebas+Neue&family=Space+Mono:wght@700&family=Pacifico&family=Anton&family=Abril+Fatface&family=Caveat:wght@700&family=Oswald:wght@700&family=Righteous&family=Courier+Prime:wght@700&family=Permanent+Marker&family=Archivo+Black&family=Bangers&family=Lobster&family=Special+Elite&family=Shrikhand&family=Fredoka:wght@700&family=Rubik+Mono+One&family=Bungee&family=Chewy&family=Monoton&family=Press+Start+2P&display=swap";
+const GOOGLE_FONTS_HREF = "https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Bebas+Neue&family=Space+Mono:wght@700&family=Pacifico&family=Anton&family=Abril+Fatface&family=Caveat:wght@700&family=Oswald:wght@700&family=Righteous&family=Courier+Prime:wght@700&family=Permanent+Marker&family=Archivo+Black&family=Bangers&family=Lobster&family=Special+Elite&family=Shrikhand&family=Fredoka:wght@700&family=Rubik+Mono+One&family=Bungee&family=Chewy&family=Monoton&family=Press+Start+2P&family=Rubik+Wet+Paint&family=Rubik+Glitch&family=Sixtyfour&family=Fascinate&family=Diplomata&family=Nabla&family=Rubik+Iso&family=Modak&family=Silkscreen&family=Faster+One&display=swap";
 const PROBLEM_SOLVER_FONTS = [
   "'Playfair Display', serif",
   "'Bebas Neue', sans-serif",
@@ -264,49 +269,59 @@ const PROBLEM_SOLVER_FONTS = [
   "'Chewy', cursive",
   "'Monoton', cursive",
   "'Press Start 2P', monospace",
+  "'Rubik Wet Paint', cursive",
+  "'Rubik Glitch', cursive",
+  "'Sixtyfour', monospace",
+  "'Fascinate', cursive",
+  "'Diplomata', cursive",
+  "'Nabla', cursive",
+  "'Rubik Iso', cursive",
+  "'Modak', cursive",
+  "'Silkscreen', monospace",
+  "'Faster One', cursive",
   "Georgia, serif",
   "Impact, sans-serif",
   "'Times New Roman', serif",
 ];
-const PROBLEM_SOLVER_COLORS: { bg: string; text: string }[] = [
-  { bg: "#ffffff", text: "#000000" }, // белый / чёрный
-  { bg: "#000000", text: "#ffffff" }, // чёрный / белый — противоположность первому
-  { bg: "#f7d716", text: "#000000" }, // жёлтый
-  { bg: "#7b2ff7", text: "#ffffff" }, // фиолетовый — контраст к жёлтому
-  { bg: "#ff2e88", text: "#ffffff" }, // ярко-розовый
-  { bg: "#00e58a", text: "#000000" }, // ярко-зелёный — контраст к розовому
-  { bg: "#0057ff", text: "#ffffff" }, // синий
-  { bg: "#ff7a00", text: "#000000" }, // оранжевый — контраст к синему
-  { bg: "#ff1e1e", text: "#ffffff" }, // красный
-  { bg: "#00e5ff", text: "#000000" }, // циан — контраст к красному
-  { bg: "#00c2a8", text: "#000000" }, // бирюзовый
-  { bg: "#ff3d7f", text: "#ffffff" }, // малиновый — контраст к бирюзовому
-  { bg: "#d4ff00", text: "#000000" }, // лаймовый
-  { bg: "#4b0082", text: "#ffffff" }, // индиго — контраст к лаймовому
-  { bg: "#ffb800", text: "#000000" }, // янтарный
-  { bg: "#003fff", text: "#ffffff" }, // насыщенный синий — контраст к янтарному
-  { bg: "#ff5ecb", text: "#000000" }, // фуксия
-  { bg: "#0b6e4f", text: "#ffffff" }, // тёмно-зелёный — контраст к фуксии
+
+// Целостные "темы" — вместо независимой рандомизации каждого цвета
+// (фон секции/текст/фон поля/текст поля/обводка/курсор — по отдельности,
+// как было раньше), теперь ВСЕ цвета для одной вариации выбираются как
+// готовый, заранее продуманный набор. Так гарантирована сочетаемость и
+// контраст — а не случайное совпадение/столкновение независимо выбранных
+// цветов. Логика: основной (обычно фон секции) — контрастный текст на нём;
+// поле ввода — либо белое/чёрное (максимальная читаемость), либо в тон
+// основному (с текстом обратного контраста); обводка поля — либо
+// чёрная/белая, либо в цвет темы; курсор — ВСЕГДА дополнительный
+// (комплементарный) акцентный цвет, для "вспышки" контраста.
+const PS_THEMES: { bg: string; text: string; inputBg: string; inputText: string; inputBorder: string; caret: string }[] = [
+  { bg: "#ffffff", text: "#000000", inputBg: "#ffffff", inputText: "#000000", inputBorder: "#000000", caret: "#000000" },
+  { bg: "#000000", text: "#ffffff", inputBg: "#000000", inputText: "#ffffff", inputBorder: "#ffffff", caret: "#ffffff" },
+  { bg: "#f7d716", text: "#000000", inputBg: "#ffffff", inputText: "#000000", inputBorder: "#000000", caret: "#7b2ff7" },
+  { bg: "#7b2ff7", text: "#ffffff", inputBg: "#ffffff", inputText: "#7b2ff7", inputBorder: "#7b2ff7", caret: "#f7d716" },
+  { bg: "#ff2e88", text: "#ffffff", inputBg: "#ffffff", inputText: "#ff2e88", inputBorder: "#ff2e88", caret: "#00e58a" },
+  { bg: "#00e58a", text: "#000000", inputBg: "#ffffff", inputText: "#00994d", inputBorder: "#000000", caret: "#ff2e88" },
+  { bg: "#0057ff", text: "#ffffff", inputBg: "#ffffff", inputText: "#0057ff", inputBorder: "#0057ff", caret: "#ff7a00" },
+  { bg: "#ff7a00", text: "#000000", inputBg: "#ffffff", inputText: "#ff7a00", inputBorder: "#000000", caret: "#0057ff" },
+  { bg: "#ff1e1e", text: "#ffffff", inputBg: "#ffffff", inputText: "#ff1e1e", inputBorder: "#ff1e1e", caret: "#00e5ff" },
+  { bg: "#00e5ff", text: "#000000", inputBg: "#ffffff", inputText: "#007a8a", inputBorder: "#000000", caret: "#ff1e1e" },
+  { bg: "#00c2a8", text: "#000000", inputBg: "#ffffff", inputText: "#00c2a8", inputBorder: "#000000", caret: "#ff3d7f" },
+  { bg: "#ff3d7f", text: "#ffffff", inputBg: "#ffffff", inputText: "#ff3d7f", inputBorder: "#ff3d7f", caret: "#00c2a8" },
+  { bg: "#4b0082", text: "#ffffff", inputBg: "#ffffff", inputText: "#4b0082", inputBorder: "#ffffff", caret: "#d4ff00" },
+  { bg: "#d4ff00", text: "#000000", inputBg: "#000000", inputText: "#d4ff00", inputBorder: "#d4ff00", caret: "#4b0082" },
+  { bg: "#ffb800", text: "#000000", inputBg: "#000000", inputText: "#ffb800", inputBorder: "#ffb800", caret: "#ffffff" },
+  { bg: "#1a1a2e", text: "#ffffff", inputBg: "#ffffff", inputText: "#1a1a2e", inputBorder: "#ffffff", caret: "#f7d716" },
 ];
 
-// Стиль самого поля ввода — тоже часть "хаоса" (см. problemStyle). Свой,
-// более узкий набор фонов (пары с читаемым текстом) — независимый от общей
-// палитры секции, чтобы всегда быть уверенным в контрасте текста, который
-// печатает пользователь.
-const INPUT_BG_OPTIONS: { bg: string; text: string }[] = [
-  { bg: "#ffffff", text: "#000000" },
-  { bg: "#000000", text: "#ffffff" },
-  { bg: "#fff3cd", text: "#000000" },
-  { bg: "#e0f0ff", text: "#000000" },
-  { bg: "#ffe0ec", text: "#000000" },
-  { bg: "#e6ffe0", text: "#000000" },
-  { bg: "#f0e6ff", text: "#000000" },
-  { bg: "#e0fff5", text: "#000000" },
-  { bg: "#fff0e0", text: "#000000" },
-  { bg: "#1a1a2e", text: "#ffffff" },
+// Форма поля ввода — не только базовые скругления, но и асимметричные
+// (по разным углам) — визуально куда интереснее, чем просто "больше/меньше
+// скругление". 999px по всем углам — визуально таблетка (капсула).
+const INPUT_RADIUS_OPTIONS = [
+  "0px", "8px", "24px", "50px", "999px",
+  "50px 8px 50px 8px", "8px 50px 8px 50px", // волна
+  "40px 0px 40px 0px", "0px 40px 0px 40px", // диагональ
+  "60px 8px 8px 8px", "8px 60px 8px 8px", "8px 8px 60px 8px", "8px 8px 8px 60px", // один угол-акцент
 ];
-const INPUT_BORDER_COLORS = ["#000000", "#ffffff", "#f7d716", "#ff2e88", "#0057ff", "#00e58a", "#ff7a00", "#7b2ff7", "#00e5ff", "#ff1e1e"];
-const INPUT_RADIUS_OPTIONS = [0, 8, 24, 50, 999]; // px; 999 — визуально таблетка (капсула)
 const INPUT_WIDTH_PCT_OPTIONS = [100, 88, 74, 60]; // % от max-width контейнера
 
 // Генерирует @keyframes для бесконечной вертикальной ленты (как уличный
@@ -1386,9 +1401,10 @@ export default function Home() {
   // Текущий шрифт/курсив/цвет фона+текста — меняются по движению курсора вне
   // поля ввода (см. эффект ниже), сами по себе не анимируются по таймеру.
   const [problemStyle, setProblemStyle] = useState({
-    font: PROBLEM_SOLVER_FONTS[0], italic: false, bg: PROBLEM_SOLVER_COLORS[0].bg, text: PROBLEM_SOLVER_COLORS[0].text,
-    inputBg: INPUT_BG_OPTIONS[0].bg, inputText: INPUT_BG_OPTIONS[0].text, inputBorder: INPUT_BORDER_COLORS[0],
-    inputRadius: INPUT_RADIUS_OPTIONS[0], inputWidthPct: INPUT_WIDTH_PCT_OPTIONS[0], caretColor: INPUT_BORDER_COLORS[1],
+    font: PROBLEM_SOLVER_FONTS[0], italic: false,
+    bg: PS_THEMES[0].bg, text: PS_THEMES[0].text,
+    inputBg: PS_THEMES[0].inputBg, inputText: PS_THEMES[0].inputText, inputBorder: PS_THEMES[0].inputBorder,
+    inputRadius: INPUT_RADIUS_OPTIONS[0], inputWidthPct: INPUT_WIDTH_PCT_OPTIONS[0], caretColor: PS_THEMES[0].caret,
   });
   // Значение поля ввода — отслеживаем, чтобы знать, пустое ли оно (мигающая
   // черта-курсор видна только пока пусто, см. JSX ниже — как только
@@ -1563,22 +1579,18 @@ export default function Home() {
       lastX = e.clientX; lastY = e.clientY;
       setProblemStyle(prev => {
         const fontPool = PROBLEM_SOLVER_FONTS.filter(f => f !== prev.font);
-        const colorPool = PROBLEM_SOLVER_COLORS.filter(c => c.bg !== prev.bg);
-        const inputBgPool = INPUT_BG_OPTIONS.filter(c => c.bg !== prev.inputBg);
-        const inputBorderPool = INPUT_BORDER_COLORS.filter(c => c !== prev.inputBorder);
+        const themePool = PS_THEMES.filter(t => t.bg !== prev.bg);
         const inputRadiusPool = INPUT_RADIUS_OPTIONS.filter(r => r !== prev.inputRadius);
         const inputWidthPool = INPUT_WIDTH_PCT_OPTIONS.filter(w => w !== prev.inputWidthPct);
-        const caretPool = INPUT_BORDER_COLORS.filter(c => c !== prev.caretColor);
         const nextFont = fontPool[Math.floor(Math.random() * fontPool.length)];
-        const nextColor = colorPool[Math.floor(Math.random() * colorPool.length)];
-        const nextInputBg = inputBgPool[Math.floor(Math.random() * inputBgPool.length)];
+        const nextTheme = themePool[Math.floor(Math.random() * themePool.length)];
         return {
-          font: nextFont, italic: Math.random() < 0.5, bg: nextColor.bg, text: nextColor.text,
-          inputBg: nextInputBg.bg, inputText: nextInputBg.text,
-          inputBorder: inputBorderPool[Math.floor(Math.random() * inputBorderPool.length)],
+          font: nextFont, italic: Math.random() < 0.5,
+          bg: nextTheme.bg, text: nextTheme.text,
+          inputBg: nextTheme.inputBg, inputText: nextTheme.inputText, inputBorder: nextTheme.inputBorder,
+          caretColor: nextTheme.caret,
           inputRadius: inputRadiusPool[Math.floor(Math.random() * inputRadiusPool.length)],
           inputWidthPct: inputWidthPool[Math.floor(Math.random() * inputWidthPool.length)],
-          caretColor: caretPool[Math.floor(Math.random() * caretPool.length)],
         };
       });
     };
@@ -1612,7 +1624,7 @@ export default function Home() {
       if (!problemInputRef.current || !problemHeadingRef.current) return;
       const targetWidth = problemInputRef.current.getBoundingClientRect().width;
       if (targetWidth <= 0) return;
-      problemHeadingRef.current.style.transform = "scaleX(1)";
+      problemHeadingRef.current.style.transform = "scale(1)";
       const naturalWidth = problemHeadingRef.current.getBoundingClientRect().width;
       if (naturalWidth <= 0) return;
       setProblemScaleX(targetWidth / naturalWidth);
@@ -3011,15 +3023,19 @@ export default function Home() {
       problemSolverRef.current.style.opacity = String(problemOpacity);
       problemSolverRef.current.style.pointerEvents = problemOpacity > 0.02 ? "auto" : "none";
     }
-    // Секция-презентация (галерея) — гаснет во ВТОРОЙ части окна
-    // (PROBLEM_SOLVER_END_UNIT → GALLERY_END_UNIT) — окно специально шире,
-    // чем у Problem solver (0.3 против 0.075), чтобы саму галерею не
-    // пролистывать слишком быстро. pointer-events выключаются вместе с
+    // Секция-презентация (галерея) — держится ПОЛНОСТЬЮ непрозрачной
+    // (opacity=1, никакого просвечивания секции мозаик сквозь неё) до
+    // GALLERY_FADE_START_UNIT, и гаснет только в последних 10% своего окна
+    // (GALLERY_FADE_START_UNIT → GALLERY_END_UNIT) — раньше прозрачность
+    // убывала линейно на всём окне, и мозаики частично просвечивали сквозь
+    // галерею большую часть скролла. pointer-events выключаются вместе с
     // прозрачностью — иначе невидимая, но всё ещё "живая" секция
     // блокировала бы клики/курсор для того, что находится под ней.
     if (introGalleryRef.current) {
-      const galleryWindow = GALLERY_END_UNIT - PROBLEM_SOLVER_END_UNIT;
-      const introOpacity = Math.max(0, Math.min(1, (GALLERY_END_UNIT - unit) / galleryWindow));
+      const fadeWindow = GALLERY_END_UNIT - GALLERY_FADE_START_UNIT;
+      const introOpacity = unit <= GALLERY_FADE_START_UNIT
+        ? 1
+        : Math.max(0, Math.min(1, (GALLERY_END_UNIT - unit) / fadeWindow));
       introGalleryRef.current.style.opacity = String(introOpacity);
       introGalleryRef.current.style.pointerEvents = introOpacity > 0.02 ? "auto" : "none";
     }
@@ -3327,7 +3343,7 @@ export default function Home() {
                   обрезал бы (это и было причиной обрезанного двоеточия) —
                   visible ничего не обрезает, а стабильность высоты и так уже
                   даёт фиксированная высота самого контейнера, а не overflow. */}
-              <div style={{ height: "28vh", display: "flex", alignItems: "center", justifyContent: "center", overflow: "visible", marginBottom: "clamp(20px,4vh,56px)" }}>
+              <div style={{ height: "28vh", display: "flex", alignItems: "center", justifyContent: "center", overflow: "visible", marginBottom: "clamp(6px,1.2vh,16px)" }}>
                 <div
                   ref={problemHeadingRef}
                   className="ps-font"
@@ -3339,7 +3355,18 @@ export default function Home() {
                     lineHeight: 1,
                     whiteSpace: "nowrap",
                     display: "inline-block",
-                    transform: `scaleX(${problemScaleX})`,
+                    // ВАЖНО: scale(), а не scaleX() — тот растягивал только
+                    // по горизонтали, искажая пропорции букв (видно на
+                    // скриншоте — буквы становились неестественно широкими).
+                    // scale() с одним значением масштабирует РАВНОМЕРНО по
+                    // обеим осям — ширина всё равно точно попадает в
+                    // targetWidth (тот же самый вычисленный коэффициент),
+                    // просто без искажения формы. Высота при этом тоже
+                    // меняется пропорционально — но это не проблема: высота
+                    // контейнера выше фиксирована (28vh) и не завязана на
+                    // overflow, так что положение поля ввода всё равно
+                    // стабильно, чем бы ни оказалась итоговая высота текста.
+                    transform: `scale(${problemScaleX})`,
                     transformOrigin: "center center",
                     color: problemStyle.text,
                     transition: "font-style 0.15s ease, color 0.25s ease",
@@ -3360,7 +3387,7 @@ export default function Home() {
                     fontSize: "clamp(20px, 3vw, 40px)",
                     padding: "clamp(14px,2vw,28px) clamp(20px,3vw,36px)",
                     border: `3px solid ${problemStyle.inputBorder}`,
-                    borderRadius: `${problemStyle.inputRadius}px`,
+                    borderRadius: problemStyle.inputRadius,
                     outline: "none",
                     background: problemStyle.inputBg,
                     color: problemStyle.inputText,
