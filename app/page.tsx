@@ -1410,9 +1410,46 @@ export default function Home() {
   // черта-курсор видна только пока пусто, см. JSX ниже — как только
   // напечатан хоть один символ, дальше работает обычный, нативный курсор).
   const [problemInputValue, setProblemInputValue] = useState("");
+  // Ответ ИИ (одно слово) — null, пока не отправлено ни одного вопроса;
+  // тогда на месте заголовка по-прежнему "solve:". problemLoading — пока
+  // ждём ответ от /api/solve (см. отправку по Enter в JSX ниже).
+  const [problemAiWord, setProblemAiWord] = useState<string | null>(null);
+  const [problemLoading, setProblemLoading] = useState(false);
+  const problemHeadingText = problemAiWord ?? "solve:"; // во время загрузки — см. pointer-events/пульсацию в JSX, текст не подменяется на "..." (растянутые на всю ширину точки смотрелись бы странно)
+  // Отправка вопроса на /api/solve (см. созданный отдельно route.ts) — по
+  // Enter в поле ввода (см. onKeyDown в JSX). Сообщение любой длины —
+  // краткость ответа (одно слово) обеспечивает системный промпт на
+  // сервере, не клиент.
+  const handleProblemSubmit = async () => {
+    const problem = problemInputValue.trim();
+    if (!problem || problemLoading) return;
+    setProblemLoading(true);
+    try {
+      const res = await fetch("/api/solve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ problem }),
+      });
+      const data = await res.json();
+      setProblemAiWord(typeof data?.word === "string" && data.word ? data.word : "?");
+    } catch {
+      setProblemAiWord("?"); // сеть недоступна / сервер не настроен — не оставляем пользователя без обратной связи
+    } finally {
+      setProblemLoading(false);
+      setProblemInputValue(""); // поле очищается — готово для следующего вопроса
+    }
+  };
   const problemSolverRef = useRef<HTMLDivElement>(null);
   const problemInputRef = useRef<HTMLInputElement>(null);
   const problemHeadingRef = useRef<HTMLDivElement>(null);
+  // Скрытый "образец" — та же строка/шрифт/начертание, что и видимый
+  // заголовок, но НИКОГДА не масштабируется — нужен ResizeObserver'у ниже,
+  // чтобы поймать момент, когда шрифт РЕАЛЬНО подгрузится и натуральная
+  // ширина текста изменится (см. эффект — надёжнее, чем гадать через
+  // document.fonts.load()/ready, у которых были нестабильности с
+  // некоторыми шрифтами — не у всех точно совпадает запрошенный вес/
+  // начертание с тем, что реально объявлено в @font-face).
+  const problemMeasureRef = useRef<HTMLDivElement>(null);
   // Горизонтальный масштаб заголовка "solve:" — растягивает/сжимает РЕАЛЬНО
   // отрендеренный в DOM текст (не приближение через canvas) до ТОЧНОЙ ширины
   // поля ввода. Это надёжнее прежнего подхода (подбор font-size по замеру на
@@ -1611,31 +1648,35 @@ export default function Home() {
     document.head.appendChild(link);
   }, []);
   // Подгонка ширины заголовка "solve:" под ТОЧНУЮ ширину поля ввода —
-  // измеряем РЕАЛЬНО отрендеренный в DOM текст (после сброса текущего
-  // масштаба до 1, иначе измерили бы уже растянутую версию), затем считаем
-  // растяжение/сжатие по X, чтобы получить ровно targetWidth. useLayoutEffect
-  // — синхронно до отрисовки кадра, без видимого "скачка" от неверного к
-  // верному масштабу. Пересчитывается при смене шрифта/курсива/ширины поля
-  // ввода, при ресайзе, и повторно — как только Google Fonts подгрузятся
-  // (document.fonts.ready): до этого момента браузер рендерит
-  // шрифтом-заменителем, а не тем, что реально подключается.
+  // ResizeObserver на СКРЫТОМ, никогда не масштабируемом "образце" (см.
+  // problemMeasureRef выше) — реагирует на РЕАЛЬНОЕ изменение
+  // отрендеренной ширины текста, чем бы оно ни было вызвано (шрифт
+  // подгрузился, произошла замена шрифта браузером и т.п.), а не гадает
+  // ЗАРАНЕЕ, когда именно шрифт "готов" — прошлый подход (document.fonts.
+  // load/ready) работал не для всех шрифтов: у некоторых запрошенный вес/
+  // начертание не совпадает точно с тем, что объявлено в @font-face, и
+  // промис не срабатывал как ожидалось. ResizeObserver устраняет этот класс
+  // проблем полностью — не важно, ПОЧЕМУ ширина изменилась, главное что
+  // мы её сразу же увидим и пересчитаем масштаб.
   useLayoutEffect(() => {
-    const measure = () => {
-      if (!problemInputRef.current || !problemHeadingRef.current) return;
+    if (!problemMeasureRef.current) return;
+    const measureEl = problemMeasureRef.current;
+    const recompute = () => {
+      if (!problemInputRef.current || !measureEl) return;
       const targetWidth = problemInputRef.current.getBoundingClientRect().width;
-      if (targetWidth <= 0) return;
-      problemHeadingRef.current.style.transform = "scale(1)";
-      const naturalWidth = problemHeadingRef.current.getBoundingClientRect().width;
-      if (naturalWidth <= 0) return;
+      const naturalWidth = measureEl.getBoundingClientRect().width;
+      if (targetWidth <= 0 || naturalWidth <= 0) return;
       setProblemScaleX(targetWidth / naturalWidth);
     };
-    measure();
-    if (typeof document !== "undefined" && (document as any).fonts?.ready) {
-      (document as any).fonts.ready.then(measure).catch(() => { });
-    }
-    window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
-  }, [problemStyle.font, problemStyle.italic, problemStyle.inputWidthPct]);
+    recompute();
+    const ro = new ResizeObserver(recompute);
+    ro.observe(measureEl);
+    window.addEventListener("resize", recompute);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", recompute);
+    };
+  }, [problemStyle.font, problemStyle.italic, problemStyle.inputWidthPct, problemHeadingText]);
   // Одно число на кольцо (растёт по мере появления новых колец) — каждое
   // кольцо крутится с собственным накопленным углом, см. getRingDirection().
   const ringRotationRefs = useRef<number[]>([0]);
@@ -3241,6 +3282,7 @@ export default function Home() {
         .card-btn{font-weight:900!important;letter-spacing:0.15em}
         @keyframes floatIn{from{opacity:0;}to{opacity:1;}}
         @keyframes psCaretBlink{0%,49%{opacity:1;}50%,100%{opacity:0;}}
+        @keyframes psLoadingPulse{0%,100%{opacity:1;}50%{opacity:0.35;}}
         @keyframes strikeThroughDraw{
           from{transform:translateY(-50%) scaleX(0);}
           to{transform:translateY(-50%) scaleX(1);}
@@ -3370,11 +3412,36 @@ export default function Home() {
                     transformOrigin: "center center",
                     color: problemStyle.text,
                     transition: "font-style 0.15s ease, color 0.25s ease",
+                    animation: problemLoading ? "psLoadingPulse 1s ease-in-out infinite" : "none",
                     userSelect: "none",
                   }}
                 >
-                  solve:
+                  {problemHeadingText}
                 </div>
+              </div>
+              {/* Скрытый образец для замера — см. problemMeasureRef выше.
+                  Та же строка/шрифт/начертание, что и видимый заголовок,
+                  но БЕЗ transform: scale() — ResizeObserver следит именно
+                  за этим элементом. */}
+              <div
+                ref={problemMeasureRef}
+                aria-hidden="true"
+                className="ps-font"
+                style={{
+                  position: "fixed",
+                  top: 0,
+                  left: 0,
+                  visibility: "hidden",
+                  pointerEvents: "none",
+                  ["--ps-font" as any]: problemStyle.font,
+                  fontStyle: problemStyle.italic ? "italic" : "normal",
+                  fontWeight: 900,
+                  fontSize: "min(15vh, 170px)",
+                  lineHeight: 1,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {problemHeadingText}
               </div>
               <div style={{ position: "relative", width: `${problemStyle.inputWidthPct}%`, maxWidth: "1400px" }}>
                 <input
@@ -3382,6 +3449,8 @@ export default function Home() {
                   type="text"
                   value={problemInputValue}
                   onChange={(e) => setProblemInputValue(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") handleProblemSubmit(); }}
+                  disabled={problemLoading}
                   style={{
                     width: "100%",
                     fontSize: "clamp(20px, 3vw, 40px)",
