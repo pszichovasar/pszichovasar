@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState, useMemo, useCallback } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState, useMemo, useCallback } from "react";
 
 function shuffleWithSeed(arr: string[], seed: number): string[] {
   const a = [...arr];
@@ -224,27 +224,90 @@ const GALLERY_CELL_COUNT = 6;
 // Картинка держится 8с, плавный (ease-in-out) переход к следующей — 4с.
 const GALLERY_HOLD_MS = 8000;
 const GALLERY_TRANSITION_MS = 4000;
+// Пороги в единицах unit (scrollY/SCROLL_PER_UNIT) для вступительной
+// последовательности: Problem solver гаснет первым (0 → PROBLEM_SOLVER_END),
+// затем галерея (PROBLEM_SOLVER_END → GALLERY_END) — расширено с прежних
+// 0.15 до 0.375 (в 4 раза шире именно окно галереи), чтобы её не
+// пролистывать слишком быстро. После GALLERY_END — открывается секция мозаик.
+const PROBLEM_SOLVER_END_UNIT = 0.075;
+const GALLERY_END_UNIT = 0.375;
 
 // "Problem solver" — набор шрифтов и цветов фона, между которыми хаотично
-// (по движению курсора) переключается новая секция-заглушка. Шрифты —
-// широко доступные системные (без необходимости грузить веб-шрифты),
-// намеренно визуально разные (засечки/без засечек/моно/дисплейный) — сама
-// "пляска" стилей отражает суть концепции (хаос до решения). Цвета фона —
-// только светлые/пастельные, чтобы чёрный текст оставался читаемым при любом
-// из них (без необходимости параллельно менять ещё и цвет текста).
+// (по движению курсора) переключается новая секция-заглушка. Специально
+// РАЗНОСТИЛЬНЫЕ шрифты (засечки/без засечек/моно/скрипт/дисплейный/
+// сверхжирный) — сама "пляска" стилей отражает суть концепции (хаос до
+// решения). Google Fonts подключены через <link> в JSX (см. ProblemSolverFonts
+// ниже) — системные (Georgia/Impact/Times) добавлены для ещё большего
+// разнообразия без дополнительной загрузки. Цвета фона — только светлые/
+// пастельные, чтобы чёрный текст оставался читаемым при любом из них.
+const GOOGLE_FONTS_HREF = "https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Bebas+Neue&family=Space+Mono:wght@700&family=Pacifico&family=Anton&family=Abril+Fatface&family=Caveat:wght@700&family=Oswald:wght@700&family=Righteous&family=Courier+Prime:wght@700&family=Permanent+Marker&family=Archivo+Black&family=Bangers&family=Lobster&family=Special+Elite&family=Shrikhand&family=Fredoka:wght@700&family=Rubik+Mono+One&family=Bungee&family=Chewy&family=Monoton&family=Press+Start+2P&display=swap";
 const PROBLEM_SOLVER_FONTS = [
-  "Arial, sans-serif",
+  "'Playfair Display', serif",
+  "'Bebas Neue', sans-serif",
+  "'Space Mono', monospace",
+  "'Pacifico', cursive",
+  "'Anton', sans-serif",
+  "'Abril Fatface', serif",
+  "'Caveat', cursive",
+  "'Oswald', sans-serif",
+  "'Righteous', sans-serif",
+  "'Courier Prime', monospace",
+  "'Permanent Marker', cursive",
+  "'Archivo Black', sans-serif",
+  "'Bangers', cursive",
+  "'Lobster', cursive",
+  "'Special Elite', monospace",
+  "'Shrikhand', cursive",
+  "'Fredoka', sans-serif",
+  "'Rubik Mono One', monospace",
+  "'Bungee', cursive",
+  "'Chewy', cursive",
+  "'Monoton', cursive",
+  "'Press Start 2P', monospace",
   "Georgia, serif",
-  "'Courier New', monospace",
   "Impact, sans-serif",
   "'Times New Roman', serif",
-  "Verdana, sans-serif",
-  "'Trebuchet MS', sans-serif",
-  "'Palatino Linotype', serif",
 ];
-const PROBLEM_SOLVER_BG_COLORS = [
-  "#ffffff", "#fff3cd", "#ffe0ec", "#e0f0ff", "#e6ffe0", "#fff0e0", "#f0e6ff", "#e0fff5",
+const PROBLEM_SOLVER_COLORS: { bg: string; text: string }[] = [
+  { bg: "#ffffff", text: "#000000" }, // белый / чёрный
+  { bg: "#000000", text: "#ffffff" }, // чёрный / белый — противоположность первому
+  { bg: "#f7d716", text: "#000000" }, // жёлтый
+  { bg: "#7b2ff7", text: "#ffffff" }, // фиолетовый — контраст к жёлтому
+  { bg: "#ff2e88", text: "#ffffff" }, // ярко-розовый
+  { bg: "#00e58a", text: "#000000" }, // ярко-зелёный — контраст к розовому
+  { bg: "#0057ff", text: "#ffffff" }, // синий
+  { bg: "#ff7a00", text: "#000000" }, // оранжевый — контраст к синему
+  { bg: "#ff1e1e", text: "#ffffff" }, // красный
+  { bg: "#00e5ff", text: "#000000" }, // циан — контраст к красному
+  { bg: "#00c2a8", text: "#000000" }, // бирюзовый
+  { bg: "#ff3d7f", text: "#ffffff" }, // малиновый — контраст к бирюзовому
+  { bg: "#d4ff00", text: "#000000" }, // лаймовый
+  { bg: "#4b0082", text: "#ffffff" }, // индиго — контраст к лаймовому
+  { bg: "#ffb800", text: "#000000" }, // янтарный
+  { bg: "#003fff", text: "#ffffff" }, // насыщенный синий — контраст к янтарному
+  { bg: "#ff5ecb", text: "#000000" }, // фуксия
+  { bg: "#0b6e4f", text: "#ffffff" }, // тёмно-зелёный — контраст к фуксии
 ];
+
+// Стиль самого поля ввода — тоже часть "хаоса" (см. problemStyle). Свой,
+// более узкий набор фонов (пары с читаемым текстом) — независимый от общей
+// палитры секции, чтобы всегда быть уверенным в контрасте текста, который
+// печатает пользователь.
+const INPUT_BG_OPTIONS: { bg: string; text: string }[] = [
+  { bg: "#ffffff", text: "#000000" },
+  { bg: "#000000", text: "#ffffff" },
+  { bg: "#fff3cd", text: "#000000" },
+  { bg: "#e0f0ff", text: "#000000" },
+  { bg: "#ffe0ec", text: "#000000" },
+  { bg: "#e6ffe0", text: "#000000" },
+  { bg: "#f0e6ff", text: "#000000" },
+  { bg: "#e0fff5", text: "#000000" },
+  { bg: "#fff0e0", text: "#000000" },
+  { bg: "#1a1a2e", text: "#ffffff" },
+];
+const INPUT_BORDER_COLORS = ["#000000", "#ffffff", "#f7d716", "#ff2e88", "#0057ff", "#00e58a", "#ff7a00", "#7b2ff7", "#00e5ff", "#ff1e1e"];
+const INPUT_RADIUS_OPTIONS = [0, 8, 24, 50, 999]; // px; 999 — визуально таблетка (капсула)
+const INPUT_WIDTH_PCT_OPTIONS = [100, 88, 74, 60]; // % от max-width контейнера
 
 // Генерирует @keyframes для бесконечной вертикальной ленты (как уличный
 // рекламный баннер) — картинка держится holdMs, затем плавный переход к
@@ -1320,11 +1383,29 @@ export default function Home() {
   const galleryVideoTimerStartedRef = useRef(false);
 
   // "Problem solver" — новая секция НАД галереей (см. JSX и applyAnimations).
-  // Текущий шрифт/курсив/цвет фона — меняются по движению курсора вне поля
-  // ввода (см. эффект ниже), сами по себе не анимируются по таймеру.
-  const [problemStyle, setProblemStyle] = useState({ font: PROBLEM_SOLVER_FONTS[0], italic: false, bg: PROBLEM_SOLVER_BG_COLORS[0] });
+  // Текущий шрифт/курсив/цвет фона+текста — меняются по движению курсора вне
+  // поля ввода (см. эффект ниже), сами по себе не анимируются по таймеру.
+  const [problemStyle, setProblemStyle] = useState({
+    font: PROBLEM_SOLVER_FONTS[0], italic: false, bg: PROBLEM_SOLVER_COLORS[0].bg, text: PROBLEM_SOLVER_COLORS[0].text,
+    inputBg: INPUT_BG_OPTIONS[0].bg, inputText: INPUT_BG_OPTIONS[0].text, inputBorder: INPUT_BORDER_COLORS[0],
+    inputRadius: INPUT_RADIUS_OPTIONS[0], inputWidthPct: INPUT_WIDTH_PCT_OPTIONS[0], caretColor: INPUT_BORDER_COLORS[1],
+  });
+  // Значение поля ввода — отслеживаем, чтобы знать, пустое ли оно (мигающая
+  // черта-курсор видна только пока пусто, см. JSX ниже — как только
+  // напечатан хоть один символ, дальше работает обычный, нативный курсор).
+  const [problemInputValue, setProblemInputValue] = useState("");
   const problemSolverRef = useRef<HTMLDivElement>(null);
   const problemInputRef = useRef<HTMLInputElement>(null);
+  const problemHeadingRef = useRef<HTMLDivElement>(null);
+  // Горизонтальный масштаб заголовка "solve:" — растягивает/сжимает РЕАЛЬНО
+  // отрендеренный в DOM текст (не приближение через canvas) до ТОЧНОЙ ширины
+  // поля ввода. Это надёжнее прежнего подхода (подбор font-size по замеру на
+  // canvas) — там ширина могла чуть разойтись с фактическим рендером
+  // (курсив, разные браузерные движки и т.п.); здесь масштаб считается по
+  // уже отрисованному тексту, так что расхождений в принципе быть не может.
+  // Сам font-size теперь ФИКСИРОВАН (не подбирается под каждый шрифт) — это
+  // заодно и стабилизирует высоту (см. JSX), без необходимости в потолке.
+  const [problemScaleX, setProblemScaleX] = useState(1);
 
   const [contactHovered, setContactHovered] = useState(false);
   const [shaking, setShaking] = useState(false);
@@ -1462,29 +1543,87 @@ export default function Home() {
   }, [overlayOpacity]);
   const thumbIdRef = useRef(0);
   // "Problem solver" — движение курсора (вне поля ввода) хаотично меняет
-  // шрифт/курсив/цвет фона секции. mousemove сам по себе фискально не
-  // срабатывает, пока курсор неподвижен — то есть "нет движения → нет
-  // изменений" получается естественно, без отдельного отслеживания простоя.
-  // Раз изменение происходит на КАЖДЫЙ вызов mousemove, а не по таймеру —
-  // лёгкий throttle (80мс) нужен, чтобы не заваливать реакт лишними
-  // ре-рендерами при быстром/дрожащем движении мыши.
+  // шрифт/курсив/цвет фона+текста секции. Срабатывает не по времени, а по
+  // НАКОПЛЕННОЙ ДИСТАНЦИИ движения от точки последнего срабатывания — как
+  // только курсор проехал MOVE_THRESHOLD_PX, меняем стиль и сбрасываем
+  // точку отсчёта. Текущий шрифт/цвет исключаются из случайного выбора —
+  // гарантированно новый на каждое срабатывание (не может выпасть тот же).
   useEffect(() => {
-    let lastChangeAt = 0;
+    const MOVE_THRESHOLD_PX = 100;
+    let lastX: number | null = null, lastY: number | null = null;
     const onMove = (e: MouseEvent) => {
       const target = e.target as Node | null;
-      if (target && problemInputRef.current && problemInputRef.current.contains(target)) return; // курсор над самим полем ввода — не меняем
-      const now = performance.now();
-      if (now - lastChangeAt < 80) return;
-      lastChangeAt = now;
-      setProblemStyle({
-        font: PROBLEM_SOLVER_FONTS[Math.floor(Math.random() * PROBLEM_SOLVER_FONTS.length)],
-        italic: Math.random() < 0.5,
-        bg: PROBLEM_SOLVER_BG_COLORS[Math.floor(Math.random() * PROBLEM_SOLVER_BG_COLORS.length)],
+      if (target && problemInputRef.current && problemInputRef.current.contains(target)) {
+        lastX = null; lastY = null; // курсор над полем ввода — сбрасываем накопленную дистанцию, не меняем
+        return;
+      }
+      if (lastX === null || lastY === null) { lastX = e.clientX; lastY = e.clientY; return; } // первая точка отсчёта после входа в зону
+      const dx = e.clientX - lastX, dy = e.clientY - lastY;
+      if (Math.sqrt(dx * dx + dy * dy) < MOVE_THRESHOLD_PX) return;
+      lastX = e.clientX; lastY = e.clientY;
+      setProblemStyle(prev => {
+        const fontPool = PROBLEM_SOLVER_FONTS.filter(f => f !== prev.font);
+        const colorPool = PROBLEM_SOLVER_COLORS.filter(c => c.bg !== prev.bg);
+        const inputBgPool = INPUT_BG_OPTIONS.filter(c => c.bg !== prev.inputBg);
+        const inputBorderPool = INPUT_BORDER_COLORS.filter(c => c !== prev.inputBorder);
+        const inputRadiusPool = INPUT_RADIUS_OPTIONS.filter(r => r !== prev.inputRadius);
+        const inputWidthPool = INPUT_WIDTH_PCT_OPTIONS.filter(w => w !== prev.inputWidthPct);
+        const caretPool = INPUT_BORDER_COLORS.filter(c => c !== prev.caretColor);
+        const nextFont = fontPool[Math.floor(Math.random() * fontPool.length)];
+        const nextColor = colorPool[Math.floor(Math.random() * colorPool.length)];
+        const nextInputBg = inputBgPool[Math.floor(Math.random() * inputBgPool.length)];
+        return {
+          font: nextFont, italic: Math.random() < 0.5, bg: nextColor.bg, text: nextColor.text,
+          inputBg: nextInputBg.bg, inputText: nextInputBg.text,
+          inputBorder: inputBorderPool[Math.floor(Math.random() * inputBorderPool.length)],
+          inputRadius: inputRadiusPool[Math.floor(Math.random() * inputRadiusPool.length)],
+          inputWidthPct: inputWidthPool[Math.floor(Math.random() * inputWidthPool.length)],
+          caretColor: caretPool[Math.floor(Math.random() * caretPool.length)],
+        };
       });
     };
     window.addEventListener("mousemove", onMove);
     return () => window.removeEventListener("mousemove", onMove);
   }, []);
+  // Подключаем Google Fonts для "Problem solver" (см. PROBLEM_SOLVER_FONTS) —
+  // добавляем <link> в document.head программно: файл — "use client"-компонент
+  // без доступа к layout.tsx, куда по канону Next.js полагалось бы это класть.
+  // Проверка на dataset.psFonts — чтобы не добавить тег повторно (React Strict
+  // Mode в dev вызывает эффекты дважды).
+  useEffect(() => {
+    if (document.querySelector('link[data-ps-fonts="1"]')) return;
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = GOOGLE_FONTS_HREF;
+    link.dataset.psFonts = "1";
+    document.head.appendChild(link);
+  }, []);
+  // Подгонка ширины заголовка "solve:" под ТОЧНУЮ ширину поля ввода —
+  // измеряем РЕАЛЬНО отрендеренный в DOM текст (после сброса текущего
+  // масштаба до 1, иначе измерили бы уже растянутую версию), затем считаем
+  // растяжение/сжатие по X, чтобы получить ровно targetWidth. useLayoutEffect
+  // — синхронно до отрисовки кадра, без видимого "скачка" от неверного к
+  // верному масштабу. Пересчитывается при смене шрифта/курсива/ширины поля
+  // ввода, при ресайзе, и повторно — как только Google Fonts подгрузятся
+  // (document.fonts.ready): до этого момента браузер рендерит
+  // шрифтом-заменителем, а не тем, что реально подключается.
+  useLayoutEffect(() => {
+    const measure = () => {
+      if (!problemInputRef.current || !problemHeadingRef.current) return;
+      const targetWidth = problemInputRef.current.getBoundingClientRect().width;
+      if (targetWidth <= 0) return;
+      problemHeadingRef.current.style.transform = "scaleX(1)";
+      const naturalWidth = problemHeadingRef.current.getBoundingClientRect().width;
+      if (naturalWidth <= 0) return;
+      setProblemScaleX(targetWidth / naturalWidth);
+    };
+    measure();
+    if (typeof document !== "undefined" && (document as any).fonts?.ready) {
+      (document as any).fonts.ready.then(measure).catch(() => { });
+    }
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [problemStyle.font, problemStyle.italic, problemStyle.inputWidthPct]);
   // Одно число на кольцо (растёт по мере появления новых колец) — каждое
   // кольцо крутится с собственным накопленным углом, см. getRingDirection().
   const ringRotationRefs = useRef<number[]>([0]);
@@ -2692,12 +2831,13 @@ export default function Home() {
     return { x: 0, y: 0, vx: 180, vy: -220, ang: 0, rotSpeed: 0.3, initialized: false, size: s, renderW: s, renderH: s };
   })());
 
-  // Через 4.95с после монтирования — взрыв текста (буквы/слова разлетаются).
-  // Раньше это ждало window.onload + 11с, что на медленной сети рассинхронизировалось
-  // с загрузочным экраном (тот теперь гаснет на 4.55с от монтирования — слова
-  // показываются ровно по одному разу, без зацикливания, на удвоенном темпе
-  // SPEED_FACTOR=8); теперь оба используют одну и ту же точку отсчёта —
-  // момент монтирования компонента.
+  // Взрыв текста (буквы/слова разлетаются) — запускается, как только скролл
+  // ДОСТИГ секции мозаик (unit >= GALLERY_END_UNIT, см. поллинг ниже), а не
+  // по фиксированному таймеру от монтирования, как раньше: секция мозаик
+  // теперь "закрыта" сверху Problem solver'ом и галереей на время
+  // вступительной последовательности, и старый таймер срабатывал (и
+  // заканчивался) ещё ДО того, как пользователь успевал долистать —
+  // взрыв просто не был виден.
   useEffect(() => {
     const startExplosionTimer = () => {
       textFallTimerRef.current = setTimeout(() => {
@@ -2839,12 +2979,23 @@ export default function Home() {
           else overlay.innerHTML = "";
         };
         requestAnimationFrame(step);
-      }, 5450); // 5050 (реальный момент гашения экрана загрузки, с учётом паузы перед перечёркиванием) + те же 400мс запаса
+      }, 300); // раньше 5450мс — это было рассчитано под тайминг (теперь убранного) экрана загрузки; сейчас момент запуска уже определяется гейтингом по скроллу (см. ниже), так что нужна лишь короткая, естественная пауза
     }; // end startExplosionTimer
 
-    startExplosionTimer();
+    // Раньше startExplosionTimer() запускался сразу при монтировании — но
+    // теперь секция мозаик "закрыта" сверху Problem solver'ом и галереей
+    // (см. GALLERY_END_UNIT), и взрыв успевал случиться и закончиться, пока
+    // пользователь ещё не долистал до неё, оставаясь невидимым. Ждём, пока
+    // scrollRef не пересечёт GALLERY_END_UNIT — лёгкий поллинг (100мс), не
+    // требующий переписывать саму (сложную) физику взрыва ниже.
+    let gateTimer: ReturnType<typeof setInterval> | null = setInterval(() => {
+      if (scrollRef.current / SCROLL_PER_UNIT < GALLERY_END_UNIT) return;
+      if (gateTimer) { clearInterval(gateTimer); gateTimer = null; }
+      startExplosionTimer();
+    }, 100);
 
     return () => {
+      if (gateTimer) clearInterval(gateTimer);
       if (textFallTimerRef.current) clearTimeout(textFallTimerRef.current);
     };
   }, []);
@@ -2853,20 +3004,22 @@ export default function Home() {
     const unit = scrollY / SCROLL_PER_UNIT;
     setPinkOpacity(Math.max(0, 1 - Math.max(0, (unit - 0.8) / 0.4)));
     // "Problem solver" — самая первая секция теперь ОНА, а не галерея.
-    // Полностью видна на unit=0, гаснет к unit=0.075 (первая половина
-    // прежнего окна 0-0.15), открывая галерею под собой.
+    // Полностью видна на unit=0, гаснет к PROBLEM_SOLVER_END_UNIT, открывая
+    // галерею под собой.
     if (problemSolverRef.current) {
-      const problemOpacity = Math.max(0, 1 - unit / 0.075);
+      const problemOpacity = Math.max(0, 1 - unit / PROBLEM_SOLVER_END_UNIT);
       problemSolverRef.current.style.opacity = String(problemOpacity);
       problemSolverRef.current.style.pointerEvents = problemOpacity > 0.02 ? "auto" : "none";
     }
-    // Секция-презентация (галерея) — теперь ВТОРАЯ, гаснет во ВТОРОЙ половине
-    // того же окна (unit 0.075 → 0.15, а не 0 → 0.15), открывая секцию
-    // мозаик под ней. pointer-events выключаются вместе с прозрачностью —
-    // иначе невидимая, но всё ещё "живая" секция блокировала бы клики/
-    // курсор для того, что находится под ней.
+    // Секция-презентация (галерея) — гаснет во ВТОРОЙ части окна
+    // (PROBLEM_SOLVER_END_UNIT → GALLERY_END_UNIT) — окно специально шире,
+    // чем у Problem solver (0.3 против 0.075), чтобы саму галерею не
+    // пролистывать слишком быстро. pointer-events выключаются вместе с
+    // прозрачностью — иначе невидимая, но всё ещё "живая" секция
+    // блокировала бы клики/курсор для того, что находится под ней.
     if (introGalleryRef.current) {
-      const introOpacity = Math.max(0, Math.min(1, (0.15 - unit) / 0.075));
+      const galleryWindow = GALLERY_END_UNIT - PROBLEM_SOLVER_END_UNIT;
+      const introOpacity = Math.max(0, Math.min(1, (GALLERY_END_UNIT - unit) / galleryWindow));
       introGalleryRef.current.style.opacity = String(introOpacity);
       introGalleryRef.current.style.pointerEvents = introOpacity > 0.02 ? "auto" : "none";
     }
@@ -3047,6 +3200,16 @@ export default function Home() {
       <style>{`
         html,body{margin:0;padding:0;width:100vw;height:100vh;overflow:hidden;background:black;position:fixed;cursor:none!important;}
         *{font-family:'Arial Black',Arial,sans-serif!important;text-transform:uppercase!important;box-sizing:border-box;cursor:none!important;}
+        /* Секция "Problem solver" — нужен РЕАЛЬНО меняющийся шрифт, а не
+           всегда Arial Black. Правило выше — на *{...!important} — а
+           !important в стилевом файле перебивает даже инлайн-стили, так
+           что напрямую через style={{fontFamily:...}} это было не обойти.
+           .ps-font — более специфичный селектор (класс сильнее *), тоже с
+           !important — побеждает по специфичности, а сам шрифт передаётся
+           через CSS-переменную (её МОЖНО менять через инлайн-стиль без
+           !important, поскольку она не переопределяет font-family
+           напрямую — это делает уже правило ниже). */
+        .ps-font{font-family:var(--ps-font)!important;text-transform:none!important;}
         input,textarea,select{cursor:text!important;}
         button,[role="button"]{cursor:pointer!important;}
         @keyframes shakeY{0%{transform:translateY(0)}15%{transform:translateY(-8px)}30%{transform:translateY(8px)}45%{transform:translateY(-6px)}60%{transform:translateY(6px)}75%{transform:translateY(-3px)}90%{transform:translateY(3px)}100%{transform:translateY(0)}}
@@ -3061,6 +3224,7 @@ export default function Home() {
         .card-input{font-weight:900!important;letter-spacing:-0.02em}
         .card-btn{font-weight:900!important;letter-spacing:0.15em}
         @keyframes floatIn{from{opacity:0;}to{opacity:1;}}
+        @keyframes psCaretBlink{0%,49%{opacity:1;}50%,100%{opacity:0;}}
         @keyframes strikeThroughDraw{
           from{transform:translateY(-50%) scaleX(0);}
           to{transform:translateY(-50%) scaleX(1);}
@@ -3153,34 +3317,75 @@ export default function Home() {
         <div ref={problemSolverRef} style={{ position: "absolute", inset: 0, zIndex: 10000, background: problemStyle.bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", transition: "background-color 0.25s ease", padding: "0 4vw" }}>
           {overlayOpacity <= 0.01 && (
             <>
-              <div style={{
-                fontFamily: problemStyle.font,
-                fontStyle: problemStyle.italic ? "italic" : "normal",
-                fontWeight: 900,
-                fontSize: "clamp(48px, 11vw, 160px)",
-                color: "#000",
-                marginBottom: "clamp(20px,4vh,56px)",
-                transition: "font-style 0.15s ease",
-                userSelect: "none",
-              }}>
-                solve:
+              {/* Фиксированная высота контейнера (28vh) — раз font-size
+                  фиксирован (не подбирается под каждый шрифт), высота
+                  занимаемого места в раскладке стабильна сама по себе — а
+                  значит, стабильно и положение поля ввода под ним. ВАЖНО:
+                  overflow:visible, а не hidden — у декоративных курсивных
+                  шрифтов (скрипт/рукописный) росчерки и акценты нередко
+                  выходят за пределы обычной высоты буквы, и hidden их
+                  обрезал бы (это и было причиной обрезанного двоеточия) —
+                  visible ничего не обрезает, а стабильность высоты и так уже
+                  даёт фиксированная высота самого контейнера, а не overflow. */}
+              <div style={{ height: "28vh", display: "flex", alignItems: "center", justifyContent: "center", overflow: "visible", marginBottom: "clamp(20px,4vh,56px)" }}>
+                <div
+                  ref={problemHeadingRef}
+                  className="ps-font"
+                  style={{
+                    ["--ps-font" as any]: problemStyle.font,
+                    fontStyle: problemStyle.italic ? "italic" : "normal",
+                    fontWeight: 900,
+                    fontSize: "min(15vh, 170px)",
+                    lineHeight: 1,
+                    whiteSpace: "nowrap",
+                    display: "inline-block",
+                    transform: `scaleX(${problemScaleX})`,
+                    transformOrigin: "center center",
+                    color: problemStyle.text,
+                    transition: "font-style 0.15s ease, color 0.25s ease",
+                    userSelect: "none",
+                  }}
+                >
+                  solve:
+                </div>
               </div>
-              <input
-                ref={problemInputRef}
-                type="text"
-                style={{
-                  width: "100%",
-                  maxWidth: "1400px",
-                  fontSize: "clamp(20px, 3vw, 40px)",
-                  padding: "clamp(14px,2vw,28px) clamp(20px,3vw,36px)",
-                  border: "3px solid #000",
-                  borderRadius: "12px",
-                  outline: "none",
-                  background: "#fff",
-                  color: "#000",
-                  fontFamily: "Arial, sans-serif",
-                }}
-              />
+              <div style={{ position: "relative", width: `${problemStyle.inputWidthPct}%`, maxWidth: "1400px" }}>
+                <input
+                  ref={problemInputRef}
+                  type="text"
+                  value={problemInputValue}
+                  onChange={(e) => setProblemInputValue(e.target.value)}
+                  style={{
+                    width: "100%",
+                    fontSize: "clamp(20px, 3vw, 40px)",
+                    padding: "clamp(14px,2vw,28px) clamp(20px,3vw,36px)",
+                    border: `3px solid ${problemStyle.inputBorder}`,
+                    borderRadius: `${problemStyle.inputRadius}px`,
+                    outline: "none",
+                    background: problemStyle.inputBg,
+                    color: problemStyle.inputText,
+                    fontFamily: "Arial, sans-serif",
+                    transition: "background-color 0.25s ease, border-color 0.25s ease, border-radius 0.25s ease, color 0.25s ease",
+                  }}
+                />
+                {/* Мигающая черта-курсор — своя, декоративная, видна только
+                    пока поле пусто (как только напечатан хоть символ, дальше
+                    работает обычный нативный курсор внутри самого текста).
+                    Цвет — часть общего "хаоса" (см. problemStyle.caretColor). */}
+                {problemInputValue === "" && (
+                  <span style={{
+                    position: "absolute",
+                    left: "clamp(20px,3vw,36px)",
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    width: "3px",
+                    height: "clamp(20px, 3vw, 40px)",
+                    background: problemStyle.caretColor,
+                    animation: "psCaretBlink 1s steps(1) infinite",
+                    pointerEvents: "none",
+                  }} />
+                )}
+              </div>
             </>
           )}
         </div>
