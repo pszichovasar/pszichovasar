@@ -224,21 +224,34 @@ const GALLERY_CELL_COUNT = 6;
 // Картинка держится 8с, плавный (ease-in-out) переход к следующей — 4с.
 const GALLERY_HOLD_MS = 8000;
 const GALLERY_TRANSITION_MS = 4000;
-// Пороги в единицах unit (scrollY/SCROLL_PER_UNIT) для вступительной
-// последовательности: НОВАЯ секция "alex" (см. ниже) гаснет первой
-// (0 → ALEX_END_UNIT), затем Problem solver (ALEX_END_UNIT →
-// PROBLEM_SOLVER_END_UNIT), затем галерея (PROBLEM_SOLVER_END_UNIT →
-// GALLERY_END_UNIT) — расширено ещё раз, с 0.3 до 0.6 (само окно галереи),
-// чтобы её не пролистывать слишком быстро.
+// Единая ширина (в единицах unit = scrollY/SCROLL_PER_UNIT) — ОДИНАКОВАЯ для
+// каждой из шести смысловых частей вступительной последовательности: alex,
+// solve, галерея, сами мозаики (раскрытие+интерактив), переход "5 рядов",
+// финальный блок (видео + MY NAME IS ARTEM). Раньше ширины были очень
+// разными (от 0.075 до 0.6) и в среднем куда меньше — теперь единообразно и
+// заметно просторнее, каждую секцию не пролистать за секунду.
+const SECTION_WIDTH_UNIT = 1;
+const ALEX_END_UNIT = SECTION_WIDTH_UNIT;
+const PROBLEM_SOLVER_END_UNIT = SECTION_WIDTH_UNIT * 2;
+const GALLERY_END_UNIT = SECTION_WIDTH_UNIT * 3;
 // GALLERY_FADE_START_UNIT — где НАЧИНАЕТСЯ сам уход в прозрачность: до этой
 // точки opacity держится ровно 1 (никакого просвечивания секции мозаик
 // сквозь галерею), и гаснет только в последних 10% окна — раньше прозрачность
 // убывала линейно на всём окне, и мозаики частично просвечивали сквозь
 // галерею большую часть скролла (обычный побочный эффект долгого кросс-фейда).
-const ALEX_END_UNIT = 0.075;
-const PROBLEM_SOLVER_END_UNIT = ALEX_END_UNIT + 0.075;
-const GALLERY_END_UNIT = 0.675 + ALEX_END_UNIT;
 const GALLERY_FADE_START_UNIT = GALLERY_END_UNIT - (GALLERY_END_UNIT - PROBLEM_SOLVER_END_UNIT) * 0.1;
+// MOSAIC_OFFSET_UNIT — здесь у секции мозаик наступает СОБСТВЕННЫЙ unit=0 (а
+// не с самого начала страницы) — вся её внутренняя анимация (кубики, текст,
+// кольца, переход "5 рядов", финальный блок) построена на unit АБСОЛЮТНО, и
+// вся сдвигается на эту величину разом (см. mUnit в applyAnimations) —
+// иначе к моменту, когда мозаики наконец открывают, они уже были бы
+// "доиграны". Ставим сразу после конца галереи (GALLERY_END_UNIT) — раскрытие
+// мозаик (mUnit=0), сам интерактив, переход "5 рядов" (mUnit 1→2) и
+// финальный блок (расширен до mUnit 2→3, тоже SECTION_WIDTH_UNIT) — три
+// смысловые части внутри секции мозаик, КАЖДАЯ шириной SECTION_WIDTH_UNIT,
+// друг за другом, без масштабирования (поскольку SECTION_WIDTH_UNIT=1 —
+// внутренние формулы мозаик остаются как были, просто сдвинуты).
+const MOSAIC_OFFSET_UNIT = GALLERY_END_UNIT;
 
 // "Problem solver" — набор шрифтов и цветов фона, между которыми хаотично
 // (по движению курсора) переключается новая секция-заглушка. Специально
@@ -1894,7 +1907,11 @@ export default function Home() {
   ], []);
   const REVERSED = [false, true, false, true, false];
   const SCROLL_PER_UNIT = 800;
-  const TOTAL_SCROLL = 3 * SCROLL_PER_UNIT;
+  // Было 3 — расширено под новую, единую ширину секций (SECTION_WIDTH_UNIT=1
+  // на каждую из шести смысловых частей: alex, solve, галерея, мозаики,
+  // переход "5 рядов", финальный блок) — MOSAIC_OFFSET_UNIT (=3, конец
+  // галереи) + 3 (мозаики+переход+финал) + небольшой запас сверху.
+  const TOTAL_SCROLL = (MOSAIC_OFFSET_UNIT + 3 + 0.3) * SCROLL_PER_UNIT;
 
   const iDoDesignTextRef = useRef<HTMLDivElement>(null);
   const bioTextRef = useRef<HTMLDivElement>(null);
@@ -3102,13 +3119,14 @@ export default function Home() {
     }; // end startExplosionTimer
 
     // Раньше startExplosionTimer() запускался сразу при монтировании — но
-    // теперь секция мозаик "закрыта" сверху Problem solver'ом и галереей
-    // (см. GALLERY_END_UNIT), и взрыв успевал случиться и закончиться, пока
-    // пользователь ещё не долистал до неё, оставаясь невидимым. Ждём, пока
-    // scrollRef не пересечёт GALLERY_END_UNIT — лёгкий поллинг (100мс), не
-    // требующий переписывать саму (сложную) физику взрыва ниже.
+    // теперь секция мозаик "закрыта" сверху Problem solver'ом, alex и
+    // галереей (см. MOSAIC_OFFSET_UNIT), и взрыв успевал случиться и
+    // закончиться, пока пользователь ещё не долистал до неё, оставаясь
+    // невидимым. Ждём, пока scrollRef не пересечёт MOSAIC_OFFSET_UNIT —
+    // лёгкий поллинг (100мс), не требующий переписывать саму (сложную)
+    // физику взрыва ниже.
     let gateTimer: ReturnType<typeof setInterval> | null = setInterval(() => {
-      if (scrollRef.current / SCROLL_PER_UNIT < GALLERY_END_UNIT) return;
+      if (scrollRef.current / SCROLL_PER_UNIT < MOSAIC_OFFSET_UNIT) return;
       if (gateTimer) { clearInterval(gateTimer); gateTimer = null; }
       startExplosionTimer();
     }, 100);
@@ -3121,7 +3139,13 @@ export default function Home() {
 
   const applyAnimations = (scrollY: number, deltaY = 0) => {
     const unit = scrollY / SCROLL_PER_UNIT;
-    setPinkOpacity(Math.max(0, 1 - Math.max(0, (unit - 0.8) / 0.4)));
+    // mUnit — СОБСТВЕННЫЙ отсчёт секции мозаик (и всего, что после неё:
+    // переход "5 рядов", видео, "MY NAME IS ARTEM") — эти формулы изначально
+    // были рассчитаны от unit=0 (запуск страницы), и делят одну систему
+    // координат; сдвигаем их ВСЕ разом на MOSAIC_OFFSET_UNIT, сохраняя
+    // расстояния между ними такими же, как были.
+    const mUnit = unit - MOSAIC_OFFSET_UNIT;
+    setPinkOpacity(Math.max(0, 1 - Math.max(0, (mUnit - 0.8) / 0.4)));
     // "alex" — теперь самая первая секция. Полностью видна на unit=0, гаснет
     // к ALEX_END_UNIT, открывая Problem solver под собой.
     if (alexSectionRef.current) {
@@ -3155,24 +3179,24 @@ export default function Home() {
     }
     // Слова исчезают вместе с кубиками
     // Удаляем все слова-взрыва из DOM при любом скролле
-    if (unit > 0.5 && wordPhysRef.current.length > 0) {
+    if (mUnit > 0.5 && wordPhysRef.current.length > 0) {
       wordPhysRef.current.forEach(wp => { try { wp.el.remove(); } catch (e) { } });
       wordPhysRef.current = [];
       document.querySelectorAll('[data-explosion]').forEach(el => { try { el.remove(); } catch (e) { } });
     } else {
-      const wordOp = Math.max(0, 1 - Math.max(0, (unit - 0.3) / 0.3));
+      const wordOp = Math.max(0, 1 - Math.max(0, (mUnit - 0.3) / 0.3));
       wordPhysRef.current.forEach(wp => { wp.el.style.opacity = String(wordOp); });
     }
     if (iDoDesignRef.current) {
-      iDoDesignRef.current.style.transform = `translateY(${unit <= 0 ? 0 : unit <= 0.35 ? -(unit / 0.35) * 110 : -110
+      iDoDesignRef.current.style.transform = `translateY(${mUnit <= 0 ? 0 : mUnit <= 0.35 ? -(mUnit / 0.35) * 110 : -110
         }vh)`;
-      iDoDesignRef.current.style.opacity = unit > 0.5 ? "0" : "1";
+      iDoDesignRef.current.style.opacity = mUnit > 0.5 ? "0" : "1";
     }
-    if (deltaY > 0 && unit < 0.9) {
+    if (deltaY > 0 && mUnit >= 0 && mUnit < 0.9) {
       physState.current.forEach(s => { if (!s.initialized) return; s.vy -= Math.min(deltaY * 18, 900); s.rotSpeed += (Math.random() - 0.5) * 4; });
       wordPhysRef.current.forEach(wp => { wp.vy -= Math.min(deltaY * 18, 900); wp.rotSpeed += (Math.random() - 0.5) * 4; });
       sugPhys.current.vy -= Math.min(deltaY * 14, 700); sugPhys.current.rotSpeed += (Math.random() - 0.5) * 0.4;
-    } else if (deltaY < 0 && unit < 0.9) {
+    } else if (deltaY < 0 && mUnit >= 0 && mUnit < 0.9) {
       physState.current.forEach(s => { if (!s.initialized) return; s.vy += Math.min(Math.abs(deltaY) * 18, 900); s.rotSpeed += (Math.random() - 0.5) * 4; });
       wordPhysRef.current.forEach(wp => { wp.vy += Math.min(Math.abs(deltaY) * 18, 900); wp.rotSpeed += (Math.random() - 0.5) * 4; });
       sugPhys.current.vy += Math.min(Math.abs(deltaY) * 14, 700); sugPhys.current.rotSpeed += (Math.random() - 0.5) * 0.4;
@@ -3182,12 +3206,15 @@ export default function Home() {
       if (!track) return;
       const rev = REVERSED[i], oR = vw, oL = -rw;
       const sX = rev ? oL : oR, eX = rev ? oR : oL;
-      if (unit < 1) { track.style.opacity = "0"; track.style.transform = `translate3d(${sX}px,0,0)`; }
-      else if (unit <= 2) { const x = sX + (eX - sX) * (unit - 1); track.style.opacity = "1"; track.style.transform = `translate3d(${x}px,0,0)`; }
+      if (mUnit < 1) { track.style.opacity = "0"; track.style.transform = `translate3d(${sX}px,0,0)`; }
+      else if (mUnit <= 2) { const x = sX + (eX - sX) * (mUnit - 1); track.style.opacity = "1"; track.style.transform = `translate3d(${x}px,0,0)`; }
       else { track.style.opacity = "0"; track.style.transform = `translate3d(${eX}px,0,0)`; }
     });
 
-    const tPhase = Math.max(0, Math.min((unit - 2.2) / 0.5, 1));
+    // Финальный блок (видео + "MY NAME IS ARTEM") — расширен с mUnit 2.2→2.7
+    // (ширина 0.5) до mUnit 2→3 (полный SECTION_WIDTH_UNIT=1), чтобы и он
+    // соответствовал единой ширине остальных пяти секций.
+    const tPhase = Math.max(0, Math.min(mUnit - 2, 1));
     setVideoOpacity(tPhase);
     videoOpacityRef.current = tPhase;
     if (videoRef.current) videoRef.current.style.opacity = tPhase.toString();
