@@ -213,7 +213,7 @@ const CIRCLE_SIDES_APPROX = 64;
 
 // Тестовый контент для новой секции-презентации (галерея с бесконечными
 // лентами) — art1.png..art10.png из public/.
-const ART_IMAGES = Array.from({ length: 27 }, (_, i) => `/art${i + 1}.png`);
+const ART_IMAGES = Array.from({ length: 36 }, (_, i) => `/art${i + 1}.png`);
 // То, что реально рисуется в ленте — те же картинки + дубликат первой в
 // конце, для бесшовной петли (см. buildStripKeyframeCSS).
 const ART_IMAGES_LOOP = [...ART_IMAGES, ART_IMAGES[0]];
@@ -225,16 +225,19 @@ const GALLERY_CELL_COUNT = 6;
 const GALLERY_HOLD_MS = 8000;
 const GALLERY_TRANSITION_MS = 4000;
 // Пороги в единицах unit (scrollY/SCROLL_PER_UNIT) для вступительной
-// последовательности: Problem solver гаснет первым (0 → PROBLEM_SOLVER_END),
-// затем галерея (PROBLEM_SOLVER_END → GALLERY_END) — расширено ещё раз, с
-// 0.3 до 0.6 (само окно), чтобы галерею не пролистывать слишком быстро.
+// последовательности: НОВАЯ секция "alex" (см. ниже) гаснет первой
+// (0 → ALEX_END_UNIT), затем Problem solver (ALEX_END_UNIT →
+// PROBLEM_SOLVER_END_UNIT), затем галерея (PROBLEM_SOLVER_END_UNIT →
+// GALLERY_END_UNIT) — расширено ещё раз, с 0.3 до 0.6 (само окно галереи),
+// чтобы её не пролистывать слишком быстро.
 // GALLERY_FADE_START_UNIT — где НАЧИНАЕТСЯ сам уход в прозрачность: до этой
 // точки opacity держится ровно 1 (никакого просвечивания секции мозаик
 // сквозь галерею), и гаснет только в последних 10% окна — раньше прозрачность
 // убывала линейно на всём окне, и мозаики частично просвечивали сквозь
 // галерею большую часть скролла (обычный побочный эффект долгого кросс-фейда).
-const PROBLEM_SOLVER_END_UNIT = 0.075;
-const GALLERY_END_UNIT = 0.675;
+const ALEX_END_UNIT = 0.075;
+const PROBLEM_SOLVER_END_UNIT = ALEX_END_UNIT + 0.075;
+const GALLERY_END_UNIT = 0.675 + ALEX_END_UNIT;
 const GALLERY_FADE_START_UNIT = GALLERY_END_UNIT - (GALLERY_END_UNIT - PROBLEM_SOLVER_END_UNIT) * 0.1;
 
 // "Problem solver" — набор шрифтов и цветов фона, между которыми хаотично
@@ -312,6 +315,11 @@ const PS_THEMES: { bg: string; text: string; inputBg: string; inputText: string;
   { bg: "#ffb800", text: "#000000", inputBg: "#000000", inputText: "#ffb800", inputBorder: "#ffb800", caret: "#ffffff" },
   { bg: "#1a1a2e", text: "#ffffff", inputBg: "#ffffff", inputText: "#1a1a2e", inputBorder: "#ffffff", caret: "#f7d716" },
 ];
+
+// Новая секция "alex" (над Problem solver) — большой прямоугольник со
+// сглаженными углами, показывает одну из 7 картинок за раз, в случайном
+// порядке (гарантированно другую, чем текущая — см. randomizeAlexImage).
+const ALEX_IMAGES = Array.from({ length: 7 }, (_, i) => `/alex${i + 1}.png`);
 
 // Форма поля ввода — не только базовые скругления, но и асимметричные
 // (по разным углам) — визуально куда интереснее, чем просто "больше/меньше
@@ -1442,6 +1450,17 @@ export default function Home() {
   const problemSolverRef = useRef<HTMLDivElement>(null);
   const problemInputRef = useRef<HTMLInputElement>(null);
   const problemHeadingRef = useRef<HTMLDivElement>(null);
+  // Новая секция "alex" — над Problem solver. Текущая картинка + зеркало в
+  // реф (нужно обработчикам гироскопа/тряски ниже — они настроены один раз
+  // при монтировании и иначе видели бы устаревшее значение из замыкания).
+  const [alexImage, setAlexImage] = useState(ALEX_IMAGES[0]);
+  const alexImageRef = useRef(ALEX_IMAGES[0]);
+  useEffect(() => { alexImageRef.current = alexImage; }, [alexImage]);
+  const alexSectionRef = useRef<HTMLDivElement>(null);
+  const randomizeAlexImage = useCallback(() => {
+    const pool = ALEX_IMAGES.filter(img => img !== alexImageRef.current);
+    setAlexImage(pool[Math.floor(Math.random() * pool.length)]);
+  }, []);
   // Скрытый "образец" — та же строка/шрифт/начертание, что и видимый
   // заголовок, но НИКОГДА не масштабируется — нужен ResizeObserver'у ниже,
   // чтобы поймать момент, когда шрифт РЕАЛЬНО подгрузится и натуральная
@@ -1601,19 +1620,11 @@ export default function Home() {
   // только курсор проехал MOVE_THRESHOLD_PX, меняем стиль и сбрасываем
   // точку отсчёта. Текущий шрифт/цвет исключаются из случайного выбора —
   // гарантированно новый на каждое срабатывание (не может выпасть тот же).
+  // На мобильных mousemove вообще не срабатывает (нет курсора) — эффект был
+  // бы просто неактивен; вместо этого на мобильных меняем стиль постоянно
+  // по таймеру ("мелькает" само по себе, без курсора).
   useEffect(() => {
-    const MOVE_THRESHOLD_PX = 100;
-    let lastX: number | null = null, lastY: number | null = null;
-    const onMove = (e: MouseEvent) => {
-      const target = e.target as Node | null;
-      if (target && problemInputRef.current && problemInputRef.current.contains(target)) {
-        lastX = null; lastY = null; // курсор над полем ввода — сбрасываем накопленную дистанцию, не меняем
-        return;
-      }
-      if (lastX === null || lastY === null) { lastX = e.clientX; lastY = e.clientY; return; } // первая точка отсчёта после входа в зону
-      const dx = e.clientX - lastX, dy = e.clientY - lastY;
-      if (Math.sqrt(dx * dx + dy * dy) < MOVE_THRESHOLD_PX) return;
-      lastX = e.clientX; lastY = e.clientY;
+    const randomizeProblemStyle = () => {
       setProblemStyle(prev => {
         const fontPool = PROBLEM_SOLVER_FONTS.filter(f => f !== prev.font);
         const themePool = PS_THEMES.filter(t => t.bg !== prev.bg);
@@ -1631,9 +1642,49 @@ export default function Home() {
         };
       });
     };
+
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    if (isMobile) {
+      const timer = setInterval(randomizeProblemStyle, 1200);
+      return () => clearInterval(timer);
+    }
+
+    const MOVE_THRESHOLD_PX = 100;
+    let lastX: number | null = null, lastY: number | null = null;
+    const onMove = (e: MouseEvent) => {
+      const target = e.target as Node | null;
+      if (target && problemInputRef.current && problemInputRef.current.contains(target)) {
+        lastX = null; lastY = null; // курсор над полем ввода — сбрасываем накопленную дистанцию, не меняем
+        return;
+      }
+      if (lastX === null || lastY === null) { lastX = e.clientX; lastY = e.clientY; return; } // первая точка отсчёта после входа в зону
+      const dx = e.clientX - lastX, dy = e.clientY - lastY;
+      if (Math.sqrt(dx * dx + dy * dy) < MOVE_THRESHOLD_PX) return;
+      lastX = e.clientX; lastY = e.clientY;
+      randomizeProblemStyle();
+    };
     window.addEventListener("mousemove", onMove);
     return () => window.removeEventListener("mousemove", onMove);
   }, []);
+  // "alex" — тот же самый паттерн, что и у "Problem solver" выше (накопленная
+  // дистанция курсора, 100px), но только на десктопе — на мобильных вместо
+  // этого используются гироскоп/тряска (см. существующий эффект deviceorientation/
+  // devicemotion ниже, куда добавлена дополнительная логика).
+  useEffect(() => {
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    if (isMobile) return;
+    const MOVE_THRESHOLD_PX = 100;
+    let lastX: number | null = null, lastY: number | null = null;
+    const onMove = (e: MouseEvent) => {
+      if (lastX === null || lastY === null) { lastX = e.clientX; lastY = e.clientY; return; }
+      const dx = e.clientX - lastX, dy = e.clientY - lastY;
+      if (Math.sqrt(dx * dx + dy * dy) < MOVE_THRESHOLD_PX) return;
+      lastX = e.clientX; lastY = e.clientY;
+      randomizeAlexImage();
+    };
+    window.addEventListener("mousemove", onMove);
+    return () => window.removeEventListener("mousemove", onMove);
+  }, [randomizeAlexImage]);
   // Подключаем Google Fonts для "Problem solver" (см. PROBLEM_SOLVER_FONTS) —
   // добавляем <link> в document.head программно: файл — "use client"-компонент
   // без доступа к layout.tsx, куда по канону Next.js полагалось бы это класть.
@@ -1782,9 +1833,21 @@ export default function Home() {
   useEffect(() => {
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
     if (!isMobile) return;
+    // "alex" на мобильных — не курсор (его нет), а наклон и тряска телефона.
+    // Наклон — накопленное изменение угла (в градусах gamma/beta) с момента
+    // последнего срабатывания, тот же принцип, что и "накопленная дистанция
+    // курсора" на десктопе, просто в других единицах.
+    let lastTiltG = 0, lastTiltB = 0, tiltInitialized = false;
+    const TILT_THRESHOLD_DEG = 18;
     const onOri = (e: DeviceOrientationEvent) => {
       const g = e.gamma ?? 0, b = Math.max(-90, Math.min(90, e.beta ?? 0));
       gyroRef.current.gx = g * 14; gyroRef.current.gy = b * 14;
+      if (!tiltInitialized) { lastTiltG = g; lastTiltB = b; tiltInitialized = true; return; }
+      const dG = g - lastTiltG, dB = b - lastTiltB;
+      if (Math.sqrt(dG * dG + dB * dB) >= TILT_THRESHOLD_DEG) {
+        lastTiltG = g; lastTiltB = b;
+        randomizeAlexImage();
+      }
     };
     const onMot = (e: DeviceMotionEvent) => {
       const raw = e.acceleration ?? e.accelerationIncludingGravity;
@@ -1796,6 +1859,7 @@ export default function Home() {
       if (delta > 20 && now - sh.lastShakeTime > 700) {
         sh.lastShakeTime = now;
         explodeFromPoint(window.innerWidth / 2, window.innerHeight / 2, 9999, 60000);
+        randomizeAlexImage(); // тряска — тоже триггер смены картинки в "alex"
       }
     };
     const add = () => {
@@ -1814,7 +1878,7 @@ export default function Home() {
       window.removeEventListener("deviceorientation", onOri, true);
       window.removeEventListener("devicemotion", onMot, true);
     };
-  }, []);
+  }, [randomizeAlexImage]);
 
   const ALL_IMAGES = [
     "/1.jpg", "/2.jpg", "/3.jpg", "/4.jpg", "/5.jpg", "/6.jpg", "/7.jpg",
@@ -3056,11 +3120,18 @@ export default function Home() {
   const applyAnimations = (scrollY: number, deltaY = 0) => {
     const unit = scrollY / SCROLL_PER_UNIT;
     setPinkOpacity(Math.max(0, 1 - Math.max(0, (unit - 0.8) / 0.4)));
-    // "Problem solver" — самая первая секция теперь ОНА, а не галерея.
-    // Полностью видна на unit=0, гаснет к PROBLEM_SOLVER_END_UNIT, открывая
+    // "alex" — теперь самая первая секция. Полностью видна на unit=0, гаснет
+    // к ALEX_END_UNIT, открывая Problem solver под собой.
+    if (alexSectionRef.current) {
+      const alexOpacity = Math.max(0, 1 - unit / ALEX_END_UNIT);
+      alexSectionRef.current.style.opacity = String(alexOpacity);
+      alexSectionRef.current.style.pointerEvents = alexOpacity > 0.02 ? "auto" : "none";
+    }
+    // "Problem solver" — теперь ВТОРАЯ секция (после "alex"). Полностью
+    // видна с ALEX_END_UNIT, гаснет к PROBLEM_SOLVER_END_UNIT, открывая
     // галерею под собой.
     if (problemSolverRef.current) {
-      const problemOpacity = Math.max(0, 1 - unit / PROBLEM_SOLVER_END_UNIT);
+      const problemOpacity = Math.max(0, 1 - Math.max(0, unit - ALEX_END_UNIT) / (PROBLEM_SOLVER_END_UNIT - ALEX_END_UNIT));
       problemSolverRef.current.style.opacity = String(problemOpacity);
       problemSolverRef.current.style.pointerEvents = problemOpacity > 0.02 ? "auto" : "none";
     }
@@ -3364,6 +3435,26 @@ export default function Home() {
       )}
 
       <main ref={mainRef} style={{ position: "fixed", width: "100vw", height: "100vh", top: 0, left: 0, overflow: "hidden", touchAction: "none" }}>
+
+        {/* ALEX — новая, самая первая секция (над "solve:", см.
+            applyAnimations — гаснет первой, unit 0→ALEX_END_UNIT, открывая
+            "solve:" под собой). Большой прямоугольник со сильно
+            сглаженными углами — одна из 7 картинок за раз, в случайном
+            порядке (гарантированно другая, чем текущая — см.
+            randomizeAlexImage). На десктопе меняется движением курсора
+            (100px, тот же паттерн, что и у "solve:"); на мобильных —
+            наклоном/тряской телефона (переиспользует уже существующий
+            гироскоп/акселерометр эффект, см. deviceorientation/devicemotion
+            выше). Гейтинг по overlayOpacity — та же схема, что и у
+            остальных вступительных секций: не существует в DOM, пока не
+            погас экран загрузки. */}
+        <div ref={alexSectionRef} style={{ position: "absolute", inset: 0, zIndex: 11000, background: "#000", display: "flex", alignItems: "center", justifyContent: "center", padding: "clamp(16px,4vw,48px)" }}>
+          {overlayOpacity <= 0.01 && (
+            <div style={{ width: "100%", height: "100%", maxWidth: "1600px", borderRadius: "clamp(24px,5vw,64px)", overflow: "hidden", position: "relative", background: "#111" }}>
+              <img src={alexImage} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+            </div>
+          )}
+        </div>
 
         {/* PROBLEM SOLVER — новая, самая первая секция (над галереей, см.
             applyAnimations — гаснет первой, unit 0→0.075, открывая галерею
