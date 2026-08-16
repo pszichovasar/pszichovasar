@@ -1667,13 +1667,15 @@ export default function Home() {
     return () => window.removeEventListener("mousemove", onMove);
   }, []);
   // "alex" — тот же самый паттерн, что и у "Problem solver" выше (накопленная
-  // дистанция курсора, 100px), но только на десктопе — на мобильных вместо
-  // этого используются гироскоп/тряска (см. существующий эффект deviceorientation/
-  // devicemotion ниже, куда добавлена дополнительная логика).
+  // дистанция курсора, 30px, срабатывает в любом месте секции — картинок в
+  // ней нет полей ввода, которые нужно было бы исключать, как у "solve:"),
+  // но только на десктопе — на мобильных вместо этого используются
+  // гироскоп/тряска (см. существующий эффект deviceorientation/devicemotion
+  // ниже, куда добавлена дополнительная логика).
   useEffect(() => {
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
     if (isMobile) return;
-    const MOVE_THRESHOLD_PX = 100;
+    const MOVE_THRESHOLD_PX = 30;
     let lastX: number | null = null, lastY: number | null = null;
     const onMove = (e: MouseEvent) => {
       if (lastX === null || lastY === null) { lastX = e.clientX; lastY = e.clientY; return; }
