@@ -236,6 +236,21 @@ const GALLERY_TRANSITION_MS = 4000;
 const PROBLEM_SOLVER_END_UNIT = 0.075;
 const GALLERY_END_UNIT = 0.675;
 const GALLERY_FADE_START_UNIT = GALLERY_END_UNIT - (GALLERY_END_UNIT - PROBLEM_SOLVER_END_UNIT) * 0.1;
+// Временно отключено — секция полностью остаётся в коде (легко вернуть,
+// просто поставив обратно true), но не рендерится вовсе. См. использование
+// в JSX ниже.
+const PROBLEM_SOLVER_ENABLED = false;
+// Новый цветной переход (копия "5 РЯДОВ") между галереей и секцией мозаик —
+// занимает ровно 1 unit (та же ширина окна, что и у уже существующего
+// перехода между мозаиками и "MY NAME IS ARTEM"), сразу после конца галереи.
+// MOSAIC_UNIT_OFFSET — здесь мозаики "начинают" СВОЙ собственный отсчёт
+// unit=0 (а не с самого начала страницы, как было раньше) — у секции мозаик
+// вся внутренняя анимация (кубики, текст, кольца) завязана на unit
+// АБСОЛЮТНО, поэтому переносить её появление позже в скролле нужно именно
+// сдвигом ВСЕХ её внутренних порогов на одну и ту же величину — иначе к
+// моменту, когда её наконец открывают, она уже была бы "доиграна" (проиграла
+// бы свою анимацию появления, пока была скрыта под этим новым переходом).
+const MOSAIC_UNIT_OFFSET = GALLERY_END_UNIT + 1;
 
 // "Problem solver" — набор шрифтов и цветов фона, между которыми хаотично
 // (по движению курсора) переключается новая секция-заглушка. Специально
@@ -1360,6 +1375,9 @@ export default function Home() {
   const textRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const trackRefs = useRef<(HTMLDivElement | null)[]>([null, null, null, null, null]);
+  // Второй набор рядов — для нового перехода между галереей и мозаиками
+  // (копия механики "5 РЯДОВ", см. ROWS2/MOSAIC_UNIT_OFFSET).
+  const trackRefs2 = useRef<(HTMLDivElement | null)[]>([null, null, null, null, null]);
   // Новая секция-презентация с галереей — отдельный "первый экран" поверх
   // существующей секции мозаик (та уже занимает scroll position 0), плавно
   // исчезает по мере первого скролла (см. applyAnimations), открывая её.
@@ -1826,9 +1844,20 @@ export default function Home() {
     shuffleWithSeed(ALL_IMAGES, 3003), shuffleWithSeed(ALL_IMAGES, 4004),
     shuffleWithSeed(ALL_IMAGES, 5005),
   ], []);
+  // Второй набор — для НОВОГО перехода (между галереей и мозаиками), те же
+  // самые картинки (ALL_IMAGES), но другие сиды перемешивания — чтобы не
+  // выглядело идентичной копией существующего перехода.
+  const ROWS2 = useMemo(() => [
+    shuffleWithSeed(ALL_IMAGES, 6006), shuffleWithSeed(ALL_IMAGES, 7007),
+    shuffleWithSeed(ALL_IMAGES, 8008), shuffleWithSeed(ALL_IMAGES, 9009),
+    shuffleWithSeed(ALL_IMAGES, 1010),
+  ], []);
   const REVERSED = [false, true, false, true, false];
   const SCROLL_PER_UNIT = 800;
-  const TOTAL_SCROLL = 3 * SCROLL_PER_UNIT;
+  // Было 3 — расширено под новый, более длинный таймлайн (вставлен ещё один
+  // цветной переход шириной в 1 unit между галереей и мозаиками, см.
+  // MOSAIC_UNIT_OFFSET) — с запасом сверху.
+  const TOTAL_SCROLL = (MOSAIC_UNIT_OFFSET + 2.7 + 0.3) * SCROLL_PER_UNIT;
 
   const iDoDesignTextRef = useRef<HTMLDivElement>(null);
   const bioTextRef = useRef<HTMLDivElement>(null);
@@ -3036,13 +3065,15 @@ export default function Home() {
     }; // end startExplosionTimer
 
     // Раньше startExplosionTimer() запускался сразу при монтировании — но
-    // теперь секция мозаик "закрыта" сверху Problem solver'ом и галереей
-    // (см. GALLERY_END_UNIT), и взрыв успевал случиться и закончиться, пока
-    // пользователь ещё не долистал до неё, оставаясь невидимым. Ждём, пока
-    // scrollRef не пересечёт GALLERY_END_UNIT — лёгкий поллинг (100мс), не
+    // теперь секция мозаик "закрыта" сверху Problem solver'ом, галереей и
+    // новым цветным переходом (см. MOSAIC_UNIT_OFFSET), и взрыв успевал
+    // случиться и закончиться, пока пользователь ещё не долистал до неё,
+    // оставаясь невидимым. Ждём, пока scrollRef не пересечёт
+    // MOSAIC_UNIT_OFFSET (а не GALLERY_END_UNIT — тот теперь лишь начало
+    // нового перехода, не самой секции мозаик) — лёгкий поллинг (100мс), не
     // требующий переписывать саму (сложную) физику взрыва ниже.
     let gateTimer: ReturnType<typeof setInterval> | null = setInterval(() => {
-      if (scrollRef.current / SCROLL_PER_UNIT < GALLERY_END_UNIT) return;
+      if (scrollRef.current / SCROLL_PER_UNIT < MOSAIC_UNIT_OFFSET) return;
       if (gateTimer) { clearInterval(gateTimer); gateTimer = null; }
       startExplosionTimer();
     }, 100);
@@ -3055,10 +3086,15 @@ export default function Home() {
 
   const applyAnimations = (scrollY: number, deltaY = 0) => {
     const unit = scrollY / SCROLL_PER_UNIT;
-    setPinkOpacity(Math.max(0, 1 - Math.max(0, (unit - 0.8) / 0.4)));
-    // "Problem solver" — самая первая секция теперь ОНА, а не галерея.
-    // Полностью видна на unit=0, гаснет к PROBLEM_SOLVER_END_UNIT, открывая
-    // галерею под собой.
+    // mUnit — СОБСТВЕННЫЙ отсчёт секции мозаик (и всего, что после неё:
+    // существующий переход "5 РЯДОВ", видео, "MY NAME IS ARTEM") — эти
+    // формулы изначально были рассчитаны от unit=0 (запуск страницы), и все
+    // вместе делят одну систему координат; сдвигаем их ВСЕ разом на
+    // MOSAIC_UNIT_OFFSET, сохраняя расстояния между ними такими же, как были.
+    const mUnit = unit - MOSAIC_UNIT_OFFSET;
+    setPinkOpacity(Math.max(0, 1 - Math.max(0, (mUnit - 0.8) / 0.4)));
+    // "Problem solver" — временно отключено (см. PROBLEM_SOLVER_ENABLED), но
+    // формула оставлена нетронутой на случай возврата.
     if (problemSolverRef.current) {
       const problemOpacity = Math.max(0, 1 - unit / PROBLEM_SOLVER_END_UNIT);
       problemSolverRef.current.style.opacity = String(problemOpacity);
@@ -3080,26 +3116,42 @@ export default function Home() {
       introGalleryRef.current.style.opacity = String(introOpacity);
       introGalleryRef.current.style.pointerEvents = introOpacity > 0.02 ? "auto" : "none";
     }
+    // НОВЫЙ цветной переход (копия "5 РЯДОВ") — между галереей и мозаиками,
+    // занимает ровно 1 unit (GALLERY_END_UNIT → MOSAIC_UNIT_OFFSET). Своя,
+    // отдельная от mUnit система координат — просто окно от 0 до 1 внутри
+    // самого этого перехода.
+    {
+      const vw2 = window.innerWidth, rw2 = getRowWidth();
+      const nUnit = unit - GALLERY_END_UNIT; // 0 → 1 внутри окна нового перехода
+      trackRefs2.current.forEach((track, i) => {
+        if (!track) return;
+        const rev = REVERSED[i], oR = vw2, oL = -rw2;
+        const sX = rev ? oL : oR, eX = rev ? oR : oL;
+        if (nUnit < 0) { track.style.opacity = "0"; track.style.transform = `translate3d(${sX}px,0,0)`; }
+        else if (nUnit <= 1) { const x = sX + (eX - sX) * nUnit; track.style.opacity = "1"; track.style.transform = `translate3d(${x}px,0,0)`; }
+        else { track.style.opacity = "0"; track.style.transform = `translate3d(${eX}px,0,0)`; }
+      });
+    }
     // Слова исчезают вместе с кубиками
     // Удаляем все слова-взрыва из DOM при любом скролле
-    if (unit > 0.5 && wordPhysRef.current.length > 0) {
+    if (mUnit > 0.5 && wordPhysRef.current.length > 0) {
       wordPhysRef.current.forEach(wp => { try { wp.el.remove(); } catch (e) { } });
       wordPhysRef.current = [];
       document.querySelectorAll('[data-explosion]').forEach(el => { try { el.remove(); } catch (e) { } });
     } else {
-      const wordOp = Math.max(0, 1 - Math.max(0, (unit - 0.3) / 0.3));
+      const wordOp = Math.max(0, 1 - Math.max(0, (mUnit - 0.3) / 0.3));
       wordPhysRef.current.forEach(wp => { wp.el.style.opacity = String(wordOp); });
     }
     if (iDoDesignRef.current) {
-      iDoDesignRef.current.style.transform = `translateY(${unit <= 0 ? 0 : unit <= 0.35 ? -(unit / 0.35) * 110 : -110
+      iDoDesignRef.current.style.transform = `translateY(${mUnit <= 0 ? 0 : mUnit <= 0.35 ? -(mUnit / 0.35) * 110 : -110
         }vh)`;
-      iDoDesignRef.current.style.opacity = unit > 0.5 ? "0" : "1";
+      iDoDesignRef.current.style.opacity = mUnit > 0.5 ? "0" : "1";
     }
-    if (deltaY > 0 && unit < 0.9) {
+    if (deltaY > 0 && mUnit >= 0 && mUnit < 0.9) {
       physState.current.forEach(s => { if (!s.initialized) return; s.vy -= Math.min(deltaY * 18, 900); s.rotSpeed += (Math.random() - 0.5) * 4; });
       wordPhysRef.current.forEach(wp => { wp.vy -= Math.min(deltaY * 18, 900); wp.rotSpeed += (Math.random() - 0.5) * 4; });
       sugPhys.current.vy -= Math.min(deltaY * 14, 700); sugPhys.current.rotSpeed += (Math.random() - 0.5) * 0.4;
-    } else if (deltaY < 0 && unit < 0.9) {
+    } else if (deltaY < 0 && mUnit >= 0 && mUnit < 0.9) {
       physState.current.forEach(s => { if (!s.initialized) return; s.vy += Math.min(Math.abs(deltaY) * 18, 900); s.rotSpeed += (Math.random() - 0.5) * 4; });
       wordPhysRef.current.forEach(wp => { wp.vy += Math.min(Math.abs(deltaY) * 18, 900); wp.rotSpeed += (Math.random() - 0.5) * 4; });
       sugPhys.current.vy += Math.min(Math.abs(deltaY) * 14, 700); sugPhys.current.rotSpeed += (Math.random() - 0.5) * 0.4;
@@ -3109,12 +3161,12 @@ export default function Home() {
       if (!track) return;
       const rev = REVERSED[i], oR = vw, oL = -rw;
       const sX = rev ? oL : oR, eX = rev ? oR : oL;
-      if (unit < 1) { track.style.opacity = "0"; track.style.transform = `translate3d(${sX}px,0,0)`; }
-      else if (unit <= 2) { const x = sX + (eX - sX) * (unit - 1); track.style.opacity = "1"; track.style.transform = `translate3d(${x}px,0,0)`; }
+      if (mUnit < 1) { track.style.opacity = "0"; track.style.transform = `translate3d(${sX}px,0,0)`; }
+      else if (mUnit <= 2) { const x = sX + (eX - sX) * (mUnit - 1); track.style.opacity = "1"; track.style.transform = `translate3d(${x}px,0,0)`; }
       else { track.style.opacity = "0"; track.style.transform = `translate3d(${eX}px,0,0)`; }
     });
 
-    const tPhase = Math.max(0, Math.min((unit - 2.2) / 0.5, 1));
+    const tPhase = Math.max(0, Math.min((mUnit - 2.2) / 0.5, 1));
     setVideoOpacity(tPhase);
     videoOpacityRef.current = tPhase;
     if (videoRef.current) videoRef.current.style.opacity = tPhase.toString();
@@ -3365,17 +3417,20 @@ export default function Home() {
 
       <main ref={mainRef} style={{ position: "fixed", width: "100vw", height: "100vh", top: 0, left: 0, overflow: "hidden", touchAction: "none" }}>
 
-        {/* PROBLEM SOLVER — новая, самая первая секция (над галереей, см.
-            applyAnimations — гаснет первой, unit 0→0.075, открывая галерею
-            под собой). Фон и стиль/курсив заголовка "solve:" хаотично меняются
+        {/* PROBLEM SOLVER — временно отключено целиком (см.
+            PROBLEM_SOLVER_ENABLED) — секция полностью остаётся в коде,
+            просто не рендерится. Раньше была самая первая секция (над
+            галереей, гасла первой, unit 0→0.075, открывая галерею под
+            собой). Фон и стиль/курсив заголовка "solve:" хаотично меняются
             движением курсора ВНЕ поля ввода (см. эффект с problemStyle выше)
             — само поле ввода остаётся стабильно белым и читаемым. Гейтинг по
             overlayOpacity — та же явная схема, что и у галереи ниже: секция
             не существует в DOM, пока не погас экран загрузки. */}
-        <div ref={problemSolverRef} style={{ position: "absolute", inset: 0, zIndex: 10000, background: problemStyle.bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", transition: "background-color 0.25s ease", padding: "0 4vw" }}>
-          {overlayOpacity <= 0.01 && (
-            <>
-              {/* Фиксированная высота контейнера (28vh) — раз font-size
+        {PROBLEM_SOLVER_ENABLED && (
+          <div ref={problemSolverRef} style={{ position: "absolute", inset: 0, zIndex: 10000, background: problemStyle.bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", transition: "background-color 0.25s ease", padding: "0 4vw" }}>
+            {overlayOpacity <= 0.01 && (
+              <>
+                {/* Фиксированная высота контейнера (28vh) — раз font-size
                   фиксирован (не подбирается под каждый шрифт), высота
                   занимаемого места в раскладке стабильна сама по себе — а
                   значит, стабильно и положение поля ввода под ним. ВАЖНО:
@@ -3385,106 +3440,107 @@ export default function Home() {
                   обрезал бы (это и было причиной обрезанного двоеточия) —
                   visible ничего не обрезает, а стабильность высоты и так уже
                   даёт фиксированная высота самого контейнера, а не overflow. */}
-              <div style={{ height: "28vh", display: "flex", alignItems: "center", justifyContent: "center", overflow: "visible", marginBottom: "clamp(6px,1.2vh,16px)" }}>
+                <div style={{ height: "28vh", display: "flex", alignItems: "center", justifyContent: "center", overflow: "visible", marginBottom: "clamp(6px,1.2vh,16px)" }}>
+                  <div
+                    ref={problemHeadingRef}
+                    className="ps-font"
+                    style={{
+                      ["--ps-font" as any]: problemStyle.font,
+                      fontStyle: problemStyle.italic ? "italic" : "normal",
+                      fontWeight: 900,
+                      fontSize: "min(15vh, 170px)",
+                      lineHeight: 1,
+                      whiteSpace: "nowrap",
+                      display: "inline-block",
+                      // ВАЖНО: scale(), а не scaleX() — тот растягивал только
+                      // по горизонтали, искажая пропорции букв (видно на
+                      // скриншоте — буквы становились неестественно широкими).
+                      // scale() с одним значением масштабирует РАВНОМЕРНО по
+                      // обеим осям — ширина всё равно точно попадает в
+                      // targetWidth (тот же самый вычисленный коэффициент),
+                      // просто без искажения формы. Высота при этом тоже
+                      // меняется пропорционально — но это не проблема: высота
+                      // контейнера выше фиксирована (28vh) и не завязана на
+                      // overflow, так что положение поля ввода всё равно
+                      // стабильно, чем бы ни оказалась итоговая высота текста.
+                      transform: `scale(${problemScaleX})`,
+                      transformOrigin: "center center",
+                      color: problemStyle.text,
+                      transition: "font-style 0.15s ease, color 0.25s ease",
+                      animation: problemLoading ? "psLoadingPulse 1s ease-in-out infinite" : "none",
+                      userSelect: "none",
+                    }}
+                  >
+                    {problemHeadingText}
+                  </div>
+                </div>
+                {/* Скрытый образец для замера — см. problemMeasureRef выше.
+                  Та же строка/шрифт/начертание, что и видимый заголовок,
+                  но БЕЗ transform: scale() — ResizeObserver следит именно
+                  за этим элементом. */}
                 <div
-                  ref={problemHeadingRef}
+                  ref={problemMeasureRef}
+                  aria-hidden="true"
                   className="ps-font"
                   style={{
+                    position: "fixed",
+                    top: 0,
+                    left: 0,
+                    visibility: "hidden",
+                    pointerEvents: "none",
                     ["--ps-font" as any]: problemStyle.font,
                     fontStyle: problemStyle.italic ? "italic" : "normal",
                     fontWeight: 900,
                     fontSize: "min(15vh, 170px)",
                     lineHeight: 1,
                     whiteSpace: "nowrap",
-                    display: "inline-block",
-                    // ВАЖНО: scale(), а не scaleX() — тот растягивал только
-                    // по горизонтали, искажая пропорции букв (видно на
-                    // скриншоте — буквы становились неестественно широкими).
-                    // scale() с одним значением масштабирует РАВНОМЕРНО по
-                    // обеим осям — ширина всё равно точно попадает в
-                    // targetWidth (тот же самый вычисленный коэффициент),
-                    // просто без искажения формы. Высота при этом тоже
-                    // меняется пропорционально — но это не проблема: высота
-                    // контейнера выше фиксирована (28vh) и не завязана на
-                    // overflow, так что положение поля ввода всё равно
-                    // стабильно, чем бы ни оказалась итоговая высота текста.
-                    transform: `scale(${problemScaleX})`,
-                    transformOrigin: "center center",
-                    color: problemStyle.text,
-                    transition: "font-style 0.15s ease, color 0.25s ease",
-                    animation: problemLoading ? "psLoadingPulse 1s ease-in-out infinite" : "none",
-                    userSelect: "none",
                   }}
                 >
                   {problemHeadingText}
                 </div>
-              </div>
-              {/* Скрытый образец для замера — см. problemMeasureRef выше.
-                  Та же строка/шрифт/начертание, что и видимый заголовок,
-                  но БЕЗ transform: scale() — ResizeObserver следит именно
-                  за этим элементом. */}
-              <div
-                ref={problemMeasureRef}
-                aria-hidden="true"
-                className="ps-font"
-                style={{
-                  position: "fixed",
-                  top: 0,
-                  left: 0,
-                  visibility: "hidden",
-                  pointerEvents: "none",
-                  ["--ps-font" as any]: problemStyle.font,
-                  fontStyle: problemStyle.italic ? "italic" : "normal",
-                  fontWeight: 900,
-                  fontSize: "min(15vh, 170px)",
-                  lineHeight: 1,
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {problemHeadingText}
-              </div>
-              <div style={{ position: "relative", width: `${problemStyle.inputWidthPct}%`, maxWidth: "1400px" }}>
-                <input
-                  ref={problemInputRef}
-                  type="text"
-                  value={problemInputValue}
-                  onChange={(e) => setProblemInputValue(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") handleProblemSubmit(); }}
-                  disabled={problemLoading}
-                  style={{
-                    width: "100%",
-                    fontSize: "clamp(20px, 3vw, 40px)",
-                    padding: "clamp(14px,2vw,28px) clamp(20px,3vw,36px)",
-                    border: `3px solid ${problemStyle.inputBorder}`,
-                    borderRadius: problemStyle.inputRadius,
-                    outline: "none",
-                    background: problemStyle.inputBg,
-                    color: problemStyle.inputText,
-                    fontFamily: "Arial, sans-serif",
-                    transition: "background-color 0.25s ease, border-color 0.25s ease, border-radius 0.25s ease, color 0.25s ease",
-                  }}
-                />
-                {/* Мигающая черта-курсор — своя, декоративная, видна только
+                <div style={{ position: "relative", width: `${problemStyle.inputWidthPct}%`, maxWidth: "1400px" }}>
+                  <input
+                    ref={problemInputRef}
+                    type="text"
+                    value={problemInputValue}
+                    onChange={(e) => setProblemInputValue(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") handleProblemSubmit(); }}
+                    disabled={problemLoading}
+                    style={{
+                      width: "100%",
+                      fontSize: "clamp(20px, 3vw, 40px)",
+                      padding: "clamp(14px,2vw,28px) clamp(20px,3vw,36px)",
+                      border: `3px solid ${problemStyle.inputBorder}`,
+                      borderRadius: problemStyle.inputRadius,
+                      outline: "none",
+                      background: problemStyle.inputBg,
+                      color: problemStyle.inputText,
+                      fontFamily: "Arial, sans-serif",
+                      transition: "background-color 0.25s ease, border-color 0.25s ease, border-radius 0.25s ease, color 0.25s ease",
+                    }}
+                  />
+                  {/* Мигающая черта-курсор — своя, декоративная, видна только
                     пока поле пусто (как только напечатан хоть символ, дальше
                     работает обычный нативный курсор внутри самого текста).
                     Цвет — часть общего "хаоса" (см. problemStyle.caretColor). */}
-                {problemInputValue === "" && (
-                  <span style={{
-                    position: "absolute",
-                    left: "clamp(20px,3vw,36px)",
-                    top: "50%",
-                    transform: "translateY(-50%)",
-                    width: "3px",
-                    height: "clamp(20px, 3vw, 40px)",
-                    background: problemStyle.caretColor,
-                    animation: "psCaretBlink 1s steps(1) infinite",
-                    pointerEvents: "none",
-                  }} />
-                )}
-              </div>
-            </>
-          )}
-        </div>
+                  {problemInputValue === "" && (
+                    <span style={{
+                      position: "absolute",
+                      left: "clamp(20px,3vw,36px)",
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      width: "3px",
+                      height: "clamp(20px, 3vw, 40px)",
+                      background: problemStyle.caretColor,
+                      animation: "psCaretBlink 1s steps(1) infinite",
+                      pointerEvents: "none",
+                    }} />
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        )}
 
         {/* СЕКЦИЯ-ПРЕЗЕНТАЦИЯ С ГАЛЕРЕЕЙ — новый самый первый экран, поверх
             секции мозаик (та по-прежнему занимает scroll position 0 — эта
@@ -3768,6 +3824,24 @@ export default function Home() {
         <video ref={videoRef} src={videoSrc} muted loop autoPlay playsInline
           style={{ position: "absolute", top: 0, left: 0, width: "100vw", height: "100vh", objectFit: "cover", zIndex: 0, opacity: 0 }} />
         <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1, opacity: videoOpacity, pointerEvents: "none" }} />
+
+        {/* НОВЫЙ ЦВЕТНОЙ ПЕРЕХОД — копия "5 РЯДОВ", между галереей и секцией
+            мозаик (см. MOSAIC_UNIT_OFFSET/applyAnimations выше). Те же самые
+            картинки (ALL_IMAGES), но другой порядок перемешивания (ROWS2),
+            свой набор refs (trackRefs2) — не пересекается с существующим
+            переходом ниже. */}
+        <div style={{ position: "absolute", inset: 0, zIndex: 3, overflow: "hidden", pointerEvents: "none", display: "flex", flexDirection: "column", justifyContent: "center", gap: `${GAP}px`, padding: `${GAP}px 0` }}>
+          {ROWS2.map((images, rowIndex) => (
+            <div key={rowIndex} ref={el => { trackRefs2.current[rowIndex] = el; }}
+              style={{ display: "flex", gap: `${GAP}px`, paddingLeft: `${GAP}px`, width: "max-content", willChange: "transform", opacity: 0, flexShrink: 0 }}>
+              {images.map((img, i) => (
+                <div key={i} style={{ width: `${tileSize}px`, height: `${tileSize}px`, borderRadius: "12px", flexShrink: 0, overflow: "hidden" }}>
+                  <img src={img} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
 
         {/* 5 РЯДОВ */}
         <div style={{ position: "absolute", inset: 0, zIndex: 3, overflow: "hidden", pointerEvents: "none", display: "flex", flexDirection: "column", justifyContent: "center", gap: `${GAP}px`, padding: `${GAP}px 0` }}>
