@@ -3362,7 +3362,12 @@ export default function Home() {
       if (!track) return; const rev = REVERSED[i]; const sX = rev ? -rw : vw;
       track.style.opacity = "0"; track.style.transform = `translate3d(${sX}px,0,0)`;
     });
-    if (textRef.current) { textRef.current.style.opacity = "0"; textRef.current.style.transform = "translate3d(0,40px,0)"; textRef.current.style.pointerEvents = "none"; }
+    // textRef больше НЕ инициализируется скрытым (opacity:0) — раньше это
+    // компенсировалось tPhase-логикой в applyAnimations, которая позже
+    // возвращала прозрачность к 1; та логика убрана (финальный блок теперь
+    // обычная, всегда видимая физически проскролливаемая секция), а этот
+    // код остался и держал текст невидимым НАВСЕГДА — вот и была причина
+    // "пропавшей" секции "MY NAME IS ARTEM".
   }, []);
 
   useEffect(() => {
