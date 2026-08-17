@@ -330,8 +330,9 @@ const PS_THEMES: { bg: string; text: string; inputBg: string; inputText: string;
 ];
 
 // Новая секция "alex" (над Problem solver) — большой прямоугольник со
-// сглаженными углами, показывает одну из 7 картинок за раз, в случайном
-// порядке (гарантированно другую, чем текущая — см. randomizeAlexImage).
+// сглаженными углами, показывает одну из 7 картинок за раз, ПОСЛЕДОВАТЕЛЬНО
+// по кругу (не случайно — см. advanceAlexImage), чтобы не было слишком
+// ранних повторов.
 const ALEX_IMAGES = Array.from({ length: 7 }, (_, i) => `/alex${i + 1}.png`);
 
 // Форма поля ввода — не только базовые скругления, но и асимметричные
@@ -1463,16 +1464,22 @@ export default function Home() {
   const problemSolverRef = useRef<HTMLDivElement>(null);
   const problemInputRef = useRef<HTMLInputElement>(null);
   const problemHeadingRef = useRef<HTMLDivElement>(null);
-  // Новая секция "alex" — над Problem solver. Текущая картинка + зеркало в
-  // реф (нужно обработчикам гироскопа/тряски ниже — они настроены один раз
-  // при монтировании и иначе видели бы устаревшее значение из замыкания).
-  const [alexImage, setAlexImage] = useState(ALEX_IMAGES[0]);
-  const alexImageRef = useRef(ALEX_IMAGES[0]);
-  useEffect(() => { alexImageRef.current = alexImage; }, [alexImage]);
+  // Новая секция "alex" — над Problem solver. Индекс текущей картинки —
+  // ПОСЛЕДОВАТЕЛЬНО (не случайно), чтобы картинки не повторялись слишком
+  // рано: идём по кругу 1→2→...→7→1→2... — гарантированно максимально
+  // возможный интервал между повторами одной и той же картинки (7 показов).
+  const [alexIndex, setAlexIndex] = useState(0);
+  const alexImage = ALEX_IMAGES[alexIndex];
   const alexSectionRef = useRef<HTMLDivElement>(null);
-  const randomizeAlexImage = useCallback(() => {
-    const pool = ALEX_IMAGES.filter(img => img !== alexImageRef.current);
-    setAlexImage(pool[Math.floor(Math.random() * pool.length)]);
+  const advanceAlexImage = useCallback(() => {
+    setAlexIndex(prev => (prev + 1) % ALEX_IMAGES.length);
+  }, []);
+  // Предзагрузка всех 7 картинок один раз при монтировании — без этого
+  // каждое переключение ждало бы сетевую загрузку конкретной картинки
+  // впервые, и смена выглядела бы "плохо прогружается" (задержка/пустой
+  // кадр) вместо мгновенного переключения.
+  useEffect(() => {
+    ALEX_IMAGES.forEach(src => { const img = new window.Image(); img.src = src; });
   }, []);
   // "drink water" — постоянный текст-оверлей ПОВЕРХ всего сайта (не
   // привязан к какой-то одной секции) — та же логика смены шрифта/курсива,
@@ -1485,6 +1492,17 @@ export default function Home() {
     const pool = PROBLEM_SOLVER_FONTS.filter(f => f !== drinkWaterStyleRef.current.font);
     setDrinkWaterStyle({ font: pool[Math.floor(Math.random() * pool.length)], italic: Math.random() < 0.5 });
   }, []);
+  // Масштаб "drink water" — та же самая техника, что и у "solve:" (см.
+  // problemScaleX/problemMeasureRef ниже): скрытый образец без масштаба +
+  // ResizeObserver + равномерный scale(). Разные шрифты дают разную
+  // естественную ширину строки при одном и том же font-size — без этого
+  // некоторые шрифты (особенно широкие) переносили бы "drink water" на
+  // вторую строку. Целевая ширина фиксированная (не зависит от поля ввода,
+  // как у "solve:", поскольку тут поля ввода нет) — вычисляется из самого
+  // же элемента, см. эффект.
+  const [drinkWaterScale, setDrinkWaterScale] = useState(1);
+  const drinkWaterHeadingRef = useRef<HTMLDivElement>(null);
+  const drinkWaterMeasureRef = useRef<HTMLDivElement>(null);
   // Скрытый "образец" — та же строка/шрифт/начертание, что и видимый
   // заголовок, но НИКОГДА не масштабируется — нужен ResizeObserver'у ниже,
   // чтобы поймать момент, когда шрифт РЕАЛЬНО подгрузится и натуральная
@@ -1706,11 +1724,11 @@ export default function Home() {
       const dx = e.clientX - lastX, dy = e.clientY - lastY;
       if (Math.sqrt(dx * dx + dy * dy) < MOVE_THRESHOLD_PX) return;
       lastX = e.clientX; lastY = e.clientY;
-      randomizeAlexImage();
+      advanceAlexImage();
     };
     window.addEventListener("mousemove", onMove);
     return () => window.removeEventListener("mousemove", onMove);
-  }, [randomizeAlexImage]);
+  }, [advanceAlexImage]);
   // "drink water" — та же логика, что у "solve:" (100px на десктопе, таймер
   // на мобильных).
   useEffect(() => {
@@ -1774,6 +1792,27 @@ export default function Home() {
       window.removeEventListener("resize", recompute);
     };
   }, [problemStyle.font, problemStyle.italic, problemStyle.inputWidthPct, problemHeadingText]);
+  // То же самое для "drink water" — целевая ширина фиксированная
+  // (min(70vw, 1200px)), а не ширина поля ввода (тут поля ввода нет).
+  useLayoutEffect(() => {
+    if (!drinkWaterMeasureRef.current) return;
+    const measureEl = drinkWaterMeasureRef.current;
+    const recompute = () => {
+      if (!measureEl) return;
+      const targetWidth = Math.min(window.innerWidth * 0.7, 1200);
+      const naturalWidth = measureEl.getBoundingClientRect().width;
+      if (targetWidth <= 0 || naturalWidth <= 0) return;
+      setDrinkWaterScale(targetWidth / naturalWidth);
+    };
+    recompute();
+    const ro = new ResizeObserver(recompute);
+    ro.observe(measureEl);
+    window.addEventListener("resize", recompute);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", recompute);
+    };
+  }, [drinkWaterStyle.font, drinkWaterStyle.italic]);
   // Одно число на кольцо (растёт по мере появления новых колец) — каждое
   // кольцо крутится с собственным накопленным углом, см. getRingDirection().
   const ringRotationRefs = useRef<number[]>([0]);
@@ -1892,7 +1931,7 @@ export default function Home() {
       const dG = g - lastTiltG, dB = b - lastTiltB;
       if (Math.sqrt(dG * dG + dB * dB) >= TILT_THRESHOLD_DEG) {
         lastTiltG = g; lastTiltB = b;
-        randomizeAlexImage();
+        advanceAlexImage();
       }
     };
     const onMot = (e: DeviceMotionEvent) => {
@@ -1905,7 +1944,7 @@ export default function Home() {
       if (delta > 20 && now - sh.lastShakeTime > 700) {
         sh.lastShakeTime = now;
         explodeFromPoint(window.innerWidth / 2, window.innerHeight / 2, 9999, 60000);
-        randomizeAlexImage(); // тряска — тоже триггер смены картинки в "alex"
+        advanceAlexImage(); // тряска — тоже триггер смены картинки в "alex"
       }
     };
     const add = () => {
@@ -1924,7 +1963,7 @@ export default function Home() {
       window.removeEventListener("deviceorientation", onOri, true);
       window.removeEventListener("devicemotion", onMot, true);
     };
-  }, [randomizeAlexImage]);
+  }, [advanceAlexImage]);
 
   const ALL_IMAGES = [
     "/1.jpg", "/2.jpg", "/3.jpg", "/4.jpg", "/5.jpg", "/6.jpg", "/7.jpg",
@@ -3501,19 +3540,53 @@ export default function Home() {
             скроллу, виден всегда. Полноэкранная затемняющая подложка +
             крупный центрированный текст. Шрифт/курсив меняются той же
             логикой, что у "solve:" (движение курсора / таймер на мобильных,
-            см. drinkWaterStyle выше). pointerEvents:none на обоих слоях —
-            не мешает взаимодействию с тем, что под ними. */}
-        <div style={{ position: "fixed", inset: 0, zIndex: 500000, background: "rgba(0,0,0,0.55)", pointerEvents: "none", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            см. drinkWaterStyle выше). whiteSpace:nowrap + scale() —
+            гарантированно ОДНА строка, без переноса на второй абзац, и
+            ОДИНАКОВЫЙ видимый размер независимо от того, насколько широким
+            или узким оказывается конкретный шрифт при том же font-size (та
+            же техника, что и у "solve:" — см. drinkWaterMeasureRef).
+            pointerEvents:none на обоих слоях — не мешает взаимодействию с
+            тем, что под ними. */}
+        <div style={{ position: "fixed", inset: 0, zIndex: 500000, background: "rgba(0,0,0,0.55)", pointerEvents: "none", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
           <div
+            ref={drinkWaterHeadingRef}
             className="ps-font"
             style={{
               ["--ps-font" as any]: drinkWaterStyle.font,
               fontStyle: drinkWaterStyle.italic ? "italic" : "normal",
               fontWeight: 900,
               fontSize: "clamp(48px,10vw,160px)",
+              lineHeight: 1,
+              whiteSpace: "nowrap",
+              display: "inline-block",
+              transform: `scale(${drinkWaterScale})`,
+              transformOrigin: "center center",
               color: "#ffffff",
               userSelect: "none",
               transition: "font-style 0.15s ease",
+            }}
+          >
+            drink water
+          </div>
+          {/* Скрытый образец для замера — та же строка/шрифт/начертание, но
+              БЕЗ transform: scale() — ResizeObserver следит именно за этим
+              элементом (см. эффект выше). */}
+          <div
+            ref={drinkWaterMeasureRef}
+            aria-hidden="true"
+            className="ps-font"
+            style={{
+              position: "fixed",
+              top: 0,
+              left: 0,
+              visibility: "hidden",
+              pointerEvents: "none",
+              ["--ps-font" as any]: drinkWaterStyle.font,
+              fontStyle: drinkWaterStyle.italic ? "italic" : "normal",
+              fontWeight: 900,
+              fontSize: "clamp(48px,10vw,160px)",
+              lineHeight: 1,
+              whiteSpace: "nowrap",
             }}
           >
             drink water
@@ -3525,7 +3598,7 @@ export default function Home() {
             "solve:" под собой). Большой прямоугольник со сильно
             сглаженными углами — одна из 7 картинок за раз, в случайном
             порядке (гарантированно другая, чем текущая — см.
-            randomizeAlexImage). На десктопе меняется движением курсора
+            advanceAlexImage). На десктопе меняется движением курсора
             (100px, тот же паттерн, что и у "solve:"); на мобильных —
             наклоном/тряской телефона (переиспользует уже существующий
             гироскоп/акселерометр эффект, см. deviceorientation/devicemotion
