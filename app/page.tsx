@@ -1474,6 +1474,17 @@ export default function Home() {
     const pool = ALEX_IMAGES.filter(img => img !== alexImageRef.current);
     setAlexImage(pool[Math.floor(Math.random() * pool.length)]);
   }, []);
+  // "drink water" — постоянный текст-оверлей ПОВЕРХ всего сайта (не
+  // привязан к какой-то одной секции) — та же логика смены шрифта/курсива,
+  // что у "solve:" (см. problemStyle выше): движение курсора на десктопе,
+  // таймер на мобильных.
+  const [drinkWaterStyle, setDrinkWaterStyle] = useState({ font: PROBLEM_SOLVER_FONTS[1], italic: false });
+  const drinkWaterStyleRef = useRef(drinkWaterStyle);
+  useEffect(() => { drinkWaterStyleRef.current = drinkWaterStyle; }, [drinkWaterStyle]);
+  const randomizeDrinkWaterStyle = useCallback(() => {
+    const pool = PROBLEM_SOLVER_FONTS.filter(f => f !== drinkWaterStyleRef.current.font);
+    setDrinkWaterStyle({ font: pool[Math.floor(Math.random() * pool.length)], italic: Math.random() < 0.5 });
+  }, []);
   // Скрытый "образец" — та же строка/шрифт/начертание, что и видимый
   // заголовок, но НИКОГДА не масштабируется — нужен ResizeObserver'у ниже,
   // чтобы поймать момент, когда шрифт РЕАЛЬНО подгрузится и натуральная
@@ -1700,6 +1711,26 @@ export default function Home() {
     window.addEventListener("mousemove", onMove);
     return () => window.removeEventListener("mousemove", onMove);
   }, [randomizeAlexImage]);
+  // "drink water" — та же логика, что у "solve:" (100px на десктопе, таймер
+  // на мобильных).
+  useEffect(() => {
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    if (isMobile) {
+      const timer = setInterval(randomizeDrinkWaterStyle, 1200);
+      return () => clearInterval(timer);
+    }
+    const MOVE_THRESHOLD_PX = 100;
+    let lastX: number | null = null, lastY: number | null = null;
+    const onMove = (e: MouseEvent) => {
+      if (lastX === null || lastY === null) { lastX = e.clientX; lastY = e.clientY; return; }
+      const dx = e.clientX - lastX, dy = e.clientY - lastY;
+      if (Math.sqrt(dx * dx + dy * dy) < MOVE_THRESHOLD_PX) return;
+      lastX = e.clientX; lastY = e.clientY;
+      randomizeDrinkWaterStyle();
+    };
+    window.addEventListener("mousemove", onMove);
+    return () => window.removeEventListener("mousemove", onMove);
+  }, [randomizeDrinkWaterStyle]);
   // Подключаем Google Fonts для "Problem solver" (см. PROBLEM_SOLVER_FONTS) —
   // добавляем <link> в document.head программно: файл — "use client"-компонент
   // без доступа к layout.tsx, куда по канону Next.js полагалось бы это класть.
@@ -3464,6 +3495,30 @@ export default function Home() {
       )}
 
       <main ref={mainRef} style={{ position: "fixed", width: "100vw", height: "100vh", top: 0, left: 0, overflow: "hidden", touchAction: "none" }}>
+
+        {/* "drink water" — постоянный оверлей ПОВЕРХ вообще всего сайта
+            (z-index выше любой секции, включая alex) — не привязан к
+            скроллу, виден всегда. Полноэкранная затемняющая подложка +
+            крупный центрированный текст. Шрифт/курсив меняются той же
+            логикой, что у "solve:" (движение курсора / таймер на мобильных,
+            см. drinkWaterStyle выше). pointerEvents:none на обоих слоях —
+            не мешает взаимодействию с тем, что под ними. */}
+        <div style={{ position: "fixed", inset: 0, zIndex: 500000, background: "rgba(0,0,0,0.55)", pointerEvents: "none", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div
+            className="ps-font"
+            style={{
+              ["--ps-font" as any]: drinkWaterStyle.font,
+              fontStyle: drinkWaterStyle.italic ? "italic" : "normal",
+              fontWeight: 900,
+              fontSize: "clamp(48px,10vw,160px)",
+              color: "#ffffff",
+              userSelect: "none",
+              transition: "font-style 0.15s ease",
+            }}
+          >
+            drink water
+          </div>
+        </div>
 
         {/* ALEX — новая, самая первая секция (над "solve:", см.
             applyAnimations — гаснет первой, unit 0→ALEX_END_UNIT, открывая
