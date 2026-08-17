@@ -211,19 +211,10 @@ function roundedPolygonPath(n: number, roundFrac: number = 0.22): string {
 // многоугольником с большим числом сторон (визуально неотличимо от круга).
 const CIRCLE_SIDES_APPROX = 64;
 
-// Тестовый контент для новой секции-презентации (галерея с бесконечными
-// лентами) — art1.png..art10.png из public/.
+// Контент для секции-галереи — art1.png..art36.png из public/. Показывается
+// точно так же, как у alex — одна картинка за раз, последовательно (см.
+// advanceArtImage).
 const ART_IMAGES = Array.from({ length: 36 }, (_, i) => `/art${i + 1}.png`);
-// То, что реально рисуется в ленте — те же картинки + дубликат первой в
-// конце, для бесшовной петли (см. buildStripKeyframeCSS).
-const ART_IMAGES_LOOP = [...ART_IMAGES, ART_IMAGES[0]];
-// Сколько параллельных ячеек показываем одновременно — МЕНЬШЕ, чем картинок
-// (каждая ячейка всё равно листает весь набор ART_IMAGES по кругу, просто
-// одновременно видимых ячеек меньше — значит, каждая крупнее).
-const GALLERY_CELL_COUNT = 6;
-// Картинка держится 8с, плавный (ease-in-out) переход к следующей — 4с.
-const GALLERY_HOLD_MS = 8000;
-const GALLERY_TRANSITION_MS = 4000;
 // Сколько ЕДИНИЦ (× SCROLL_PER_UNIT) занимает секция мозаик САМА ПО СЕБЕ
 // (раскрытие+интерактив, переход "5 рядов") — единственная секция, у
 // которой ОСТАЁТСЯ sticky-пауза при скролле (по просьбе — все остальные
@@ -323,41 +314,6 @@ const INPUT_RADIUS_OPTIONS = [
   "60px 8px 8px 8px", "8px 60px 8px 8px", "8px 8px 60px 8px", "8px 8px 8px 60px", // один угол-акцент
 ];
 const INPUT_WIDTH_PCT_OPTIONS = [100, 88, 74, 60]; // % от max-width контейнера
-
-// Генерирует @keyframes для бесконечной вертикальной ленты (как уличный
-// рекламный баннер) — картинка держится holdMs, затем плавный переход к
-// следующей за transitionMs, и так по кругу.
-//
-// ВАЖНО про бесшовность: в DOM должно быть count+1 картинок — count реальных
-// плюс ДУБЛИКАТ первой, приклеенный в конец ленты (см. использование ниже).
-// Без дубликата последний переход (last → 0%) должен был бы отмотать ленту
-// НАЗАД через ВСЕ count-1 промежуточных позиций за то же transitionMs, что и
-// обычный шаг на одну картинку — то есть проходить в (count-1) раз БОЛЬШЕЕ
-// расстояние за то же время (был реальный баг: с дубликатом лента "долетала"
-// туда за секунды на многократно повышенной скорости — то самое "быстрая
-// прокрутка через всю ленту"). С дубликатом же последний переход — это ОБЫЧНЫЙ
-// шаг на один слот вперёд (к дубликату, который выглядит идентично первой
-// картинке), а не прыжок назад — визуально неотличимо от плавного продолжения
-// (проверено численно: расстояние и длительность последнего перехода в
-// точности совпадают с любым другим переходом). animation-timing-function на
-// каждом стопе — не на всей анимации сразу — задаёт плавность (ease-in-out)
-// именно САМОМУ ПЕРЕХОДУ между картинками, а не всему циклу целиком (иначе
-// кривая смещала бы и границы самих периодов ожидания, ломая расчёт длительностей).
-function buildStripKeyframeCSS(name: string, count: number, holdMs: number, transitionMs: number, easing: string = "ease-in-out"): string {
-  const slotMs = holdMs + transitionMs;
-  const totalMs = slotMs * count;
-  const stops: string[] = [];
-  for (let i = 0; i < count; i++) {
-    const holdStartPct = (i * slotMs / totalMs) * 100;
-    const holdEndPct = ((i * slotMs + holdMs) / totalMs) * 100;
-    const posPct = -(i * (100 / (count + 1))); // count+1 слотов — см. комментарий выше
-    stops.push(`${holdStartPct.toFixed(4)}%{transform:translateY(${posPct}%);animation-timing-function:${easing};}`);
-    stops.push(`${holdEndPct.toFixed(4)}%{transform:translateY(${posPct}%);animation-timing-function:${easing};}`);
-  }
-  const dupPosPct = -(count * (100 / (count + 1))); // позиция дубликата первой картинки — визуально то же, что 0%
-  stops.push(`100%{transform:translateY(${dupPosPct}%)}`);
-  return `@keyframes ${name}{${stops.join("")}}`;
-}
 
 // Опорное число мозаик, задающее РАЗМЕР кольца 0 (его радиус R0, см. animate()).
 // Вместимость КАЖДОГО кольца (включая кольцо 0) на самом деле каждый раз
@@ -1363,39 +1319,6 @@ export default function Home() {
   // Новая секция-презентация с галереей — отдельный "первый экран" поверх
   // существующей секции мозаик (та уже занимает scroll position 0), плавно
   // исчезает по мере первого скролла (см. applyAnimations), открывая её.
-  const introGalleryRef = useRef<HTMLDivElement>(null);
-  // Точный размер ячейки галереи в пикселях — считается явно через JS (а не
-  // через CSS aspect-ratio внутри grid, которое может вести себя непредсказуемо
-  // в паре с max-width/max-height у элементов сетки в разных браузерах).
-  const [galleryGrid, setGalleryGrid] = useState({ cellPx: 0, cols: 3, rows: 2 });
-  // Сдвиг фазы цикла для каждой ячейки — гарантированно РАЗНЫЙ у каждой (не
-  // просто случайный: чисто случайные задержки иногда СЛУЧАЙНО совпадали по
-  // фазе, т.к. остаток от деления на длительность одного шага slotMs мог
-  // оказаться близким у двух ячеек — тогда они переключались почти
-  // одновременно, несмотря на разные "сырые" числа задержки — проверено
-  // численно, зазор мог быть всего ~270мс). Теперь фаза (delay mod slotMs)
-  // РАВНОМЕРНО разнесена между ячейками — гарантированный минимальный зазор
-  // slotMs/GALLERY_CELL_COUNT (сейчас это 2с) — плюс случайный целый номер
-  // слота поверх (не меняет фазу, только то, с какой картинки ячейка
-  // стартует) — для визуального разнообразия без риска синхронности.
-  // useMemo с пустыми deps — считается ОДИН раз при монтировании: если бы
-  // Math.random() вызывался прямо в JSX при каждом рендере, у ячеек на
-  // каждый ре-рендер менялась бы задержка, и анимация дёргано
-  // перезапускалась бы заново.
-  const galleryDelays = useMemo(() => {
-    const slotMs = GALLERY_HOLD_MS + GALLERY_TRANSITION_MS;
-    const cycleSec = (ART_IMAGES.length * slotMs) / 1000;
-    return Array.from({ length: GALLERY_CELL_COUNT }, (_, i) => {
-      const phaseMs = i * (slotMs / GALLERY_CELL_COUNT); // гарантированно равномерно разнесённая фаза
-      const randomSlot = Math.floor(Math.random() * ART_IMAGES.length); // случайный номер слота — не влияет на фазу
-      return -((phaseMs + randomSlot * slotMs) / 1000) % cycleSec;
-    });
-  }, []);
-  // Видео fit.mp4 "сквозь" ячейки — появляется спустя 10с ПОСЛЕ того, как
-  // сама секция-галерея становится активной (т.е. после экрана загрузки, а
-  // не от монтирования страницы — см. эффект ниже).
-  const [showGalleryVideo, setShowGalleryVideo] = useState(false);
-  const galleryVideoTimerStartedRef = useRef(false);
 
   // "Problem solver" — новая секция НАД галереей (см. JSX и applyAnimations).
   // Текущий шрифт/курсив/цвет фона+текста — меняются по движению курсора вне
@@ -1452,12 +1375,37 @@ export default function Home() {
   const advanceAlexImage = useCallback(() => {
     setAlexIndex(prev => (prev + 1) % ALEX_IMAGES.length);
   }, []);
-  // Предзагрузка всех 7 картинок один раз при монтировании — без этого
-  // каждое переключение ждало бы сетевую загрузку конкретной картинки
-  // впервые, и смена выглядела бы "плохо прогружается" (задержка/пустой
-  // кадр) вместо мгновенного переключения.
+  // Предзагрузка всех 7 картинок один раз при монтировании — через
+  // decode(), а не просто src=... — new Image()+src только СКАЧИВАЕТ байты,
+  // но НЕ гарантирует полное декодирование: браузер может декодировать
+  // картинку "на лету" в момент первого реального показа, и именно это
+  // давало заметное "подвисание" по сравнению с мгновенной сменой шрифта у
+  // "drink water" (тот вообще не требует декодирования — просто смена
+  // CSS-свойства). decode() — стандартный, надёжный способ дождаться ПОЛНОГО
+  // декодирования заранее, до того как картинка вообще понадобится.
   useEffect(() => {
-    ALEX_IMAGES.forEach(src => { const img = new window.Image(); img.src = src; });
+    ALEX_IMAGES.forEach(src => {
+      const img = new window.Image();
+      img.src = src;
+      img.decode?.().catch(() => { }); // catch — decode() может отклониться, если картинка ещё не полностью скачана к моменту вызова; это не ошибка, а нормальный краевой случай
+    });
+  }, []);
+  // Секция-галерея (ART_IMAGES, art1..art36.png) — теперь ТОЧНО ТАКОЙ ЖЕ
+  // экран, что и у alex: одна картинка за раз, последовательно по кругу, та
+  // же предзагрузка, тот же принцип смены (см. JSX и объединённый
+  // mousemove/гироскоп-эффект ниже).
+  const [artIndex, setArtIndex] = useState(0);
+  const artImage = ART_IMAGES[artIndex];
+  const artSectionRef = useRef<HTMLDivElement>(null);
+  const advanceArtImage = useCallback(() => {
+    setArtIndex(prev => (prev + 1) % ART_IMAGES.length);
+  }, []);
+  useEffect(() => {
+    ART_IMAGES.forEach(src => {
+      const img = new window.Image();
+      img.src = src;
+      img.decode?.().catch(() => { });
+    });
   }, []);
   // "drink water" — теперь ЧАСТЬ секции alex (position:absolute внутри неё,
   // а не fixed поверх всего сайта) — физически прокручивается вместе с ней
@@ -1519,7 +1467,7 @@ export default function Home() {
   // монтировании и ресайзе.
   const preMosaicPxRef = useRef(0);
   const touchStartRef = useRef(0);
-  const [pinkOpacity, setPinkOpacity] = useState(1);
+  const [pinkOpacity, setPinkOpacity] = useState(0);
   const [overlayOpacity, setOverlayOpacity] = useState(0);
   // Зеркало overlayOpacity в реф — на случай возврата к экрану загрузки
   // (сейчас overlayOpacity стартует с 0 и не меняется, экран загрузки
@@ -1634,26 +1582,16 @@ export default function Home() {
   const ringTilesRef = useRef<RingTile[]>([]);
   useEffect(() => { ringTilesRef.current = ringTiles; }, [ringTiles]);
   useEffect(() => { overlayOpacityRef.current = overlayOpacity; }, [overlayOpacity]);
-  // Через 10с после того, как секция-галерея стала активной (экран загрузки
-  // полностью погас) — показываем видео сквозь ячейки. Guard
-  // (galleryVideoTimerStartedRef) — чтобы таймер стартовал ровно один раз, а
-  // не при каждом промежуточном значении overlayOpacity во время его затухания.
-  useEffect(() => {
-    if (overlayOpacity > 0.01 || galleryVideoTimerStartedRef.current) return;
-    galleryVideoTimerStartedRef.current = true;
-    setTimeout(() => setShowGalleryVideo(true), 10000);
-  }, [overlayOpacity]);
   const thumbIdRef = useRef(0);
-  // "Problem solver" — движение курсора (вне поля ввода) хаотично меняет
-  // шрифт/курсив/цвет фона+текста секции. Срабатывает не по времени, а по
-  // НАКОПЛЕННОЙ ДИСТАНЦИИ движения от точки последнего срабатывания — как
-  // только курсор проехал MOVE_THRESHOLD_PX, меняем стиль и сбрасываем
-  // точку отсчёта. Текущий шрифт/цвет исключаются из случайного выбора —
-  // гарантированно новый на каждое срабатывание (не может выпасть тот же).
-  // На мобильных mousemove вообще не срабатывает (нет курсора) — эффект был
-  // бы просто неактивен; вместо этого на мобильных меняем стиль постоянно
-  // по таймеру ("мелькает" само по себе, без курсора).
+  // "Problem solver" — временно отключено вместе с самой секцией (solve
+  // убран из JSX ранее) — этот эффект раньше продолжал работать вхолостую
+  // (setProblemStyle на каждое движение курсора вызывал полный ре-рендер
+  // компонента ради невидимой секции), конкурируя за CPU-время с логикой
+  // смены картинок alex/галереи на каждое движение мыши — часть причины
+  // "подвисания". Ранний return — реализация осталась нетронутой для
+  // лёгкого возврата вместе с самой секцией.
   useEffect(() => {
+    return; // eslint-disable-line no-unreachable
     const randomizeProblemStyle = () => {
       setProblemStyle(prev => {
         const fontPool = PROBLEM_SOLVER_FONTS.filter(f => f !== prev.font);
@@ -1696,14 +1634,15 @@ export default function Home() {
     window.addEventListener("mousemove", onMove);
     return () => window.removeEventListener("mousemove", onMove);
   }, []);
-  // "alex" + "drink water" — теперь ОДНА синхронизированная система: раньше
-  // это были ДВА независимых mousemove-слушателя с разными порогами (30px и
-  // 100px) — картинка и шрифт меняись врозь, вдобавок два отдельных
-  // слушателя на один и тот же mousemove давали лишнюю, дублирующую нагрузку
-  // (отсюда и ощущение "подвисания"). Теперь один порог, одна накопленная
-  // дистанция — картинка и шрифт меняются СТРОГО одновременно, по одному и
-  // тому же событию. На мобильных — тоже один и тот же триггер (гироскоп/
-  // тряска, см. эффект ниже), вместо отдельного таймера у drink water.
+  // "alex" + "drink water" + галерея (art) — ОДНА синхронизированная
+  // система: раньше это были ДВА независимых mousemove-слушателя с разными
+  // порогами (30px и 100px) — картинка и шрифт меняись врозь, вдобавок два
+  // отдельных слушателя на один и тот же mousemove давали лишнюю,
+  // дублирующую нагрузку (отсюда и ощущение "подвисания"). Теперь один
+  // порог, одна накопленная дистанция — картинка (alex и art), шрифт
+  // меняются СТРОГО одновременно, по одному и тому же событию. На
+  // мобильных — тоже один и тот же триггер (гироскоп/тряска, см. эффект
+  // ниже), вместо отдельного таймера у drink water.
   useEffect(() => {
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
     if (isMobile) return;
@@ -1715,11 +1654,12 @@ export default function Home() {
       if (Math.sqrt(dx * dx + dy * dy) < MOVE_THRESHOLD_PX) return;
       lastX = e.clientX; lastY = e.clientY;
       advanceAlexImage();
+      advanceArtImage();
       randomizeDrinkWaterStyle();
     };
     window.addEventListener("mousemove", onMove);
     return () => window.removeEventListener("mousemove", onMove);
-  }, [advanceAlexImage, randomizeDrinkWaterStyle]);
+  }, [advanceAlexImage, advanceArtImage, randomizeDrinkWaterStyle]);
   // Подключаем Google Fonts для "Problem solver" (см. PROBLEM_SOLVER_FONTS) —
   // добавляем <link> в document.head программно: файл — "use client"-компонент
   // без доступа к layout.tsx, куда по канону Next.js полагалось бы это класть.
@@ -1903,6 +1843,7 @@ export default function Home() {
       if (Math.sqrt(dG * dG + dB * dB) >= TILT_THRESHOLD_DEG) {
         lastTiltG = g; lastTiltB = b;
         advanceAlexImage();
+        advanceArtImage();
         randomizeDrinkWaterStyle();
       }
     };
@@ -1917,6 +1858,7 @@ export default function Home() {
         sh.lastShakeTime = now;
         explodeFromPoint(window.innerWidth / 2, window.innerHeight / 2, 9999, 60000);
         advanceAlexImage(); // тряска — тоже триггер смены картинки в "alex"
+        advanceArtImage(); // и в галерее (art) — синхронно
         randomizeDrinkWaterStyle(); // и шрифта "drink water" — синхронно
       }
     };
@@ -1936,7 +1878,7 @@ export default function Home() {
       window.removeEventListener("deviceorientation", onOri, true);
       window.removeEventListener("devicemotion", onMot, true);
     };
-  }, [advanceAlexImage, randomizeDrinkWaterStyle]);
+  }, [advanceAlexImage, advanceArtImage, randomizeDrinkWaterStyle]);
 
   const ALL_IMAGES = [
     "/1.jpg", "/2.jpg", "/3.jpg", "/4.jpg", "/5.jpg", "/6.jpg", "/7.jpg",
@@ -2281,35 +2223,6 @@ export default function Home() {
     return () => {
       window.removeEventListener("resize", onResize);
       if (resizeTimer) clearTimeout(resizeTimer);
-    };
-  }, []);
-
-  // Точный размер ячейки галереи (см. galleryGrid выше) — наибольший квадрат,
-  // помещающийся в сетку (3x2 на десктопе, 2x3 на мобильном) с учётом зазора
-  // GAP между ячейками И такого же отступа от краёв экрана (считаем края как
-  // ещё два "зазора" — cols+1 промежутков по ширине, rows+1 по высоте; тогда
-  // при центрировании флексом отступ до края на лимитирующей оси автоматически
-  // получается РОВНО GAP — проверено численно). Пересчитывается по тому же
-  // принципу debounce, что и stableDimsRef выше.
-  useEffect(() => {
-    let cellResizeTimer: ReturnType<typeof setTimeout> | null = null;
-    const computeCellSize = () => {
-      const isMobile = window.innerWidth <= 768;
-      const cols = isMobile ? 2 : 3;
-      const rows = isMobile ? 3 : 2;
-      const availW = (window.innerWidth - GAP * (cols + 1)) / cols;
-      const availH = (window.innerHeight - GAP * (rows + 1)) / rows;
-      setGalleryGrid({ cellPx: Math.max(0, Math.floor(Math.min(availW, availH))), cols, rows });
-    };
-    computeCellSize();
-    const onCellResize = () => {
-      if (cellResizeTimer) clearTimeout(cellResizeTimer);
-      cellResizeTimer = setTimeout(computeCellSize, 150);
-    };
-    window.addEventListener("resize", onCellResize);
-    return () => {
-      window.removeEventListener("resize", onCellResize);
-      if (cellResizeTimer) clearTimeout(cellResizeTimer);
     };
   }, []);
 
@@ -3180,57 +3093,40 @@ export default function Home() {
   }, []);
 
   const applyAnimations = (scrollY: number, deltaY = 0) => {
-    // mUnit — СОБСТВЕННЫЙ, локальный отсчёт секции мозаик (и того, что
-    // после неё внутри той же sticky-обёртки: переход "5 рядов") — считаем
-    // от РЕАЛЬНОГО пикселя, где мозаики физически начинаются
-    // (preMosaicPxRef = 2×window.innerHeight, alex+галерея), а не через
-    // старую unit-систему — та предполагала, что alex/галерея тоже имеют
-    // фиксированную высоту SCROLL_PER_UNIT, но теперь они простые
-    // блоки-100vh без sticky-паузы (см. JSX), их реальная высота зависит от
-    // экрана пользователя.
-    const mUnit = (scrollY - preMosaicPxRef.current) / SCROLL_PER_UNIT;
-    setPinkOpacity(Math.max(0, 1 - Math.max(0, (mUnit - 0.8) / 0.4)));
-    // "alex" — теперь физически проскролливается (sticky-обёртка в JSX) —
-    // ручного управления прозрачностью через ref больше не требуется.
-    // Секция-презентация (галерея) — теперь физически проскролливается
-    // (sticky-обёртка в JSX) — ручного управления прозрачностью через ref
-    // больше не требуется, переход "уезжает вверх" делает сам sticky.
-    // Слова исчезают вместе с кубиками
-    // Удаляем все слова-взрыва из DOM при любом скролле
-    if (mUnit > 0.5 && wordPhysRef.current.length > 0) {
+    // Мозаики теперь ОБЫЧНЫЙ блок 100vh (без sticky-паузы) — pinkOpacity
+    // больше не анимируется через скролл (статично 0 с самого начала, см.
+    // useState выше — "чёрный занавес" сразу открыт), iDoDesign тоже
+    // показывается сразу и остаётся видимым, без переезда/затухания по
+    // скроллу — старой "паузы", в которую эта анимация успевала
+    // проиграться, больше нет.
+    const vh = window.innerHeight;
+    const mosaicLocalPx = scrollY - preMosaicPxRef.current; // сколько пикселей проскроллено ВНУТРИ секции мозаик (может быть отрицательным/за пределами — тогда мы вне неё)
+
+    // Слова-взрыва — очищаем, как только пользователь заметно проскроллил
+    // мимо секции мозаик (мимо её 100vh).
+    if (mosaicLocalPx > vh && wordPhysRef.current.length > 0) {
       wordPhysRef.current.forEach(wp => { try { wp.el.remove(); } catch (e) { } });
       wordPhysRef.current = [];
       document.querySelectorAll('[data-explosion]').forEach(el => { try { el.remove(); } catch (e) { } });
-    } else {
-      const wordOp = Math.max(0, 1 - Math.max(0, (mUnit - 0.3) / 0.3));
-      wordPhysRef.current.forEach(wp => { wp.el.style.opacity = String(wordOp); });
     }
-    if (iDoDesignRef.current) {
-      iDoDesignRef.current.style.transform = `translateY(${mUnit <= 0 ? 0 : mUnit <= 0.35 ? -(mUnit / 0.35) * 110 : -110
-        }vh)`;
-      iDoDesignRef.current.style.opacity = mUnit > 0.5 ? "0" : "1";
-    }
-    if (deltaY > 0 && mUnit >= 0 && mUnit < 0.9) {
+    // Физика кубиков/слов/сухарика реагирует на скролл ТОЛЬКО пока секция
+    // мозаик в пределах видимости (небольшой запас по краям — ±0.5vh) —
+    // раньше это было завязано на SCROLL_PER_UNIT-based mUnit (окно
+    // 0..0.9), больше не актуально теперь, когда секция — просто 100vh.
+    const inMosaicView = mosaicLocalPx >= -vh * 0.5 && mosaicLocalPx <= vh * 1.5;
+    if (deltaY > 0 && inMosaicView) {
       physState.current.forEach(s => { if (!s.initialized) return; s.vy -= Math.min(deltaY * 18, 900); s.rotSpeed += (Math.random() - 0.5) * 4; });
       wordPhysRef.current.forEach(wp => { wp.vy -= Math.min(deltaY * 18, 900); wp.rotSpeed += (Math.random() - 0.5) * 4; });
       sugPhys.current.vy -= Math.min(deltaY * 14, 700); sugPhys.current.rotSpeed += (Math.random() - 0.5) * 0.4;
-    } else if (deltaY < 0 && mUnit >= 0 && mUnit < 0.9) {
+    } else if (deltaY < 0 && inMosaicView) {
       physState.current.forEach(s => { if (!s.initialized) return; s.vy += Math.min(Math.abs(deltaY) * 18, 900); s.rotSpeed += (Math.random() - 0.5) * 4; });
       wordPhysRef.current.forEach(wp => { wp.vy += Math.min(Math.abs(deltaY) * 18, 900); wp.rotSpeed += (Math.random() - 0.5) * 4; });
       sugPhys.current.vy += Math.min(Math.abs(deltaY) * 14, 700); sugPhys.current.rotSpeed += (Math.random() - 0.5) * 0.4;
     }
-    const vw = window.innerWidth, rw = getRowWidth();
-    trackRefs.current.forEach((track, i) => {
-      if (!track) return;
-      const rev = REVERSED[i], oR = vw, oL = -rw;
-      const sX = rev ? oL : oR, eX = rev ? oR : oL;
-      if (mUnit < 1) { track.style.opacity = "0"; track.style.transform = `translate3d(${sX}px,0,0)`; }
-      else if (mUnit <= 2) { const x = sX + (eX - sX) * (mUnit - 1); track.style.opacity = "1"; track.style.transform = `translate3d(${x}px,0,0)`; }
-      else { track.style.opacity = "0"; track.style.transform = `translate3d(${eX}px,0,0)`; }
-    });
-    // Финальный блок (видео + "MY NAME IS ARTEM") — теперь своя, отдельная
-    // sticky-обёртка (см. JSX) — физически въезжает снизу, видимость больше
-    // не управляется вручную через прозрачность/tPhase.
+    // "5 РЯДОВ" теперь СВОЯ отдельная секция с непрерывной CSS-анимацией
+    // (см. JSX) — больше не управляется отсюда через scroll-position.
+    // Финальный блок (видео + "MY NAME IS ARTEM") — тоже своя, отдельная
+    // обычная секция (см. JSX) — видимость не управляется вручную.
   };
 
   const mainRef = useRef<HTMLElement>(null);
@@ -3319,7 +3215,19 @@ export default function Home() {
 
   useEffect(() => {
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent); if (isMobile) return;
-    const onMM = (e: MouseEvent) => { if (showContact || selectedImg) return; explodeFromPoint(e.clientX, e.clientY); };
+    const onMM = (e: MouseEvent) => {
+      if (showContact || selectedImg) return;
+      // Раньше explodeFromPoint (дорогой цикл по ВСЕМ объектам физики
+      // мозаик) вызывался на КАЖДОЕ движение курсора ГЛОБАЛЬНО — даже пока
+      // пользователь смотрит на alex/галерею, далеко от секции мозаик. Это
+      // отъедало CPU-время у каждого mousemove-события и конкурировало с
+      // логикой смены картинок alex/галереи — отсюда и "подвисания".
+      // Теперь вызывается только если секция мозаик реально в пределах
+      // видимости (по прокрутке).
+      const y = scrollRef.current;
+      if (y < preMosaicPxRef.current || y > preMosaicPxRef.current + MOSAIC_TOTAL_UNITS * SCROLL_PER_UNIT) return;
+      explodeFromPoint(e.clientX, e.clientY);
+    };
     const onClick = (e: MouseEvent) => { if (showContact || selectedImg) return; const hit = hitTestFloating(e.clientX, e.clientY); if (hit) openImg(hit); };
     window.addEventListener("mousemove", onMM);
     const ov = overlayRef.current; if (ov) ov.addEventListener("click", onClick);
@@ -3421,12 +3329,13 @@ export default function Home() {
         .card-btn{font-weight:900!important;letter-spacing:0.15em}
         @keyframes floatIn{from{opacity:0;}to{opacity:1;}}
         @keyframes psCaretBlink{0%,49%{opacity:1;}50%,100%{opacity:0;}}
+        @keyframes marquee{from{transform:translate3d(0,0,0);}to{transform:translate3d(-50%,0,0);}}
+        @keyframes marqueeReverse{from{transform:translate3d(-50%,0,0);}to{transform:translate3d(0,0,0);}}
         @keyframes psLoadingPulse{0%,100%{opacity:1;}50%{opacity:0.35;}}
         @keyframes strikeThroughDraw{
           from{transform:translateY(-50%) scaleX(0);}
           to{transform:translateY(-50%) scaleX(1);}
         }
-        ${buildStripKeyframeCSS("introStripCycle", ART_IMAGES.length, GALLERY_HOLD_MS, GALLERY_TRANSITION_MS)}
         .floating-img{position:absolute;width:75px;height:75px;border-radius:10px;overflow:hidden;pointer-events:none;will-change:transform,left,top;transform-origin:center center;animation:floatIn 0.4s ease forwards;animation-delay:var(--delay);opacity:0;transform:scale(0.6) rotate(var(--rot));box-shadow:0 4px 16px rgba(0,0,0,0.18);}
         .floating-img img{width:100%;height:100%;object-fit:cover;display:block;}
         @media(max-width:768px){.floating-img{width:25px;height:25px;border-radius:4px;}}
@@ -3516,7 +3425,7 @@ export default function Home() {
         <div ref={alexSectionRef} style={{ position: "relative", height: "100vh", overflow: "hidden", background: "#000", display: "flex", alignItems: "center", justifyContent: "center", padding: "clamp(16px,4vw,48px)" }}>
           {overlayOpacity <= 0.01 && (
             <div style={{ width: "100%", height: "100%", maxWidth: "1600px", borderRadius: "clamp(24px,5vw,64px)", overflow: "hidden", position: "relative", background: "#111" }}>
-              <img src={alexImage} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+              <img src={alexImage} alt="" decoding="sync" loading="eager" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
             </div>
           )}
 
@@ -3580,106 +3489,38 @@ export default function Home() {
           </div>
         </div>
 
-        {/* СЕКЦИЯ-ПРЕЗЕНТАЦИЯ С ГАЛЕРЕЕЙ — обычный блок ровно 100vh, БЕЗ
-            sticky-паузы (пауза при скролле остаётся только у секции мозаик
-            ниже). В каждом квадрате — бесконечная вертикальная лента (как
-            уличный рекламный баннер): держит картинку 2с, потом плавно едет
-            к следующей. У каждой плитки свой сдвиг по времени (отрицательный
-            animation-delay), поэтому плитки переключаются не синхронно —
-            визуально "живее". Скругление — 14% от размера самой плитки (та
-            же пропорция, что и у мозаик/кубиков по всему сайту). Тестовый
-            контент — ART_IMAGES (art1..art36.png из public/). */}
-        <div style={{ position: "relative", height: "100vh", overflow: "hidden", background: "#000", display: "flex", alignItems: "center", justifyContent: "center" }}>
-          {overlayOpacity <= 0.01 && galleryGrid.cellPx > 0 && (
-            <>
-              <div style={{ display: "grid", gridTemplateColumns: `repeat(${galleryGrid.cols},${galleryGrid.cellPx}px)`, gridTemplateRows: `repeat(${galleryGrid.rows},${galleryGrid.cellPx}px)`, gap: `${GAP}px` }}>
-                {Array.from({ length: GALLERY_CELL_COUNT }, (_, tileIdx) => {
-                  const cycleSec = (ART_IMAGES.length * (GALLERY_HOLD_MS + GALLERY_TRANSITION_MS)) / 1000; // см. buildStripKeyframeCSS — та же арифметика (holdMs+transitionMs)*count, count = ART_IMAGES.length (БЕЗ дубликата)
-                  const delaySec = galleryDelays[tileIdx]; // случайная (не синхронная) фаза — см. galleryDelays выше
-                  return (
-                    <div key={tileIdx} style={{ width: `${galleryGrid.cellPx}px`, height: `${galleryGrid.cellPx}px`, position: "relative", overflow: "hidden", borderRadius: "14%", background: "#111" }}>
-                      <div style={{ position: "absolute", top: 0, left: 0, width: "100%", height: `${ART_IMAGES_LOOP.length * 100}%`, animation: `introStripCycle ${cycleSec}s infinite`, animationDelay: `${delaySec}s` }}>
-                        {ART_IMAGES_LOOP.map((src, imgIdx) => (
-                          <img key={imgIdx} src={src} alt="" style={{ width: "100%", height: `${100 / ART_IMAGES_LOOP.length}%`, objectFit: "cover", display: "block" }} />
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              {/* Видео fit.mp4 "сквозь" ячейки — ОДНО общее полноэкранное видео,
-                  но видимое только в форме и на месте ячеек (SVG-маска с
-                  скруглёнными прямоугольниками, вычисленными из той же
-                  раскладки, что и сама сетка — центрирование флексом плюс
-                  раскладка по строкам/столбцам). Плавно проявляется (1с)
-                  через showGalleryVideo, вместо мгновенного появления. */}
-              {(() => {
-                const vw = stableDimsRef.current.w, vh = stableDimsRef.current.h;
-                const gridW = galleryGrid.cols * galleryGrid.cellPx + (galleryGrid.cols - 1) * GAP;
-                const gridH = galleryGrid.rows * galleryGrid.cellPx + (galleryGrid.rows - 1) * GAP;
-                const gridLeft = (vw - gridW) / 2;
-                const gridTop = (vh - gridH) / 2;
-                const cellRects = Array.from({ length: GALLERY_CELL_COUNT }, (_, i) => {
-                  const row = Math.floor(i / galleryGrid.cols);
-                  const col = i % galleryGrid.cols;
-                  return {
-                    x: gridLeft + col * (galleryGrid.cellPx + GAP),
-                    y: gridTop + row * (galleryGrid.cellPx + GAP),
-                    s: galleryGrid.cellPx,
-                  };
-                });
-                return (
-                  <>
-                    <svg width="0" height="0" style={{ position: "absolute" }}>
-                      <defs>
-                        <mask id="introVideoMask" maskUnits="userSpaceOnUse" x={0} y={0} width={vw} height={vh}>
-                          {cellRects.map((r, i) => (
-                            <rect key={i} x={r.x} y={r.y} width={r.s} height={r.s} rx={r.s * 0.14} fill="#fff" />
-                          ))}
-                        </mask>
-                      </defs>
-                    </svg>
-                    <video
-                      src="/fit.mp4"
-                      autoPlay
-                      muted
-                      loop
-                      playsInline
-                      style={{
-                        position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover",
-                        WebkitMaskImage: "url(#introVideoMask)", maskImage: "url(#introVideoMask)",
-                        opacity: showGalleryVideo ? 1 : 0,
-                        transition: "opacity 1s ease",
-                        pointerEvents: "none",
-                      } as React.CSSProperties}
-                    />
-                  </>
-                );
-              })()}
-            </>
+        {/* СЕКЦИЯ-ПРЕЗЕНТАЦИЯ С ГАЛЕРЕЕЙ — теперь ТОЧНО ТАКОЙ ЖЕ экран, что и
+            у alex (см. выше): большой прямоугольник со сильно сглаженными
+            углами, одна картинка за раз, ПОСЛЕДОВАТЕЛЬНО по кругу (см.
+            advanceArtImage). Обычный блок ровно 100vh, БЕЗ sticky-паузы
+            (пауза при скролле остаётся только у секции мозаик ниже).
+            Контент — ART_IMAGES (art1..art36.png из public/). */}
+        <div ref={artSectionRef} style={{ position: "relative", height: "100vh", overflow: "hidden", background: "#000", display: "flex", alignItems: "center", justifyContent: "center", padding: "clamp(16px,4vw,48px)" }}>
+          {overlayOpacity <= 0.01 && (
+            <div style={{ width: "100%", height: "100%", maxWidth: "1600px", borderRadius: "clamp(24px,5vw,64px)", overflow: "hidden", position: "relative", background: "#111" }}>
+              <img src={artImage} alt="" decoding="sync" loading="eager" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+            </div>
           )}
         </div>
 
-        {/* СЕКЦИЯ МОЗАИК (целиком) — теперь ФИЗИЧЕСКИ проскролливается одной
-            sticky-обёрткой на MOSAIC_TOTAL_UNITS (3 unit'а) высотой: внутри
-            неё — раскрытие+интерактив, переход "5 рядов" и финальный блок
-            (видео+MY NAME IS ARTEM) по-прежнему кросс-фейдятся через
-            прозрачность между собой (как и раньше — это одна протяжённая,
-            визуально непрерывная последовательность), но сама секция
-            целиком остаётся "приклеенной" к экрану всё это время, а не
-            висит поверх всего сайта фиксированным слоем. */}
-        <div style={{ position: "relative", height: `${MOSAIC_TOTAL_UNITS * SCROLL_PER_UNIT}px` }}>
-          <div style={{ position: "sticky", top: 0, height: "100vh", overflow: "hidden" }}>
+        {/* СЕКЦИЯ МОЗАИК — теперь ОБЫЧНЫЙ, физически проскролливаемый блок
+            100vh, БЕЗ sticky-паузы (как и все остальные секции сайта).
+            Раскрытие (pinkOpacity/iDoDesign) больше не анимируется через
+            скролл — секция сразу показывается в готовом виде, поскольку
+            больше нет "паузы", в которую эта анимация успевала бы
+            проиграться. Переход "5 рядов" вынесен в свою отдельную секцию
+            ниже (см. дальше в JSX). */}
+        <div style={{ position: "relative", height: "100vh", overflow: "hidden" }}>
 
-            {/* ЧЁРНЫЙ ФОН */}
-            <div style={{ position: "absolute", inset: 0, background: "#000", zIndex: 2, opacity: pinkOpacity, pointerEvents: "none" }}>
-              {/* CANVAS ТРЕЙЛОВ — за картинками */}
-              <canvas ref={trailCanvasRef} style={{ position: "absolute", inset: 0, zIndex: 0, pointerEvents: "none", opacity: 0.5 }} />
-              <div ref={overlayRef} style={{ position: "absolute", inset: 0, zIndex: 10, pointerEvents: (showContact || !!selectedImg) ? "none" : "auto", cursor: "none" }} />
-            </div>
+          {/* ЧЁРНЫЙ ФОН */}
+          <div style={{ position: "absolute", inset: 0, background: "#000", zIndex: 2, opacity: pinkOpacity, pointerEvents: "none" }}>
+            {/* CANVAS ТРЕЙЛОВ — за картинками */}
+            <canvas ref={trailCanvasRef} style={{ position: "absolute", inset: 0, zIndex: 0, pointerEvents: "none", opacity: 0.5 }} />
+            <div ref={overlayRef} style={{ position: "absolute", inset: 0, zIndex: 10, pointerEvents: (showContact || !!selectedImg) ? "none" : "auto", cursor: "none" }} />
+          </div>
 
-            <div style={{ position: "absolute", inset: 0, zIndex: 3, pointerEvents: "none", opacity: pinkOpacity * 0.5 }}>
-              {/* Центральная фигура — постоянно дублирует ПОСЛЕДНЮЮ созданную
+          <div style={{ position: "absolute", inset: 0, zIndex: 3, pointerEvents: "none", opacity: pinkOpacity * 0.5 }}>
+            {/* Центральная фигура — постоянно дублирует ПОСЛЕДНЮЮ созданную
               мозаику (не только самую первую), всегда точно в
               центре композиции (радиус 0), с теми же отступами (scale(0.9) на
               картинке) и той же логикой скругления углов, что и у остальных
@@ -3699,189 +3540,200 @@ export default function Home() {
               контексте (тот же zIndex:3) порядок в DOM определяет, что сверху;
               так фигура оказывается ПОД соседними плитками кольца 0, а не
               поверх них. */}
-              {centerOctagon && (
-                <>
-                  <svg width="0" height="0" style={{ position: "absolute" }}>
-                    <defs>
-                      <clipPath id="centerOctagonClip" clipPathUnits="objectBoundingBox">
-                        <path ref={centerShapePathRef} d={roundedPolygonPath(CIRCLE_SIDES_APPROX)} />
-                      </clipPath>
-                    </defs>
-                  </svg>
+            {centerOctagon && (
+              <>
+                <svg width="0" height="0" style={{ position: "absolute" }}>
+                  <defs>
+                    <clipPath id="centerOctagonClip" clipPathUnits="objectBoundingBox">
+                      <path ref={centerShapePathRef} d={roundedPolygonPath(CIRCLE_SIDES_APPROX)} />
+                    </clipPath>
+                  </defs>
+                </svg>
 
-                  <div
-                    ref={centerOctagonRef}
-                    style={{
-                      position: "absolute",
-                      clipPath: "url(#centerOctagonClip)",
-                      backgroundColor: centerOctagon.bgColor || "transparent",
-                    }}
-                  >
-                    <img src={centerOctagon.src} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", transform: "scale(0.9)" }} />
-                  </div>
-                </>
-              )}
-              {/* Несколько колец мозаик — растут без ограничений. Кольцо 0 заполняется
+                <div
+                  ref={centerOctagonRef}
+                  style={{
+                    position: "absolute",
+                    clipPath: "url(#centerOctagonClip)",
+                    backgroundColor: centerOctagon.bgColor || "transparent",
+                  }}
+                >
+                  <img src={centerOctagon.src} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", transform: "scale(0.9)" }} />
+                </div>
+              </>
+            )}
+            {/* Несколько колец мозаик — растут без ограничений. Кольцо 0 заполняется
               первым, дальше формируется кольцо 1 (наружное, крутится в другую
               сторону), потом кольцо 2 (внутреннее, меньше кольца 0), и так далее
               чередуя направление/радиус — см. getRingRadius/getRingDirection в
               начале файла. Вместимость каждого кольца — своя, из его радиуса
               (см. animate()), чтобы плотность была одинаковой во всех кольцах.
               Размер плитки — ФИКСИРОВАН и ОДИНАКОВ везде (tileSize). */}
-              {ringTiles.map((tile, i) => (
-                <RingTileView
-                  key={tile.id}
-                  tile={tile}
-                  boxSize={calcRingTileSize()}
-                  index={i}
-                  slotRefsArray={ringSlotRefs}
-                />
-              ))}
-            </div>
+            {ringTiles.map((tile, i) => (
+              <RingTileView
+                key={tile.id}
+                tile={tile}
+                boxSize={calcRingTileSize()}
+                index={i}
+                slotRefsArray={ringSlotRefs}
+              />
+            ))}
+          </div>
 
-            {/* КУБИКИ — поверх картинок и узоров */}
-            <div style={{ position: "absolute", inset: 0, zIndex: 4, opacity: pinkOpacity, pointerEvents: "none" }}>
-              {FLOATING_INIT.map((cfg, i) => (
-                <div key={i} ref={el => { floatingRefs.current[i] = el; }} className="floating-img"
-                  style={{ left: `${cfg.x}%`, top: `${cfg.y}%`, ["--delay" as any]: `${cfg.delay}ms`, ["--rot" as any]: `${cfg.rotation}deg` }}>
-                  <img src={cfg.src} alt="" />
-                </div>
-              ))}
-            </div>
+          {/* КУБИКИ — поверх картинок и узоров */}
+          <div style={{ position: "absolute", inset: 0, zIndex: 4, opacity: pinkOpacity, pointerEvents: "none" }}>
+            {FLOATING_INIT.map((cfg, i) => (
+              <div key={i} ref={el => { floatingRefs.current[i] = el; }} className="floating-img"
+                style={{ left: `${cfg.x}%`, top: `${cfg.y}%`, ["--delay" as any]: `${cfg.delay}ms`, ["--rot" as any]: `${cfg.rotation}deg` }}>
+                <img src={cfg.src} alt="" />
+              </div>
+            ))}
+          </div>
 
-            {/* Сухарик — только на время экрана загрузки, исчезает вместе с ним */}
-            {overlayOpacity > 0 && (
-              <img
-                ref={sugRef}
-                src="/sug.png"
-                alt=""
-                onLoad={(e) => {
-                  // Точные видимые размеры картинки — обрезаем прозрачные поля по
-                  // альфа-каналу (в PNG может быть лишний прозрачный отступ вокруг
-                  // самого силуэта), а не берём naturalWidth/naturalHeight как есть.
-                  // Отскок от стен считается по ТОЧНОЙ формуле повёрнутого
-                  // прямоугольника (см. animate()) — раньше был отдельный
-                  // радиальный профиль силуэта, но для такой формы (сухарик почти
-                  // полностью заполняет свой альфа-бокс — проверено на реальном
-                  // файле: 1096/1098 по ширине, 192/194 по высоте) прямоугольник
-                  // даёт математически точную коллизию, а не приближённую: у
-                  // радиального профиля были резкие перепады формы на некоторых
-                  // углах (мелкие бугорки корки), дававшие ощутимую (десятки px)
-                  // недооценку края независимо от разрешения выборки лучей.
-                  const img = e.currentTarget;
-                  const nw = img.naturalWidth || 1, nh = img.naturalHeight || 1;
-                  const s = sugPhys.current.size;
-                  const fallback = () => {
-                    const aspect = nw / nh;
-                    if (aspect >= 1) { sugPhys.current.renderW = s; sugPhys.current.renderH = s / aspect; }
-                    else { sugPhys.current.renderH = s; sugPhys.current.renderW = s * aspect; }
-                  };
-                  try {
-                    const off = document.createElement("canvas");
-                    off.width = nw; off.height = nh;
-                    const octx = off.getContext("2d", { willReadFrequently: true });
-                    if (!octx) { fallback(); return; }
-                    octx.drawImage(img, 0, 0, nw, nh);
-                    const { data } = octx.getImageData(0, 0, nw, nh);
-                    const ALPHA_THRESHOLD = 10;
-                    let minX = nw, minY = nh, maxX = -1, maxY = -1;
-                    for (let y = 0; y < nh; y++) {
-                      for (let x = 0; x < nw; x++) {
-                        if (data[(y * nw + x) * 4 + 3] > ALPHA_THRESHOLD) {
-                          if (x < minX) minX = x; if (x > maxX) maxX = x;
-                          if (y < minY) minY = y; if (y > maxY) maxY = y;
-                        }
+          {/* Сухарик — только на время экрана загрузки, исчезает вместе с ним */}
+          {overlayOpacity > 0 && (
+            <img
+              ref={sugRef}
+              src="/sug.png"
+              alt=""
+              onLoad={(e) => {
+                // Точные видимые размеры картинки — обрезаем прозрачные поля по
+                // альфа-каналу (в PNG может быть лишний прозрачный отступ вокруг
+                // самого силуэта), а не берём naturalWidth/naturalHeight как есть.
+                // Отскок от стен считается по ТОЧНОЙ формуле повёрнутого
+                // прямоугольника (см. animate()) — раньше был отдельный
+                // радиальный профиль силуэта, но для такой формы (сухарик почти
+                // полностью заполняет свой альфа-бокс — проверено на реальном
+                // файле: 1096/1098 по ширине, 192/194 по высоте) прямоугольник
+                // даёт математически точную коллизию, а не приближённую: у
+                // радиального профиля были резкие перепады формы на некоторых
+                // углах (мелкие бугорки корки), дававшие ощутимую (десятки px)
+                // недооценку края независимо от разрешения выборки лучей.
+                const img = e.currentTarget;
+                const nw = img.naturalWidth || 1, nh = img.naturalHeight || 1;
+                const s = sugPhys.current.size;
+                const fallback = () => {
+                  const aspect = nw / nh;
+                  if (aspect >= 1) { sugPhys.current.renderW = s; sugPhys.current.renderH = s / aspect; }
+                  else { sugPhys.current.renderH = s; sugPhys.current.renderW = s * aspect; }
+                };
+                try {
+                  const off = document.createElement("canvas");
+                  off.width = nw; off.height = nh;
+                  const octx = off.getContext("2d", { willReadFrequently: true });
+                  if (!octx) { fallback(); return; }
+                  octx.drawImage(img, 0, 0, nw, nh);
+                  const { data } = octx.getImageData(0, 0, nw, nh);
+                  const ALPHA_THRESHOLD = 10;
+                  let minX = nw, minY = nh, maxX = -1, maxY = -1;
+                  for (let y = 0; y < nh; y++) {
+                    for (let x = 0; x < nw; x++) {
+                      if (data[(y * nw + x) * 4 + 3] > ALPHA_THRESHOLD) {
+                        if (x < minX) minX = x; if (x > maxX) maxX = x;
+                        if (y < minY) minY = y; if (y > maxY) maxY = y;
                       }
                     }
-                    if (maxX < minX || maxY < minY) { fallback(); return; }
-                    const visW = maxX - minX + 1, visH = maxY - minY + 1;
-                    const scale = Math.min(s / nw, s / nh); // тот же масштаб, что даёт object-fit:contain
-                    sugPhys.current.renderW = visW * scale;
-                    sugPhys.current.renderH = visH * scale;
-                  } catch (_) {
-                    fallback(); // CORS/canvas недоступен — используем пропорции всего файла
                   }
-                }}
-                style={{
-                  position: "fixed",
-                  width: `${sugPhys.current.size}px`,
-                  height: `${sugPhys.current.size}px`,
-                  objectFit: "contain",
+                  if (maxX < minX || maxY < minY) { fallback(); return; }
+                  const visW = maxX - minX + 1, visH = maxY - minY + 1;
+                  const scale = Math.min(s / nw, s / nh); // тот же масштаб, что даёт object-fit:contain
+                  sugPhys.current.renderW = visW * scale;
+                  sugPhys.current.renderH = visH * scale;
+                } catch (_) {
+                  fallback(); // CORS/canvas недоступен — используем пропорции всего файла
+                }
+              }}
+              style={{
+                position: "fixed",
+                width: `${sugPhys.current.size}px`,
+                height: `${sugPhys.current.size}px`,
+                objectFit: "contain",
+                pointerEvents: "none",
+                willChange: "transform,left,top",
+                transformOrigin: "center center",
+                zIndex: 9,
+                opacity: overlayOpacity,
+                filter: `drop-shadow(0 4px 12px rgba(0,0,0,0.4)) blur(${(1 - overlayOpacity) * 8}px)`,
+                transition: "opacity 0.05s, filter 0.05s",
+              }}
+            />
+          )}
+
+          {/* I DO DESIGN + биография */}
+          {/* Экран загрузки — слова по центру */}
+          {overlayOpacity > 0 && (
+            <div style={{ position: "fixed", inset: 0, background: "#000", zIndex: 4, pointerEvents: overlayOpacity > 0.01 ? "all" : "none", opacity: overlayOpacity, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <span key={overlayWordKey} style={{
+                fontFamily: "'Arial Black', Arial, sans-serif",
+                fontWeight: 900,
+                fontSize: "clamp(48px, 10vw, 144px)",
+                color: "#fff",
+                letterSpacing: "-0.04em",
+                textTransform: "uppercase",
+                userSelect: "none",
+              }}>{overlayWord}</span>
+              {showStrikethrough && (
+                // Толщина — как штрих буквы "I" в Arial Black при том же кегле:
+                // у шрифтов насыщенности Black/900 вертикальный штрих обычно
+                // ~17% от размера шрифта — та же clamp()-формула, умноженная на
+                // этот коэффициент, вместо фиксированного пикселя.
+                // Рисуется слева направо (scaleX от 0 до 1, от левого края) и
+                // остаётся дорисованной — не пролетает мимо и не исчезает.
+                <div style={{
+                  position: "absolute",
+                  top: "50%",
+                  left: 0,
+                  width: "100%",
+                  height: "clamp(8.2px, 1.7vw, 24.5px)",
+                  background: "#fff",
+                  transformOrigin: "left center",
+                  transform: "translateY(-50%) scaleX(0)",
+                  animation: "strikeThroughDraw 0.9s linear forwards",
                   pointerEvents: "none",
-                  willChange: "transform,left,top",
-                  transformOrigin: "center center",
-                  zIndex: 9,
-                  opacity: overlayOpacity,
-                  filter: `drop-shadow(0 4px 12px rgba(0,0,0,0.4)) blur(${(1 - overlayOpacity) * 8}px)`,
-                  transition: "opacity 0.05s, filter 0.05s",
-                }}
-              />
-            )}
-
-            {/* I DO DESIGN + биография */}
-            {/* Экран загрузки — слова по центру */}
-            {overlayOpacity > 0 && (
-              <div style={{ position: "fixed", inset: 0, background: "#000", zIndex: 4, pointerEvents: overlayOpacity > 0.01 ? "all" : "none", opacity: overlayOpacity, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <span key={overlayWordKey} style={{
-                  fontFamily: "'Arial Black', Arial, sans-serif",
-                  fontWeight: 900,
-                  fontSize: "clamp(48px, 10vw, 144px)",
-                  color: "#fff",
-                  letterSpacing: "-0.04em",
-                  textTransform: "uppercase",
-                  userSelect: "none",
-                }}>{overlayWord}</span>
-                {showStrikethrough && (
-                  // Толщина — как штрих буквы "I" в Arial Black при том же кегле:
-                  // у шрифтов насыщенности Black/900 вертикальный штрих обычно
-                  // ~17% от размера шрифта — та же clamp()-формула, умноженная на
-                  // этот коэффициент, вместо фиксированного пикселя.
-                  // Рисуется слева направо (scaleX от 0 до 1, от левого края) и
-                  // остаётся дорисованной — не пролетает мимо и не исчезает.
-                  <div style={{
-                    position: "absolute",
-                    top: "50%",
-                    left: 0,
-                    width: "100%",
-                    height: "clamp(8.2px, 1.7vw, 24.5px)",
-                    background: "#fff",
-                    transformOrigin: "left center",
-                    transform: "translateY(-50%) scaleX(0)",
-                    animation: "strikeThroughDraw 0.9s linear forwards",
-                    pointerEvents: "none",
-                  }} />
-                )}
+                }} />
+              )}
+            </div>
+          )}
+          <div ref={iDoDesignRef} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", zIndex: 5, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", pointerEvents: "none", willChange: "transform,opacity", visibility: overlayOpacity > 0.05 ? "hidden" : "visible" }}>
+            <div style={{ position: "relative", display: "inline-flex", flexDirection: "column", alignItems: "center" }}>
+              <div ref={iDoDesignTextRef} style={{ position: "relative", fontFamily: "'Arial Black',Arial,sans-serif", fontWeight: 900, fontSize: "clamp(14px,3.5vw,48px)", letterSpacing: "-0.04em", color: "white", lineHeight: 0.95, whiteSpace: "nowrap", textAlign: "center" }}>
+                I DO DESIGN
               </div>
-            )}
-            <div ref={iDoDesignRef} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", zIndex: 5, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", pointerEvents: "none", willChange: "transform,opacity", visibility: overlayOpacity > 0.05 ? "hidden" : "visible" }}>
-              <div style={{ position: "relative", display: "inline-flex", flexDirection: "column", alignItems: "center" }}>
-                <div ref={iDoDesignTextRef} style={{ position: "relative", fontFamily: "'Arial Black',Arial,sans-serif", fontWeight: 900, fontSize: "clamp(14px,3.5vw,48px)", letterSpacing: "-0.04em", color: "white", lineHeight: 0.95, whiteSpace: "nowrap", textAlign: "center" }}>
-                  I DO DESIGN
-                </div>
-                <div ref={bioTextRef} style={{ position: "relative", fontFamily: "'Arial Black',Arial,sans-serif", fontWeight: 900, fontSize: "clamp(5px,0.925vw,13px)", color: "white", lineHeight: 1.2, marginTop: "0.4em", textAlign: "justify", textAlignLast: "left", textTransform: "uppercase", letterSpacing: "0em", wordSpacing: "0em", hyphens: "auto" as const }}>
-                  Hi! My name is Artem. I&apos;m here to create unique illustrations and visual design for any of your creative needs. I work across illustration, 3D design, video editing, visual effects, concept art, motion design, cartoons, music, theatre, film, and stop-motion animation. I&apos;ve had a camera in my hands for as long as I can remember — since I was around 5 years old. Creating visuals and telling stories has always been a natural part of my life. I&apos;m a truly dedicated artist who lives through creativity, visual expression, and filmmaking. Every project is an opportunity to build something original, memorable, and crafted with attention to detail. Don&apos;t hesitate to contact me — I&apos;ll bring your ideas to life and deliver unique, high-quality work with the dedication and professionalism of someone who genuinely loves what&nbsp;they&nbsp;create.
-                </div>
+              <div ref={bioTextRef} style={{ position: "relative", fontFamily: "'Arial Black',Arial,sans-serif", fontWeight: 900, fontSize: "clamp(5px,0.925vw,13px)", color: "white", lineHeight: 1.2, marginTop: "0.4em", textAlign: "justify", textAlignLast: "left", textTransform: "uppercase", letterSpacing: "0em", wordSpacing: "0em", hyphens: "auto" as const }}>
+                Hi! My name is Artem. I&apos;m here to create unique illustrations and visual design for any of your creative needs. I work across illustration, 3D design, video editing, visual effects, concept art, motion design, cartoons, music, theatre, film, and stop-motion animation. I&apos;ve had a camera in my hands for as long as I can remember — since I was around 5 years old. Creating visuals and telling stories has always been a natural part of my life. I&apos;m a truly dedicated artist who lives through creativity, visual expression, and filmmaking. Every project is an opportunity to build something original, memorable, and crafted with attention to detail. Don&apos;t hesitate to contact me — I&apos;ll bring your ideas to life and deliver unique, high-quality work with the dedication and professionalism of someone who genuinely loves what&nbsp;they&nbsp;create.
               </div>
             </div>
-
-            {/* Explosion overlay — полностью изолированный */}
-            <div id="explosion-overlay" style={{ position: "fixed", inset: 0, zIndex: 10, pointerEvents: "none" }} />
-
-            {/* 5 РЯДОВ */}
-            <div style={{ position: "absolute", inset: 0, zIndex: 3, overflow: "hidden", pointerEvents: "none", display: "flex", flexDirection: "column", justifyContent: "center", gap: `${GAP}px`, padding: `${GAP}px 0` }}>
-              {ROWS.map((images, rowIndex) => (
-                <div key={rowIndex} ref={el => { trackRefs.current[rowIndex] = el; }}
-                  style={{ display: "flex", gap: `${GAP}px`, paddingLeft: `${GAP}px`, width: "max-content", willChange: "transform", opacity: 0, flexShrink: 0 }}>
-                  {images.map((img, i) => (
-                    <div key={i} style={{ width: `${tileSize}px`, height: `${tileSize}px`, borderRadius: "12px", flexShrink: 0, overflow: "hidden" }}>
-                      <img src={img} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-                    </div>
-                  ))}
-                </div>
-              ))}
-            </div>
-
           </div>
+
+          {/* Explosion overlay — полностью изолированный */}
+          <div id="explosion-overlay" style={{ position: "fixed", inset: 0, zIndex: 10, pointerEvents: "none" }} />
+        </div>
+
+        {/* "5 РЯДОВ" — теперь СВОЯ отдельная, обычная (физически
+            проскролливаемая, без sticky-паузы) секция МЕЖДУ мозаиками и
+            финальным блоком. Раньше это была transition-анимация, управляемая
+            через scroll-position внутри секции мозаик; теперь — просто
+            непрерывная, бесконечно зацикленная CSS-анимация (marquee),
+            которая крутится сама по себе, пока эта секция на экране —
+            никак не завязана на скролл. Содержимое каждого ряда продублировано
+            (те же картинки дважды подряд) — стандартный приём для
+            бесшовной петли: translateX едет от 0% до -50% (ровно половина
+            общей ширины — вторая половина визуально идентична первой). */}
+        <div style={{ position: "relative", height: "100vh", overflow: "hidden", background: "#000", display: "flex", flexDirection: "column", justifyContent: "center", gap: `${GAP}px`, padding: `${GAP}px 0` }}>
+          {ROWS.map((images, rowIndex) => (
+            <div key={rowIndex} style={{ display: "flex", gap: `${GAP}px`, width: "max-content", willChange: "transform" }}>
+              <div style={{
+                display: "flex", gap: `${GAP}px`, flexShrink: 0,
+                animation: `marquee${REVERSED[rowIndex] ? "Reverse" : ""} ${40 + rowIndex * 6}s linear infinite`,
+              }}>
+                {[...images, ...images].map((img, i) => (
+                  <div key={i} style={{ width: `${tileSize}px`, height: `${tileSize}px`, borderRadius: "12px", flexShrink: 0, overflow: "hidden" }}>
+                    <img src={img} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
 
         {/* ФИНАЛЬНЫЙ БЛОК (видео-фон + текст "MY NAME IS ARTEM") — обычный
