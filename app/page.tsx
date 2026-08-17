@@ -224,34 +224,12 @@ const GALLERY_CELL_COUNT = 6;
 // Картинка держится 8с, плавный (ease-in-out) переход к следующей — 4с.
 const GALLERY_HOLD_MS = 8000;
 const GALLERY_TRANSITION_MS = 4000;
-// Единая ширина (в единицах unit = scrollY/SCROLL_PER_UNIT) — ОДИНАКОВАЯ для
-// каждой из шести смысловых частей вступительной последовательности: alex,
-// solve, галерея, сами мозаики (раскрытие+интерактив), переход "5 рядов",
-// финальный блок (видео + MY NAME IS ARTEM). Раньше ширины были очень
-// разными (от 0.075 до 0.6) и в среднем куда меньше — теперь единообразно и
-// заметно просторнее, каждую секцию не пролистать за секунду.
-const SECTION_WIDTH_UNIT = 1;
-const ALEX_END_UNIT = SECTION_WIDTH_UNIT;
-const PROBLEM_SOLVER_END_UNIT = SECTION_WIDTH_UNIT * 2;
-const GALLERY_END_UNIT = SECTION_WIDTH_UNIT * 3;
-// GALLERY_FADE_START_UNIT — где НАЧИНАЕТСЯ сам уход в прозрачность: до этой
-// точки opacity держится ровно 1 (никакого просвечивания секции мозаик
-// сквозь галерею), и гаснет только в последних 10% окна — раньше прозрачность
-// убывала линейно на всём окне, и мозаики частично просвечивали сквозь
-// галерею большую часть скролла (обычный побочный эффект долгого кросс-фейда).
-const GALLERY_FADE_START_UNIT = GALLERY_END_UNIT - (GALLERY_END_UNIT - PROBLEM_SOLVER_END_UNIT) * 0.1;
-// MOSAIC_OFFSET_UNIT — здесь у секции мозаик наступает СОБСТВЕННЫЙ unit=0 (а
-// не с самого начала страницы) — вся её внутренняя анимация (кубики, текст,
-// кольца, переход "5 рядов", финальный блок) построена на unit АБСОЛЮТНО, и
-// вся сдвигается на эту величину разом (см. mUnit в applyAnimations) —
-// иначе к моменту, когда мозаики наконец открывают, они уже были бы
-// "доиграны". Ставим сразу после конца галереи (GALLERY_END_UNIT) — раскрытие
-// мозаик (mUnit=0), сам интерактив, переход "5 рядов" (mUnit 1→2) и
-// финальный блок (расширен до mUnit 2→3, тоже SECTION_WIDTH_UNIT) — три
-// смысловые части внутри секции мозаик, КАЖДАЯ шириной SECTION_WIDTH_UNIT,
-// друг за другом, без масштабирования (поскольку SECTION_WIDTH_UNIT=1 —
-// внутренние формулы мозаик остаются как были, просто сдвинуты).
-const MOSAIC_OFFSET_UNIT = GALLERY_END_UNIT;
+// Сколько ЕДИНИЦ (× SCROLL_PER_UNIT) занимает секция мозаик САМА ПО СЕБЕ
+// (раскрытие+интерактив, переход "5 рядов") — единственная секция, у
+// которой ОСТАЁТСЯ sticky-пауза при скролле (по просьбе — все остальные
+// секции teper простые блоки 100vh, без паузы, см. JSX ниже). Используется
+// для физической высоты её sticky-обёртки.
+const MOSAIC_TOTAL_UNITS = 2;
 
 // "Problem solver" — набор шрифтов и цветов фона, между которыми хаотично
 // (по движению курсора) переключается новая секция-заглушка. Специально
@@ -333,7 +311,7 @@ const PS_THEMES: { bg: string; text: string; inputBg: string; inputText: string;
 // сглаженными углами, показывает одну из 7 картинок за раз, ПОСЛЕДОВАТЕЛЬНО
 // по кругу (не случайно — см. advanceAlexImage), чтобы не было слишком
 // ранних повторов.
-const ALEX_IMAGES = Array.from({ length: 7 }, (_, i) => `/alex${i + 1}.png`);
+const ALEX_IMAGES = Array.from({ length: 11 }, (_, i) => `/alex${i + 1}.png`);
 
 // Форма поля ввода — не только базовые скругления, но и асимметричные
 // (по разным углам) — визуально куда интереснее, чем просто "больше/меньше
@@ -1481,10 +1459,10 @@ export default function Home() {
   useEffect(() => {
     ALEX_IMAGES.forEach(src => { const img = new window.Image(); img.src = src; });
   }, []);
-  // "drink water" — постоянный текст-оверлей ПОВЕРХ всего сайта (не
-  // привязан к какой-то одной секции) — та же логика смены шрифта/курсива,
-  // что у "solve:" (см. problemStyle выше): движение курсора на десктопе,
-  // таймер на мобильных.
+  // "drink water" — теперь ЧАСТЬ секции alex (position:absolute внутри неё,
+  // а не fixed поверх всего сайта) — физически прокручивается вместе с ней
+  // (см. JSX). Та же логика смены шрифта/курсива, что у "solve:", теперь
+  // синхронизирована с advanceAlexImage (см. объединённый эффект ниже).
   const [drinkWaterStyle, setDrinkWaterStyle] = useState({ font: PROBLEM_SOLVER_FONTS[1], italic: false });
   const drinkWaterStyleRef = useRef(drinkWaterStyle);
   useEffect(() => { drinkWaterStyleRef.current = drinkWaterStyle; }, [drinkWaterStyle]);
@@ -1531,12 +1509,22 @@ export default function Home() {
   const [imgVisible, setImgVisible] = useState(false);
 
   const scrollRef = useRef(0);
+  // Реальная (в пикселях) высота всего, что идёт ДО секции мозаик (alex +
+  // галерея, каждая ровно 100vh, без sticky-паузы — см. JSX ниже) —
+  // используется, чтобы вычислить, где для мозаик начинается их
+  // собственный, локальный отсчёт (mUnit=0), см. applyAnimations. Раньше
+  // это было выражено через unit-константы и SCROLL_PER_UNIT, но раз высота
+  // alex/галереи теперь = window.innerHeight (динамическая, не завязанная
+  // на SCROLL_PER_UNIT), считаем в пикселях напрямую — обновляется при
+  // монтировании и ресайзе.
+  const preMosaicPxRef = useRef(0);
   const touchStartRef = useRef(0);
   const [pinkOpacity, setPinkOpacity] = useState(1);
   const [overlayOpacity, setOverlayOpacity] = useState(0);
-  // Зеркало overlayOpacity в реф — обработчики скролла (onWheel/onTM) настроены
-  // один раз при монтировании и иначе видели бы устаревшее (всегда 1)
-  // значение из замыкания, а не актуальное состояние экрана загрузки.
+  // Зеркало overlayOpacity в реф — на случай возврата к экрану загрузки
+  // (сейчас overlayOpacity стартует с 0 и не меняется, экран загрузки
+  // отключён) — раньше использовалось как guard в onWheel/onTM, которых
+  // больше нет (обычный, физический скролл, см. ниже).
   const overlayOpacityRef = useRef(0);
   const [overlayWord, setOverlayWord] = useState(""); // текущее слово на экране загрузки
   const [overlayWordKey, setOverlayWordKey] = useState(0); // растёт на каждую смену слова — форсирует remount span'а, чтобы CSS-анимация (пульс+свечение) перезапускалась с нуля на каждом слове, а не проигрывалась один раз и застывала
@@ -1708,12 +1696,14 @@ export default function Home() {
     window.addEventListener("mousemove", onMove);
     return () => window.removeEventListener("mousemove", onMove);
   }, []);
-  // "alex" — тот же самый паттерн, что и у "Problem solver" выше (накопленная
-  // дистанция курсора, 30px, срабатывает в любом месте секции — картинок в
-  // ней нет полей ввода, которые нужно было бы исключать, как у "solve:"),
-  // но только на десктопе — на мобильных вместо этого используются
-  // гироскоп/тряска (см. существующий эффект deviceorientation/devicemotion
-  // ниже, куда добавлена дополнительная логика).
+  // "alex" + "drink water" — теперь ОДНА синхронизированная система: раньше
+  // это были ДВА независимых mousemove-слушателя с разными порогами (30px и
+  // 100px) — картинка и шрифт меняись врозь, вдобавок два отдельных
+  // слушателя на один и тот же mousemove давали лишнюю, дублирующую нагрузку
+  // (отсюда и ощущение "подвисания"). Теперь один порог, одна накопленная
+  // дистанция — картинка и шрифт меняются СТРОГО одновременно, по одному и
+  // тому же событию. На мобильных — тоже один и тот же триггер (гироскоп/
+  // тряска, см. эффект ниже), вместо отдельного таймера у drink water.
   useEffect(() => {
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
     if (isMobile) return;
@@ -1725,30 +1715,11 @@ export default function Home() {
       if (Math.sqrt(dx * dx + dy * dy) < MOVE_THRESHOLD_PX) return;
       lastX = e.clientX; lastY = e.clientY;
       advanceAlexImage();
-    };
-    window.addEventListener("mousemove", onMove);
-    return () => window.removeEventListener("mousemove", onMove);
-  }, [advanceAlexImage]);
-  // "drink water" — та же логика, что у "solve:" (100px на десктопе, таймер
-  // на мобильных).
-  useEffect(() => {
-    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    if (isMobile) {
-      const timer = setInterval(randomizeDrinkWaterStyle, 1200);
-      return () => clearInterval(timer);
-    }
-    const MOVE_THRESHOLD_PX = 100;
-    let lastX: number | null = null, lastY: number | null = null;
-    const onMove = (e: MouseEvent) => {
-      if (lastX === null || lastY === null) { lastX = e.clientX; lastY = e.clientY; return; }
-      const dx = e.clientX - lastX, dy = e.clientY - lastY;
-      if (Math.sqrt(dx * dx + dy * dy) < MOVE_THRESHOLD_PX) return;
-      lastX = e.clientX; lastY = e.clientY;
       randomizeDrinkWaterStyle();
     };
     window.addEventListener("mousemove", onMove);
     return () => window.removeEventListener("mousemove", onMove);
-  }, [randomizeDrinkWaterStyle]);
+  }, [advanceAlexImage, randomizeDrinkWaterStyle]);
   // Подключаем Google Fonts для "Problem solver" (см. PROBLEM_SOLVER_FONTS) —
   // добавляем <link> в document.head программно: файл — "use client"-компонент
   // без доступа к layout.tsx, куда по канону Next.js полагалось бы это класть.
@@ -1932,6 +1903,7 @@ export default function Home() {
       if (Math.sqrt(dG * dG + dB * dB) >= TILT_THRESHOLD_DEG) {
         lastTiltG = g; lastTiltB = b;
         advanceAlexImage();
+        randomizeDrinkWaterStyle();
       }
     };
     const onMot = (e: DeviceMotionEvent) => {
@@ -1945,6 +1917,7 @@ export default function Home() {
         sh.lastShakeTime = now;
         explodeFromPoint(window.innerWidth / 2, window.innerHeight / 2, 9999, 60000);
         advanceAlexImage(); // тряска — тоже триггер смены картинки в "alex"
+        randomizeDrinkWaterStyle(); // и шрифта "drink water" — синхронно
       }
     };
     const add = () => {
@@ -1963,7 +1936,7 @@ export default function Home() {
       window.removeEventListener("deviceorientation", onOri, true);
       window.removeEventListener("devicemotion", onMot, true);
     };
-  }, [advanceAlexImage]);
+  }, [advanceAlexImage, randomizeDrinkWaterStyle]);
 
   const ALL_IMAGES = [
     "/1.jpg", "/2.jpg", "/3.jpg", "/4.jpg", "/5.jpg", "/6.jpg", "/7.jpg",
@@ -1976,12 +1949,11 @@ export default function Home() {
     shuffleWithSeed(ALL_IMAGES, 5005),
   ], []);
   const REVERSED = [false, true, false, true, false];
-  const SCROLL_PER_UNIT = 800;
-  // Было 3 — расширено под новую, единую ширину секций (SECTION_WIDTH_UNIT=1
-  // на каждую из шести смысловых частей: alex, solve, галерея, мозаики,
-  // переход "5 рядов", финальный блок) — MOSAIC_OFFSET_UNIT (=3, конец
-  // галереи) + 3 (мозаики+переход+финал) + небольшой запас сверху.
-  const TOTAL_SCROLL = (MOSAIC_OFFSET_UNIT + 3 + 0.3) * SCROLL_PER_UNIT;
+  // Было 800 — увеличено при переходе на обычный, физический скролл
+  // (sticky-секции): каждая sticky-обёртка должна быть ЗАМЕТНО выше 100vh,
+  // иначе на высоких экранах у неё просто не будет запаса на "задержку" —
+  // элемент откреплялся бы сразу же, толком не успев подержать экран.
+  const SCROLL_PER_UNIT = 1600;
 
   const iDoDesignTextRef = useRef<HTMLDivElement>(null);
   const bioTextRef = useRef<HTMLDivElement>(null);
@@ -3189,14 +3161,14 @@ export default function Home() {
     }; // end startExplosionTimer
 
     // Раньше startExplosionTimer() запускался сразу при монтировании — но
-    // теперь секция мозаик "закрыта" сверху Problem solver'ом, alex и
-    // галереей (см. MOSAIC_OFFSET_UNIT), и взрыв успевал случиться и
-    // закончиться, пока пользователь ещё не долистал до неё, оставаясь
-    // невидимым. Ждём, пока scrollRef не пересечёт MOSAIC_OFFSET_UNIT —
-    // лёгкий поллинг (100мс), не требующий переписывать саму (сложную)
-    // физику взрыва ниже.
+    // теперь секция мозаик "закрыта" сверху alex и галереей (см.
+    // preMosaicPxRef), и взрыв успевал случиться и закончиться, пока
+    // пользователь ещё не долистал до неё, оставаясь невидимым. Ждём, пока
+    // scrollRef не пересечёт preMosaicPxRef (реальный пиксель начала секции
+    // мозаик) — лёгкий поллинг (100мс), не требующий переписывать саму
+    // (сложную) физику взрыва ниже.
     let gateTimer: ReturnType<typeof setInterval> | null = setInterval(() => {
-      if (scrollRef.current / SCROLL_PER_UNIT < MOSAIC_OFFSET_UNIT) return;
+      if (scrollRef.current < preMosaicPxRef.current) return;
       if (gateTimer) { clearInterval(gateTimer); gateTimer = null; }
       startExplosionTimer();
     }, 100);
@@ -3208,45 +3180,21 @@ export default function Home() {
   }, []);
 
   const applyAnimations = (scrollY: number, deltaY = 0) => {
-    const unit = scrollY / SCROLL_PER_UNIT;
-    // mUnit — СОБСТВЕННЫЙ отсчёт секции мозаик (и всего, что после неё:
-    // переход "5 рядов", видео, "MY NAME IS ARTEM") — эти формулы изначально
-    // были рассчитаны от unit=0 (запуск страницы), и делят одну систему
-    // координат; сдвигаем их ВСЕ разом на MOSAIC_OFFSET_UNIT, сохраняя
-    // расстояния между ними такими же, как были.
-    const mUnit = unit - MOSAIC_OFFSET_UNIT;
+    // mUnit — СОБСТВЕННЫЙ, локальный отсчёт секции мозаик (и того, что
+    // после неё внутри той же sticky-обёртки: переход "5 рядов") — считаем
+    // от РЕАЛЬНОГО пикселя, где мозаики физически начинаются
+    // (preMosaicPxRef = 2×window.innerHeight, alex+галерея), а не через
+    // старую unit-систему — та предполагала, что alex/галерея тоже имеют
+    // фиксированную высоту SCROLL_PER_UNIT, но теперь они простые
+    // блоки-100vh без sticky-паузы (см. JSX), их реальная высота зависит от
+    // экрана пользователя.
+    const mUnit = (scrollY - preMosaicPxRef.current) / SCROLL_PER_UNIT;
     setPinkOpacity(Math.max(0, 1 - Math.max(0, (mUnit - 0.8) / 0.4)));
-    // "alex" — теперь самая первая секция. Полностью видна на unit=0, гаснет
-    // к ALEX_END_UNIT, открывая Problem solver под собой.
-    if (alexSectionRef.current) {
-      const alexOpacity = Math.max(0, 1 - unit / ALEX_END_UNIT);
-      alexSectionRef.current.style.opacity = String(alexOpacity);
-      alexSectionRef.current.style.pointerEvents = alexOpacity > 0.02 ? "auto" : "none";
-    }
-    // "Problem solver" — теперь ВТОРАЯ секция (после "alex"). Полностью
-    // видна с ALEX_END_UNIT, гаснет к PROBLEM_SOLVER_END_UNIT, открывая
-    // галерею под собой.
-    if (problemSolverRef.current) {
-      const problemOpacity = Math.max(0, 1 - Math.max(0, unit - ALEX_END_UNIT) / (PROBLEM_SOLVER_END_UNIT - ALEX_END_UNIT));
-      problemSolverRef.current.style.opacity = String(problemOpacity);
-      problemSolverRef.current.style.pointerEvents = problemOpacity > 0.02 ? "auto" : "none";
-    }
-    // Секция-презентация (галерея) — держится ПОЛНОСТЬЮ непрозрачной
-    // (opacity=1, никакого просвечивания секции мозаик сквозь неё) до
-    // GALLERY_FADE_START_UNIT, и гаснет только в последних 10% своего окна
-    // (GALLERY_FADE_START_UNIT → GALLERY_END_UNIT) — раньше прозрачность
-    // убывала линейно на всём окне, и мозаики частично просвечивали сквозь
-    // галерею большую часть скролла. pointer-events выключаются вместе с
-    // прозрачностью — иначе невидимая, но всё ещё "живая" секция
-    // блокировала бы клики/курсор для того, что находится под ней.
-    if (introGalleryRef.current) {
-      const fadeWindow = GALLERY_END_UNIT - GALLERY_FADE_START_UNIT;
-      const introOpacity = unit <= GALLERY_FADE_START_UNIT
-        ? 1
-        : Math.max(0, Math.min(1, (GALLERY_END_UNIT - unit) / fadeWindow));
-      introGalleryRef.current.style.opacity = String(introOpacity);
-      introGalleryRef.current.style.pointerEvents = introOpacity > 0.02 ? "auto" : "none";
-    }
+    // "alex" — теперь физически проскролливается (sticky-обёртка в JSX) —
+    // ручного управления прозрачностью через ref больше не требуется.
+    // Секция-презентация (галерея) — теперь физически проскролливается
+    // (sticky-обёртка в JSX) — ручного управления прозрачностью через ref
+    // больше не требуется, переход "уезжает вверх" делает сам sticky.
     // Слова исчезают вместе с кубиками
     // Удаляем все слова-взрыва из DOM при любом скролле
     if (mUnit > 0.5 && wordPhysRef.current.length > 0) {
@@ -3280,32 +3228,51 @@ export default function Home() {
       else if (mUnit <= 2) { const x = sX + (eX - sX) * (mUnit - 1); track.style.opacity = "1"; track.style.transform = `translate3d(${x}px,0,0)`; }
       else { track.style.opacity = "0"; track.style.transform = `translate3d(${eX}px,0,0)`; }
     });
-
-    // Финальный блок (видео + "MY NAME IS ARTEM") — расширен с mUnit 2.2→2.7
-    // (ширина 0.5) до mUnit 2→3 (полный SECTION_WIDTH_UNIT=1), чтобы и он
-    // соответствовал единой ширине остальных пяти секций.
-    const tPhase = Math.max(0, Math.min(mUnit - 2, 1));
-    setVideoOpacity(tPhase);
-    videoOpacityRef.current = tPhase;
-    if (videoRef.current) videoRef.current.style.opacity = tPhase.toString();
-    if (textRef.current) {
-      textRef.current.style.opacity = tPhase.toString();
-      textRef.current.style.transform = `translate3d(0,${(1 - tPhase) * 40}px,0)`;
-      textRef.current.style.pointerEvents = tPhase > 0 ? "auto" : "none";
-    }
+    // Финальный блок (видео + "MY NAME IS ARTEM") — теперь своя, отдельная
+    // sticky-обёртка (см. JSX) — физически въезжает снизу, видимость больше
+    // не управляется вручную через прозрачность/tPhase.
   };
 
   const mainRef = useRef<HTMLElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
 
+  // preMosaicPxRef — обновляется при монтировании и ресайзе (см. комментарий
+  // у самого рефа выше). Должен быть объявлен/выполнен ДО эффекта со
+  // scroll-слушателем ниже, чтобы к первому вызову applyAnimations там уже
+  // было верное значение — React гарантированно выполняет эффекты в
+  // порядке их объявления в компоненте.
   useEffect(() => {
-    const onWheel = (e: WheelEvent) => {
-      if (showContact) return;
-      e.preventDefault();
-      if (overlayOpacityRef.current > 0.01) return; // экран загрузки ещё активен — скролл вообще не обрабатываем
-      scrollRef.current = Math.max(0, Math.min(scrollRef.current + e.deltaY, TOTAL_SCROLL));
-      applyAnimations(scrollRef.current, e.deltaY);
+    const upd = () => { preMosaicPxRef.current = window.innerHeight * 2; };
+    upd();
+    window.addEventListener("resize", upd);
+    return () => window.removeEventListener("resize", upd);
+  }, []);
+
+  // Обычный, физический скролл — больше НЕ перехватываем wheel/touchmove
+  // (никакого e.preventDefault() на прокрутке): страница скроллится нативно,
+  // браузер сам двигает scrollbar. applyAnimations по-прежнему управляет
+  // всей внутренней анимацией (прозрачности, физика кубиков и т.п.) — просто
+  // теперь получает РЕАЛЬНУЮ scrollY (не виртуальную) и дельту, вычисленную
+  // из двух последовательных значений window.scrollY, а не из wheel-события.
+  useEffect(() => {
+    let lastScrollY = window.scrollY;
+    scrollRef.current = lastScrollY;
+    const onScroll = () => {
+      const y = window.scrollY;
+      const dy = y - lastScrollY;
+      lastScrollY = y;
+      scrollRef.current = y;
+      applyAnimations(y, dy);
     };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    applyAnimations(lastScrollY, 0); // первичная синхронизация при монтировании
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  // Тап (не свайп) на мобильных — открыть картинку под пальцем или взорвать
+  // текст в этой точке. Больше не блокирует/не вычисляет скролл сам —
+  // только определяет, было ли это тапом (tMoved=false) или свайпом.
+  useEffect(() => {
     let tSY = 0, tSX = 0, tMoved = false;
     const onTS = (e: TouchEvent) => {
       if (showContact) return; tSY = e.touches[0].clientY; tSX = e.touches[0].clientX; tMoved = false;
@@ -3313,12 +3280,8 @@ export default function Home() {
     };
     const onTM = (e: TouchEvent) => {
       if (showContact) return;
-      e.preventDefault();
       const dy = tSY - e.touches[0].clientY, dx = Math.abs(tSX - e.touches[0].clientX);
       if (Math.abs(dy) > 5 || dx > 5) tMoved = true; tSY = e.touches[0].clientY;
-      if (overlayOpacityRef.current > 0.01) return; // см. onWheel — тот же самый guard
-      scrollRef.current = Math.max(0, Math.min(scrollRef.current + dy * 2.5, TOTAL_SCROLL));
-      applyAnimations(scrollRef.current, dy * 2.5);
     };
     const onTE = (e: TouchEvent) => {
       if (showContact || selectedImg) return;
@@ -3334,12 +3297,10 @@ export default function Home() {
       }
     };
     const el = mainRef.current; if (!el) return;
-    window.addEventListener("wheel", onWheel, { passive: false });
     el.addEventListener("touchstart", onTS, { passive: true });
-    el.addEventListener("touchmove", onTM, { passive: false });
+    el.addEventListener("touchmove", onTM, { passive: true });
     el.addEventListener("touchend", onTE, { passive: true });
     return () => {
-      window.removeEventListener("wheel", onWheel);
       el.removeEventListener("touchstart", onTS);
       el.removeEventListener("touchmove", onTM);
       el.removeEventListener("touchend", onTE);
@@ -3365,14 +3326,18 @@ export default function Home() {
     return () => { window.removeEventListener("mousemove", onMM); if (ov) ov.removeEventListener("click", onClick); };
   }, [showContact, selectedImg]);
 
-  // Автоскролл — единоразово, только после экрана загрузки
+  // Автоскролл — временно отключён (по просьбе). Реализация осталась
+  // нетронутой, просто ранний return — чтобы вернуть, достаточно убрать
+  // строку ниже.
   useEffect(() => {
+    return; // eslint-disable-line no-unreachable
     let fired = false;
     const timer = setTimeout(() => {
       if (fired) return;
       fired = true;
-      if (scrollRef.current < TOTAL_SCROLL * 0.8) {
-        const target = TOTAL_SCROLL;
+      const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+      if (scrollRef.current < maxScroll * 0.8) {
+        const target = maxScroll;
         const start = scrollRef.current;
         const duration = 8000;
         const startTime = performance.now();
@@ -3382,8 +3347,7 @@ export default function Home() {
           const ease = progress < 0.5
             ? 4 * progress * progress * progress
             : 1 - Math.pow(-2 * progress + 2, 3) / 2;
-          scrollRef.current = start + (target - start) * ease;
-          applyAnimations(scrollRef.current, 0);
+          window.scrollTo(0, start + (target - start) * ease);
           if (progress < 1) requestAnimationFrame(animate);
         };
         requestAnimationFrame(animate);
@@ -3425,7 +3389,7 @@ export default function Home() {
   return (
     <>
       <style>{`
-        html,body{margin:0;padding:0;width:100vw;height:100vh;overflow:hidden;background:black;position:fixed;cursor:none!important;}
+        html,body{margin:0;padding:0;width:100vw;background:black;cursor:none!important;}
         *{font-family:'Arial Black',Arial,sans-serif!important;text-transform:uppercase!important;box-sizing:border-box;cursor:none!important;}
         /* Секция "Problem solver" — нужен РЕАЛЬНО меняющийся шрифт, а не
            всегда Arial Black. Правило выше — на *{...!important} — а
@@ -3533,220 +3497,94 @@ export default function Home() {
         </div>
       )}
 
-      <main ref={mainRef} style={{ position: "fixed", width: "100vw", height: "100vh", top: 0, left: 0, overflow: "hidden", touchAction: "none" }}>
+      <main ref={mainRef} style={{ position: "relative", width: "100vw", touchAction: "auto" }}>
 
-        {/* "drink water" — постоянный оверлей ПОВЕРХ вообще всего сайта
-            (z-index выше любой секции, включая alex) — не привязан к
-            скроллу, виден всегда. Полноэкранная затемняющая подложка +
-            крупный центрированный текст. Шрифт/курсив меняются той же
-            логикой, что у "solve:" (движение курсора / таймер на мобильных,
-            см. drinkWaterStyle выше). whiteSpace:nowrap + scale() —
-            гарантированно ОДНА строка, без переноса на второй абзац, и
-            ОДИНАКОВЫЙ видимый размер независимо от того, насколько широким
-            или узким оказывается конкретный шрифт при том же font-size (та
-            же техника, что и у "solve:" — см. drinkWaterMeasureRef).
-            pointerEvents:none на обоих слоях — не мешает взаимодействию с
-            тем, что под ними. */}
-        <div style={{ position: "fixed", inset: 0, zIndex: 500000, background: "rgba(0,0,0,0.55)", pointerEvents: "none", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
-          <div
-            ref={drinkWaterHeadingRef}
-            className="ps-font"
-            style={{
-              ["--ps-font" as any]: drinkWaterStyle.font,
-              fontStyle: drinkWaterStyle.italic ? "italic" : "normal",
-              fontWeight: 900,
-              fontSize: "clamp(48px,10vw,160px)",
-              lineHeight: 1,
-              whiteSpace: "nowrap",
-              display: "inline-block",
-              transform: `scale(${drinkWaterScale})`,
-              transformOrigin: "center center",
-              color: "#ffffff",
-              userSelect: "none",
-              transition: "font-style 0.15s ease",
-            }}
-          >
-            drink water
-          </div>
-          {/* Скрытый образец для замера — та же строка/шрифт/начертание, но
-              БЕЗ transform: scale() — ResizeObserver следит именно за этим
-              элементом (см. эффект выше). */}
-          <div
-            ref={drinkWaterMeasureRef}
-            aria-hidden="true"
-            className="ps-font"
-            style={{
-              position: "fixed",
-              top: 0,
-              left: 0,
-              visibility: "hidden",
-              pointerEvents: "none",
-              ["--ps-font" as any]: drinkWaterStyle.font,
-              fontStyle: drinkWaterStyle.italic ? "italic" : "normal",
-              fontWeight: 900,
-              fontSize: "clamp(48px,10vw,160px)",
-              lineHeight: 1,
-              whiteSpace: "nowrap",
-            }}
-          >
-            drink water
-          </div>
-        </div>
-
-        {/* ALEX — новая, самая первая секция (над "solve:", см.
-            applyAnimations — гаснет первой, unit 0→ALEX_END_UNIT, открывая
-            "solve:" под собой). Большой прямоугольник со сильно
-            сглаженными углами — одна из 7 картинок за раз, в случайном
-            порядке (гарантированно другая, чем текущая — см.
-            advanceAlexImage). На десктопе меняется движением курсора
-            (100px, тот же паттерн, что и у "solve:"); на мобильных —
-            наклоном/тряской телефона (переиспользует уже существующий
-            гироскоп/акселерометр эффект, см. deviceorientation/devicemotion
-            выше). Гейтинг по overlayOpacity — та же схема, что и у
-            остальных вступительных секций: не существует в DOM, пока не
-            погас экран загрузки. */}
-        <div ref={alexSectionRef} style={{ position: "absolute", inset: 0, zIndex: 11000, background: "#000", display: "flex", alignItems: "center", justifyContent: "center", padding: "clamp(16px,4vw,48px)" }}>
+        {/* ALEX — теперь самая первая ФИЗИЧЕСКИ проскролливаемая секция —
+            обычный блок ровно 100vh, БЕЗ sticky-паузы (по просьбе — пауза
+            при скролле остаётся только у секции мозаик ниже). Большой
+            прямоугольник со сильно сглаженными углами — одна из 7 картинок
+            за раз, ПОСЛЕДОВАТЕЛЬНО по кругу (см. advanceAlexImage). На
+            десктопе меняется движением курсора; на мобильных — наклоном/
+            тряской телефона (переиспользует уже существующий гироскоп/
+            акселерометр эффект). Гейтинг по overlayOpacity — секция не
+            существует в DOM, пока не погас экран загрузки. */}
+        <div ref={alexSectionRef} style={{ position: "relative", height: "100vh", overflow: "hidden", background: "#000", display: "flex", alignItems: "center", justifyContent: "center", padding: "clamp(16px,4vw,48px)" }}>
           {overlayOpacity <= 0.01 && (
             <div style={{ width: "100%", height: "100%", maxWidth: "1600px", borderRadius: "clamp(24px,5vw,64px)", overflow: "hidden", position: "relative", background: "#111" }}>
               <img src={alexImage} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
             </div>
           )}
+
+          {/* "drink water" — теперь ЧАСТЬ секции alex (position:absolute
+              относительно неё, а не fixed поверх всего сайта) — физически
+              прокручивается ВМЕСТЕ с alex, естественно уезжая вместе с ней,
+              а не отдельно управляется через JS-видимость. Полноэкранная
+              (в пределах alex) затемняющая подложка + крупный
+              центрированный текст. Шрифт/курсив меняются той же логикой,
+              что у "solve:" (движение курсора / гироскоп на мобильных, см.
+              drinkWaterStyle выше, синхронизировано с advanceAlexImage).
+              whiteSpace:nowrap + scale() — гарантированно ОДНА строка, без
+              переноса на второй абзац, и ОДИНАКОВЫЙ видимый размер
+              независимо от шрифта (та же техника, что и у "solve:" — см.
+              drinkWaterMeasureRef). pointerEvents:none — не мешает
+              взаимодействию с тем, что под ним. */}
+          <div style={{ position: "absolute", inset: 0, zIndex: 5, background: "rgba(0,0,0,0.55)", pointerEvents: "none", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+            <div
+              ref={drinkWaterHeadingRef}
+              className="ps-font"
+              style={{
+                ["--ps-font" as any]: drinkWaterStyle.font,
+                fontStyle: drinkWaterStyle.italic ? "italic" : "normal",
+                fontWeight: 900,
+                fontSize: "clamp(48px,10vw,160px)",
+                lineHeight: 1,
+                whiteSpace: "nowrap",
+                display: "inline-block",
+                transform: `scale(${drinkWaterScale})`,
+                transformOrigin: "center center",
+                color: "#ffffff",
+                userSelect: "none",
+                transition: "font-style 0.15s ease",
+              }}
+            >
+              drink water
+            </div>
+            {/* Скрытый образец для замера — та же строка/шрифт/начертание, но
+                БЕЗ transform: scale() — ResizeObserver следит именно за этим
+                элементом (см. эффект выше). */}
+            <div
+              ref={drinkWaterMeasureRef}
+              aria-hidden="true"
+              className="ps-font"
+              style={{
+                position: "fixed",
+                top: 0,
+                left: 0,
+                visibility: "hidden",
+                pointerEvents: "none",
+                ["--ps-font" as any]: drinkWaterStyle.font,
+                fontStyle: drinkWaterStyle.italic ? "italic" : "normal",
+                fontWeight: 900,
+                fontSize: "clamp(48px,10vw,160px)",
+                lineHeight: 1,
+                whiteSpace: "nowrap",
+              }}
+            >
+              drink water
+            </div>
+          </div>
         </div>
 
-        {/* PROBLEM SOLVER — новая, самая первая секция (над галереей, см.
-            applyAnimations — гаснет первой, unit 0→0.075, открывая галерею
-            под собой). Фон и стиль/курсив заголовка "solve:" хаотично меняются
-            движением курсора ВНЕ поля ввода (см. эффект с problemStyle выше)
-            — само поле ввода остаётся стабильно белым и читаемым. Гейтинг по
-            overlayOpacity — та же явная схема, что и у галереи ниже: секция
-            не существует в DOM, пока не погас экран загрузки. */}
-        <div ref={problemSolverRef} style={{ position: "absolute", inset: 0, zIndex: 10000, background: problemStyle.bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", transition: "background-color 0.25s ease", padding: "0 4vw" }}>
-          {overlayOpacity <= 0.01 && (
-            <>
-              {/* Фиксированная высота контейнера (28vh) — раз font-size
-                  фиксирован (не подбирается под каждый шрифт), высота
-                  занимаемого места в раскладке стабильна сама по себе — а
-                  значит, стабильно и положение поля ввода под ним. ВАЖНО:
-                  overflow:visible, а не hidden — у декоративных курсивных
-                  шрифтов (скрипт/рукописный) росчерки и акценты нередко
-                  выходят за пределы обычной высоты буквы, и hidden их
-                  обрезал бы (это и было причиной обрезанного двоеточия) —
-                  visible ничего не обрезает, а стабильность высоты и так уже
-                  даёт фиксированная высота самого контейнера, а не overflow. */}
-              <div style={{ height: "28vh", display: "flex", alignItems: "center", justifyContent: "center", overflow: "visible", marginBottom: "clamp(6px,1.2vh,16px)" }}>
-                <div
-                  ref={problemHeadingRef}
-                  className="ps-font"
-                  style={{
-                    ["--ps-font" as any]: problemStyle.font,
-                    fontStyle: problemStyle.italic ? "italic" : "normal",
-                    fontWeight: 900,
-                    fontSize: "min(15vh, 170px)",
-                    lineHeight: 1,
-                    whiteSpace: "nowrap",
-                    display: "inline-block",
-                    // ВАЖНО: scale(), а не scaleX() — тот растягивал только
-                    // по горизонтали, искажая пропорции букв (видно на
-                    // скриншоте — буквы становились неестественно широкими).
-                    // scale() с одним значением масштабирует РАВНОМЕРНО по
-                    // обеим осям — ширина всё равно точно попадает в
-                    // targetWidth (тот же самый вычисленный коэффициент),
-                    // просто без искажения формы. Высота при этом тоже
-                    // меняется пропорционально — но это не проблема: высота
-                    // контейнера выше фиксирована (28vh) и не завязана на
-                    // overflow, так что положение поля ввода всё равно
-                    // стабильно, чем бы ни оказалась итоговая высота текста.
-                    transform: `scale(${problemScaleX})`,
-                    transformOrigin: "center center",
-                    color: problemStyle.text,
-                    transition: "font-style 0.15s ease, color 0.25s ease",
-                    animation: problemLoading ? "psLoadingPulse 1s ease-in-out infinite" : "none",
-                    userSelect: "none",
-                  }}
-                >
-                  {problemHeadingText}
-                </div>
-              </div>
-              {/* Скрытый образец для замера — см. problemMeasureRef выше.
-                  Та же строка/шрифт/начертание, что и видимый заголовок,
-                  но БЕЗ transform: scale() — ResizeObserver следит именно
-                  за этим элементом. */}
-              <div
-                ref={problemMeasureRef}
-                aria-hidden="true"
-                className="ps-font"
-                style={{
-                  position: "fixed",
-                  top: 0,
-                  left: 0,
-                  visibility: "hidden",
-                  pointerEvents: "none",
-                  ["--ps-font" as any]: problemStyle.font,
-                  fontStyle: problemStyle.italic ? "italic" : "normal",
-                  fontWeight: 900,
-                  fontSize: "min(15vh, 170px)",
-                  lineHeight: 1,
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {problemHeadingText}
-              </div>
-              <div style={{ position: "relative", width: `${problemStyle.inputWidthPct}%`, maxWidth: "1400px" }}>
-                <input
-                  ref={problemInputRef}
-                  type="text"
-                  value={problemInputValue}
-                  onChange={(e) => setProblemInputValue(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") handleProblemSubmit(); }}
-                  disabled={problemLoading}
-                  style={{
-                    width: "100%",
-                    fontSize: "clamp(20px, 3vw, 40px)",
-                    padding: "clamp(14px,2vw,28px) clamp(20px,3vw,36px)",
-                    border: `3px solid ${problemStyle.inputBorder}`,
-                    borderRadius: problemStyle.inputRadius,
-                    outline: "none",
-                    background: problemStyle.inputBg,
-                    color: problemStyle.inputText,
-                    fontFamily: "Arial, sans-serif",
-                    transition: "background-color 0.25s ease, border-color 0.25s ease, border-radius 0.25s ease, color 0.25s ease",
-                  }}
-                />
-                {/* Мигающая черта-курсор — своя, декоративная, видна только
-                    пока поле пусто (как только напечатан хоть символ, дальше
-                    работает обычный нативный курсор внутри самого текста).
-                    Цвет — часть общего "хаоса" (см. problemStyle.caretColor). */}
-                {problemInputValue === "" && (
-                  <span style={{
-                    position: "absolute",
-                    left: "clamp(20px,3vw,36px)",
-                    top: "50%",
-                    transform: "translateY(-50%)",
-                    width: "3px",
-                    height: "clamp(20px, 3vw, 40px)",
-                    background: problemStyle.caretColor,
-                    animation: "psCaretBlink 1s steps(1) infinite",
-                    pointerEvents: "none",
-                  }} />
-                )}
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* СЕКЦИЯ-ПРЕЗЕНТАЦИЯ С ГАЛЕРЕЕЙ — новый самый первый экран, поверх
-            секции мозаик (та по-прежнему занимает scroll position 0 — эта
-            секция просто лежит НАД ней, зависит только от unit, см.
-            applyAnimations). В каждом квадрате — бесконечная вертикальная
-            лента (как уличный рекламный баннер): держит картинку 2с, потом
-            плавно едет к следующей. У каждой плитки свой сдвиг по времени
-            (отрицательный animation-delay), поэтому плитки переключаются не
-            синхронно — визуально "живее". Скругление — 14% от размера самой
-            плитки (та же пропорция, что и у мозаик/кубиков по всему сайту:
-            там ~13-14% через boxSize*0.14, здесь — то же самое через
-            CSS-проценты, которые растут вместе с адаптивным размером плитки).
-            Тестовый контент — ART_IMAGES (art1..art14.png из public/). */}
-        <div ref={introGalleryRef} style={{ position: "absolute", inset: 0, zIndex: 9000, background: "#000", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        {/* СЕКЦИЯ-ПРЕЗЕНТАЦИЯ С ГАЛЕРЕЕЙ — обычный блок ровно 100vh, БЕЗ
+            sticky-паузы (пауза при скролле остаётся только у секции мозаик
+            ниже). В каждом квадрате — бесконечная вертикальная лента (как
+            уличный рекламный баннер): держит картинку 2с, потом плавно едет
+            к следующей. У каждой плитки свой сдвиг по времени (отрицательный
+            animation-delay), поэтому плитки переключаются не синхронно —
+            визуально "живее". Скругление — 14% от размера самой плитки (та
+            же пропорция, что и у мозаик/кубиков по всему сайту). Тестовый
+            контент — ART_IMAGES (art1..art36.png из public/). */}
+        <div style={{ position: "relative", height: "100vh", overflow: "hidden", background: "#000", display: "flex", alignItems: "center", justifyContent: "center" }}>
           {overlayOpacity <= 0.01 && galleryGrid.cellPx > 0 && (
             <>
               <div style={{ display: "grid", gridTemplateColumns: `repeat(${galleryGrid.cols},${galleryGrid.cellPx}px)`, gridTemplateRows: `repeat(${galleryGrid.rows},${galleryGrid.cellPx}px)`, gap: `${GAP}px` }}>
@@ -3817,15 +3655,26 @@ export default function Home() {
           )}
         </div>
 
-        {/* ЧЁРНЫЙ ФОН */}
-        <div style={{ position: "absolute", inset: 0, background: "#000", zIndex: 2, opacity: pinkOpacity, pointerEvents: "none" }}>
-          {/* CANVAS ТРЕЙЛОВ — за картинками */}
-          <canvas ref={trailCanvasRef} style={{ position: "absolute", inset: 0, zIndex: 0, pointerEvents: "none", opacity: 0.5 }} />
-          <div ref={overlayRef} style={{ position: "absolute", inset: 0, zIndex: 10, pointerEvents: (showContact || !!selectedImg) ? "none" : "auto", cursor: "none" }} />
-        </div>
+        {/* СЕКЦИЯ МОЗАИК (целиком) — теперь ФИЗИЧЕСКИ проскролливается одной
+            sticky-обёрткой на MOSAIC_TOTAL_UNITS (3 unit'а) высотой: внутри
+            неё — раскрытие+интерактив, переход "5 рядов" и финальный блок
+            (видео+MY NAME IS ARTEM) по-прежнему кросс-фейдятся через
+            прозрачность между собой (как и раньше — это одна протяжённая,
+            визуально непрерывная последовательность), но сама секция
+            целиком остаётся "приклеенной" к экрану всё это время, а не
+            висит поверх всего сайта фиксированным слоем. */}
+        <div style={{ position: "relative", height: `${MOSAIC_TOTAL_UNITS * SCROLL_PER_UNIT}px` }}>
+          <div style={{ position: "sticky", top: 0, height: "100vh", overflow: "hidden" }}>
 
-        <div style={{ position: "absolute", inset: 0, zIndex: 3, pointerEvents: "none", opacity: pinkOpacity * 0.5 }}>
-          {/* Центральная фигура — постоянно дублирует ПОСЛЕДНЮЮ созданную
+            {/* ЧЁРНЫЙ ФОН */}
+            <div style={{ position: "absolute", inset: 0, background: "#000", zIndex: 2, opacity: pinkOpacity, pointerEvents: "none" }}>
+              {/* CANVAS ТРЕЙЛОВ — за картинками */}
+              <canvas ref={trailCanvasRef} style={{ position: "absolute", inset: 0, zIndex: 0, pointerEvents: "none", opacity: 0.5 }} />
+              <div ref={overlayRef} style={{ position: "absolute", inset: 0, zIndex: 10, pointerEvents: (showContact || !!selectedImg) ? "none" : "auto", cursor: "none" }} />
+            </div>
+
+            <div style={{ position: "absolute", inset: 0, zIndex: 3, pointerEvents: "none", opacity: pinkOpacity * 0.5 }}>
+              {/* Центральная фигура — постоянно дублирует ПОСЛЕДНЮЮ созданную
               мозаику (не только самую первую), всегда точно в
               центре композиции (радиус 0), с теми же отступами (scale(0.9) на
               картинке) и той же логикой скругления углов, что и у остальных
@@ -3845,204 +3694,216 @@ export default function Home() {
               контексте (тот же zIndex:3) порядок в DOM определяет, что сверху;
               так фигура оказывается ПОД соседними плитками кольца 0, а не
               поверх них. */}
-          {centerOctagon && (
-            <>
-              <svg width="0" height="0" style={{ position: "absolute" }}>
-                <defs>
-                  <clipPath id="centerOctagonClip" clipPathUnits="objectBoundingBox">
-                    <path ref={centerShapePathRef} d={roundedPolygonPath(CIRCLE_SIDES_APPROX)} />
-                  </clipPath>
-                </defs>
-              </svg>
+              {centerOctagon && (
+                <>
+                  <svg width="0" height="0" style={{ position: "absolute" }}>
+                    <defs>
+                      <clipPath id="centerOctagonClip" clipPathUnits="objectBoundingBox">
+                        <path ref={centerShapePathRef} d={roundedPolygonPath(CIRCLE_SIDES_APPROX)} />
+                      </clipPath>
+                    </defs>
+                  </svg>
 
-              <div
-                ref={centerOctagonRef}
-                style={{
-                  position: "absolute",
-                  clipPath: "url(#centerOctagonClip)",
-                  backgroundColor: centerOctagon.bgColor || "transparent",
-                }}
-              >
-                <img src={centerOctagon.src} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", transform: "scale(0.9)" }} />
-              </div>
-            </>
-          )}
-          {/* Несколько колец мозаик — растут без ограничений. Кольцо 0 заполняется
+                  <div
+                    ref={centerOctagonRef}
+                    style={{
+                      position: "absolute",
+                      clipPath: "url(#centerOctagonClip)",
+                      backgroundColor: centerOctagon.bgColor || "transparent",
+                    }}
+                  >
+                    <img src={centerOctagon.src} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", transform: "scale(0.9)" }} />
+                  </div>
+                </>
+              )}
+              {/* Несколько колец мозаик — растут без ограничений. Кольцо 0 заполняется
               первым, дальше формируется кольцо 1 (наружное, крутится в другую
               сторону), потом кольцо 2 (внутреннее, меньше кольца 0), и так далее
               чередуя направление/радиус — см. getRingRadius/getRingDirection в
               начале файла. Вместимость каждого кольца — своя, из его радиуса
               (см. animate()), чтобы плотность была одинаковой во всех кольцах.
               Размер плитки — ФИКСИРОВАН и ОДИНАКОВ везде (tileSize). */}
-          {ringTiles.map((tile, i) => (
-            <RingTileView
-              key={tile.id}
-              tile={tile}
-              boxSize={calcRingTileSize()}
-              index={i}
-              slotRefsArray={ringSlotRefs}
-            />
-          ))}
-        </div>
-
-        {/* КУБИКИ — поверх картинок и узоров */}
-        <div style={{ position: "absolute", inset: 0, zIndex: 4, opacity: pinkOpacity, pointerEvents: "none" }}>
-          {FLOATING_INIT.map((cfg, i) => (
-            <div key={i} ref={el => { floatingRefs.current[i] = el; }} className="floating-img"
-              style={{ left: `${cfg.x}%`, top: `${cfg.y}%`, ["--delay" as any]: `${cfg.delay}ms`, ["--rot" as any]: `${cfg.rotation}deg` }}>
-              <img src={cfg.src} alt="" />
+              {ringTiles.map((tile, i) => (
+                <RingTileView
+                  key={tile.id}
+                  tile={tile}
+                  boxSize={calcRingTileSize()}
+                  index={i}
+                  slotRefsArray={ringSlotRefs}
+                />
+              ))}
             </div>
-          ))}
-        </div>
 
-        {/* Сухарик — только на время экрана загрузки, исчезает вместе с ним */}
-        {overlayOpacity > 0 && (
-          <img
-            ref={sugRef}
-            src="/sug.png"
-            alt=""
-            onLoad={(e) => {
-              // Точные видимые размеры картинки — обрезаем прозрачные поля по
-              // альфа-каналу (в PNG может быть лишний прозрачный отступ вокруг
-              // самого силуэта), а не берём naturalWidth/naturalHeight как есть.
-              // Отскок от стен считается по ТОЧНОЙ формуле повёрнутого
-              // прямоугольника (см. animate()) — раньше был отдельный
-              // радиальный профиль силуэта, но для такой формы (сухарик почти
-              // полностью заполняет свой альфа-бокс — проверено на реальном
-              // файле: 1096/1098 по ширине, 192/194 по высоте) прямоугольник
-              // даёт математически точную коллизию, а не приближённую: у
-              // радиального профиля были резкие перепады формы на некоторых
-              // углах (мелкие бугорки корки), дававшие ощутимую (десятки px)
-              // недооценку края независимо от разрешения выборки лучей.
-              const img = e.currentTarget;
-              const nw = img.naturalWidth || 1, nh = img.naturalHeight || 1;
-              const s = sugPhys.current.size;
-              const fallback = () => {
-                const aspect = nw / nh;
-                if (aspect >= 1) { sugPhys.current.renderW = s; sugPhys.current.renderH = s / aspect; }
-                else { sugPhys.current.renderH = s; sugPhys.current.renderW = s * aspect; }
-              };
-              try {
-                const off = document.createElement("canvas");
-                off.width = nw; off.height = nh;
-                const octx = off.getContext("2d", { willReadFrequently: true });
-                if (!octx) { fallback(); return; }
-                octx.drawImage(img, 0, 0, nw, nh);
-                const { data } = octx.getImageData(0, 0, nw, nh);
-                const ALPHA_THRESHOLD = 10;
-                let minX = nw, minY = nh, maxX = -1, maxY = -1;
-                for (let y = 0; y < nh; y++) {
-                  for (let x = 0; x < nw; x++) {
-                    if (data[(y * nw + x) * 4 + 3] > ALPHA_THRESHOLD) {
-                      if (x < minX) minX = x; if (x > maxX) maxX = x;
-                      if (y < minY) minY = y; if (y > maxY) maxY = y;
-                    }
-                  }
-                }
-                if (maxX < minX || maxY < minY) { fallback(); return; }
-                const visW = maxX - minX + 1, visH = maxY - minY + 1;
-                const scale = Math.min(s / nw, s / nh); // тот же масштаб, что даёт object-fit:contain
-                sugPhys.current.renderW = visW * scale;
-                sugPhys.current.renderH = visH * scale;
-              } catch (_) {
-                fallback(); // CORS/canvas недоступен — используем пропорции всего файла
-              }
-            }}
-            style={{
-              position: "fixed",
-              width: `${sugPhys.current.size}px`,
-              height: `${sugPhys.current.size}px`,
-              objectFit: "contain",
-              pointerEvents: "none",
-              willChange: "transform,left,top",
-              transformOrigin: "center center",
-              zIndex: 9,
-              opacity: overlayOpacity,
-              filter: `drop-shadow(0 4px 12px rgba(0,0,0,0.4)) blur(${(1 - overlayOpacity) * 8}px)`,
-              transition: "opacity 0.05s, filter 0.05s",
-            }}
-          />
-        )}
-
-        {/* I DO DESIGN + биография */}
-        {/* Экран загрузки — слова по центру */}
-        {overlayOpacity > 0 && (
-          <div style={{ position: "fixed", inset: 0, background: "#000", zIndex: 4, pointerEvents: overlayOpacity > 0.01 ? "all" : "none", opacity: overlayOpacity, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <span key={overlayWordKey} style={{
-              fontFamily: "'Arial Black', Arial, sans-serif",
-              fontWeight: 900,
-              fontSize: "clamp(48px, 10vw, 144px)",
-              color: "#fff",
-              letterSpacing: "-0.04em",
-              textTransform: "uppercase",
-              userSelect: "none",
-            }}>{overlayWord}</span>
-            {showStrikethrough && (
-              // Толщина — как штрих буквы "I" в Arial Black при том же кегле:
-              // у шрифтов насыщенности Black/900 вертикальный штрих обычно
-              // ~17% от размера шрифта — та же clamp()-формула, умноженная на
-              // этот коэффициент, вместо фиксированного пикселя.
-              // Рисуется слева направо (scaleX от 0 до 1, от левого края) и
-              // остаётся дорисованной — не пролетает мимо и не исчезает.
-              <div style={{
-                position: "absolute",
-                top: "50%",
-                left: 0,
-                width: "100%",
-                height: "clamp(8.2px, 1.7vw, 24.5px)",
-                background: "#fff",
-                transformOrigin: "left center",
-                transform: "translateY(-50%) scaleX(0)",
-                animation: "strikeThroughDraw 0.9s linear forwards",
-                pointerEvents: "none",
-              }} />
-            )}
-          </div>
-        )}
-        <div ref={iDoDesignRef} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", zIndex: 5, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", pointerEvents: "none", willChange: "transform,opacity", visibility: overlayOpacity > 0.05 ? "hidden" : "visible" }}>
-          <div style={{ position: "relative", display: "inline-flex", flexDirection: "column", alignItems: "center" }}>
-            <div ref={iDoDesignTextRef} style={{ position: "relative", fontFamily: "'Arial Black',Arial,sans-serif", fontWeight: 900, fontSize: "clamp(14px,3.5vw,48px)", letterSpacing: "-0.04em", color: "white", lineHeight: 0.95, whiteSpace: "nowrap", textAlign: "center" }}>
-              I DO DESIGN
-            </div>
-            <div ref={bioTextRef} style={{ position: "relative", fontFamily: "'Arial Black',Arial,sans-serif", fontWeight: 900, fontSize: "clamp(5px,0.925vw,13px)", color: "white", lineHeight: 1.2, marginTop: "0.4em", textAlign: "justify", textAlignLast: "left", textTransform: "uppercase", letterSpacing: "0em", wordSpacing: "0em", hyphens: "auto" as const }}>
-              Hi! My name is Artem. I&apos;m here to create unique illustrations and visual design for any of your creative needs. I work across illustration, 3D design, video editing, visual effects, concept art, motion design, cartoons, music, theatre, film, and stop-motion animation. I&apos;ve had a camera in my hands for as long as I can remember — since I was around 5 years old. Creating visuals and telling stories has always been a natural part of my life. I&apos;m a truly dedicated artist who lives through creativity, visual expression, and filmmaking. Every project is an opportunity to build something original, memorable, and crafted with attention to detail. Don&apos;t hesitate to contact me — I&apos;ll bring your ideas to life and deliver unique, high-quality work with the dedication and professionalism of someone who genuinely loves what&nbsp;they&nbsp;create.
-            </div>
-          </div>
-        </div>
-
-        {/* Explosion overlay — полностью изолированный */}
-        <div id="explosion-overlay" style={{ position: "fixed", inset: 0, zIndex: 10, pointerEvents: "none" }} />
-
-        <video ref={videoRef} src={videoSrc} muted loop autoPlay playsInline
-          style={{ position: "absolute", top: 0, left: 0, width: "100vw", height: "100vh", objectFit: "cover", zIndex: 0, opacity: 0 }} />
-        <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1, opacity: videoOpacity, pointerEvents: "none" }} />
-
-        {/* 5 РЯДОВ */}
-        <div style={{ position: "absolute", inset: 0, zIndex: 3, overflow: "hidden", pointerEvents: "none", display: "flex", flexDirection: "column", justifyContent: "center", gap: `${GAP}px`, padding: `${GAP}px 0` }}>
-          {ROWS.map((images, rowIndex) => (
-            <div key={rowIndex} ref={el => { trackRefs.current[rowIndex] = el; }}
-              style={{ display: "flex", gap: `${GAP}px`, paddingLeft: `${GAP}px`, width: "max-content", willChange: "transform", opacity: 0, flexShrink: 0 }}>
-              {images.map((img, i) => (
-                <div key={i} style={{ width: `${tileSize}px`, height: `${tileSize}px`, borderRadius: "12px", flexShrink: 0, overflow: "hidden" }}>
-                  <img src={img} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+            {/* КУБИКИ — поверх картинок и узоров */}
+            <div style={{ position: "absolute", inset: 0, zIndex: 4, opacity: pinkOpacity, pointerEvents: "none" }}>
+              {FLOATING_INIT.map((cfg, i) => (
+                <div key={i} ref={el => { floatingRefs.current[i] = el; }} className="floating-img"
+                  style={{ left: `${cfg.x}%`, top: `${cfg.y}%`, ["--delay" as any]: `${cfg.delay}ms`, ["--rot" as any]: `${cfg.rotation}deg` }}>
+                  <img src={cfg.src} alt="" />
                 </div>
               ))}
             </div>
-          ))}
+
+            {/* Сухарик — только на время экрана загрузки, исчезает вместе с ним */}
+            {overlayOpacity > 0 && (
+              <img
+                ref={sugRef}
+                src="/sug.png"
+                alt=""
+                onLoad={(e) => {
+                  // Точные видимые размеры картинки — обрезаем прозрачные поля по
+                  // альфа-каналу (в PNG может быть лишний прозрачный отступ вокруг
+                  // самого силуэта), а не берём naturalWidth/naturalHeight как есть.
+                  // Отскок от стен считается по ТОЧНОЙ формуле повёрнутого
+                  // прямоугольника (см. animate()) — раньше был отдельный
+                  // радиальный профиль силуэта, но для такой формы (сухарик почти
+                  // полностью заполняет свой альфа-бокс — проверено на реальном
+                  // файле: 1096/1098 по ширине, 192/194 по высоте) прямоугольник
+                  // даёт математически точную коллизию, а не приближённую: у
+                  // радиального профиля были резкие перепады формы на некоторых
+                  // углах (мелкие бугорки корки), дававшие ощутимую (десятки px)
+                  // недооценку края независимо от разрешения выборки лучей.
+                  const img = e.currentTarget;
+                  const nw = img.naturalWidth || 1, nh = img.naturalHeight || 1;
+                  const s = sugPhys.current.size;
+                  const fallback = () => {
+                    const aspect = nw / nh;
+                    if (aspect >= 1) { sugPhys.current.renderW = s; sugPhys.current.renderH = s / aspect; }
+                    else { sugPhys.current.renderH = s; sugPhys.current.renderW = s * aspect; }
+                  };
+                  try {
+                    const off = document.createElement("canvas");
+                    off.width = nw; off.height = nh;
+                    const octx = off.getContext("2d", { willReadFrequently: true });
+                    if (!octx) { fallback(); return; }
+                    octx.drawImage(img, 0, 0, nw, nh);
+                    const { data } = octx.getImageData(0, 0, nw, nh);
+                    const ALPHA_THRESHOLD = 10;
+                    let minX = nw, minY = nh, maxX = -1, maxY = -1;
+                    for (let y = 0; y < nh; y++) {
+                      for (let x = 0; x < nw; x++) {
+                        if (data[(y * nw + x) * 4 + 3] > ALPHA_THRESHOLD) {
+                          if (x < minX) minX = x; if (x > maxX) maxX = x;
+                          if (y < minY) minY = y; if (y > maxY) maxY = y;
+                        }
+                      }
+                    }
+                    if (maxX < minX || maxY < minY) { fallback(); return; }
+                    const visW = maxX - minX + 1, visH = maxY - minY + 1;
+                    const scale = Math.min(s / nw, s / nh); // тот же масштаб, что даёт object-fit:contain
+                    sugPhys.current.renderW = visW * scale;
+                    sugPhys.current.renderH = visH * scale;
+                  } catch (_) {
+                    fallback(); // CORS/canvas недоступен — используем пропорции всего файла
+                  }
+                }}
+                style={{
+                  position: "fixed",
+                  width: `${sugPhys.current.size}px`,
+                  height: `${sugPhys.current.size}px`,
+                  objectFit: "contain",
+                  pointerEvents: "none",
+                  willChange: "transform,left,top",
+                  transformOrigin: "center center",
+                  zIndex: 9,
+                  opacity: overlayOpacity,
+                  filter: `drop-shadow(0 4px 12px rgba(0,0,0,0.4)) blur(${(1 - overlayOpacity) * 8}px)`,
+                  transition: "opacity 0.05s, filter 0.05s",
+                }}
+              />
+            )}
+
+            {/* I DO DESIGN + биография */}
+            {/* Экран загрузки — слова по центру */}
+            {overlayOpacity > 0 && (
+              <div style={{ position: "fixed", inset: 0, background: "#000", zIndex: 4, pointerEvents: overlayOpacity > 0.01 ? "all" : "none", opacity: overlayOpacity, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <span key={overlayWordKey} style={{
+                  fontFamily: "'Arial Black', Arial, sans-serif",
+                  fontWeight: 900,
+                  fontSize: "clamp(48px, 10vw, 144px)",
+                  color: "#fff",
+                  letterSpacing: "-0.04em",
+                  textTransform: "uppercase",
+                  userSelect: "none",
+                }}>{overlayWord}</span>
+                {showStrikethrough && (
+                  // Толщина — как штрих буквы "I" в Arial Black при том же кегле:
+                  // у шрифтов насыщенности Black/900 вертикальный штрих обычно
+                  // ~17% от размера шрифта — та же clamp()-формула, умноженная на
+                  // этот коэффициент, вместо фиксированного пикселя.
+                  // Рисуется слева направо (scaleX от 0 до 1, от левого края) и
+                  // остаётся дорисованной — не пролетает мимо и не исчезает.
+                  <div style={{
+                    position: "absolute",
+                    top: "50%",
+                    left: 0,
+                    width: "100%",
+                    height: "clamp(8.2px, 1.7vw, 24.5px)",
+                    background: "#fff",
+                    transformOrigin: "left center",
+                    transform: "translateY(-50%) scaleX(0)",
+                    animation: "strikeThroughDraw 0.9s linear forwards",
+                    pointerEvents: "none",
+                  }} />
+                )}
+              </div>
+            )}
+            <div ref={iDoDesignRef} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", zIndex: 5, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", pointerEvents: "none", willChange: "transform,opacity", visibility: overlayOpacity > 0.05 ? "hidden" : "visible" }}>
+              <div style={{ position: "relative", display: "inline-flex", flexDirection: "column", alignItems: "center" }}>
+                <div ref={iDoDesignTextRef} style={{ position: "relative", fontFamily: "'Arial Black',Arial,sans-serif", fontWeight: 900, fontSize: "clamp(14px,3.5vw,48px)", letterSpacing: "-0.04em", color: "white", lineHeight: 0.95, whiteSpace: "nowrap", textAlign: "center" }}>
+                  I DO DESIGN
+                </div>
+                <div ref={bioTextRef} style={{ position: "relative", fontFamily: "'Arial Black',Arial,sans-serif", fontWeight: 900, fontSize: "clamp(5px,0.925vw,13px)", color: "white", lineHeight: 1.2, marginTop: "0.4em", textAlign: "justify", textAlignLast: "left", textTransform: "uppercase", letterSpacing: "0em", wordSpacing: "0em", hyphens: "auto" as const }}>
+                  Hi! My name is Artem. I&apos;m here to create unique illustrations and visual design for any of your creative needs. I work across illustration, 3D design, video editing, visual effects, concept art, motion design, cartoons, music, theatre, film, and stop-motion animation. I&apos;ve had a camera in my hands for as long as I can remember — since I was around 5 years old. Creating visuals and telling stories has always been a natural part of my life. I&apos;m a truly dedicated artist who lives through creativity, visual expression, and filmmaking. Every project is an opportunity to build something original, memorable, and crafted with attention to detail. Don&apos;t hesitate to contact me — I&apos;ll bring your ideas to life and deliver unique, high-quality work with the dedication and professionalism of someone who genuinely loves what&nbsp;they&nbsp;create.
+                </div>
+              </div>
+            </div>
+
+            {/* Explosion overlay — полностью изолированный */}
+            <div id="explosion-overlay" style={{ position: "fixed", inset: 0, zIndex: 10, pointerEvents: "none" }} />
+
+            {/* 5 РЯДОВ */}
+            <div style={{ position: "absolute", inset: 0, zIndex: 3, overflow: "hidden", pointerEvents: "none", display: "flex", flexDirection: "column", justifyContent: "center", gap: `${GAP}px`, padding: `${GAP}px 0` }}>
+              {ROWS.map((images, rowIndex) => (
+                <div key={rowIndex} ref={el => { trackRefs.current[rowIndex] = el; }}
+                  style={{ display: "flex", gap: `${GAP}px`, paddingLeft: `${GAP}px`, width: "max-content", willChange: "transform", opacity: 0, flexShrink: 0 }}>
+                  {images.map((img, i) => (
+                    <div key={i} style={{ width: `${tileSize}px`, height: `${tileSize}px`, borderRadius: "12px", flexShrink: 0, overflow: "hidden" }}>
+                      <img src={img} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+
+          </div>
         </div>
 
-        {/* ТЕКСТ + слайдшоу картинок поверх */}
-        <div ref={textRef} style={{ position: "absolute", inset: 0, zIndex: 10, display: "flex", alignItems: "center", padding: "0 clamp(20px,6vw,80px)", opacity: 0, transform: "translate3d(0,40px,0)", willChange: "transform,opacity", pointerEvents: "none" }}>
-          {/* Картинки слайдшоу поверх текста */}
-          <div style={{ display: "flex", flexDirection: "column", width: "100%" }}>
-            <div className="text-line" style={{ fontSize: "clamp(32px,6.5vw,88px)" }}>MY NAME <span className="mobile-br" />IS ARTEM</div>
-            <div className="text-line" style={{ fontSize: "clamp(32px,6.5vw,88px)", marginTop: "0.15em" }}>I'M A <span className="mobile-br" />DESIGNER</div>
-            <div className={`text-line contact-trigger ${shaking ? "shakeY" : ""}`}
-              onMouseEnter={handleContactEnter} onMouseLeave={() => setContactHovered(false)} onClick={openContact}
-              style={{ fontSize: "clamp(32px,6.5vw,88px)", marginTop: "1.6em", cursor: "none", userSelect: "none", display: "block", lineHeight: 0.92, minHeight: "1.85em", overflow: "visible" }}>
-              <span className="heartbeat-wrapper">{contactHovered ? "GET YOUR BEST DESIGN EVER" : "CONTACT ME"}</span>
+        {/* ФИНАЛЬНЫЙ БЛОК (видео-фон + текст "MY NAME IS ARTEM") — обычный
+            блок ровно 100vh, БЕЗ sticky-паузы — физически "въезжает" снизу
+            ПОСЛЕ того, как переход "5 рядов" закончился и его обёртка
+            исчерпала свою высоту (пауза при скролле остаётся только у
+            секции мозаик выше). */}
+        <div style={{ position: "relative", height: "100vh", overflow: "hidden" }}>
+
+          <video ref={videoRef} src={videoSrc} muted loop autoPlay playsInline
+            style={{ position: "absolute", top: 0, left: 0, width: "100vw", height: "100vh", objectFit: "cover", zIndex: 0 }} />
+          <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1, pointerEvents: "none" }} />
+
+          {/* ТЕКСТ + слайдшоу картинок поверх */}
+          <div ref={textRef} style={{ position: "absolute", inset: 0, zIndex: 10, display: "flex", alignItems: "center", padding: "0 clamp(20px,6vw,80px)", willChange: "transform,opacity" }}>
+            {/* Картинки слайдшоу поверх текста */}
+            <div style={{ display: "flex", flexDirection: "column", width: "100%" }}>
+              <div className="text-line" style={{ fontSize: "clamp(32px,6.5vw,88px)" }}>MY NAME <span className="mobile-br" />IS ARTEM</div>
+              <div className="text-line" style={{ fontSize: "clamp(32px,6.5vw,88px)", marginTop: "0.15em" }}>I'M A <span className="mobile-br" />DESIGNER</div>
+              <div className={`text-line contact-trigger ${shaking ? "shakeY" : ""}`}
+                onMouseEnter={handleContactEnter} onMouseLeave={() => setContactHovered(false)} onClick={openContact}
+                style={{ fontSize: "clamp(32px,6.5vw,88px)", marginTop: "1.6em", cursor: "none", userSelect: "none", display: "block", lineHeight: 0.92, minHeight: "1.85em", overflow: "visible" }}>
+                <span className="heartbeat-wrapper">{contactHovered ? "GET YOUR BEST DESIGN EVER" : "CONTACT ME"}</span>
+              </div>
             </div>
           </div>
+
         </div>
 
       </main>
