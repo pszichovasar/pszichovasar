@@ -1486,6 +1486,10 @@ export default function Home() {
   // синхронизирована с advanceAlexImage (см. объединённый эффект ниже).
   // text — сам перевод (см. DRINK_WATER_TEXTS) — меняется СИНХРОННО со
   // шрифтом, тем же таймером. Вариация курсива убрана.
+  // fontsReady — true как только все шрифты в PROBLEM_SOLVER_FONTS
+  // подтверждённо загружены (см. эффект ниже) — до этого момента таймер
+  // смены alex/art/drink water не запускается вовсе.
+  const [fontsReady, setFontsReady] = useState(false);
   const [drinkWaterStyle, setDrinkWaterStyle] = useState({ font: PROBLEM_SOLVER_FONTS[1], text: DRINK_WATER_TEXTS[0] });
   const drinkWaterStyleRef = useRef(drinkWaterStyle);
   useEffect(() => { drinkWaterStyleRef.current = drinkWaterStyle; }, [drinkWaterStyle]);
@@ -1718,15 +1722,21 @@ export default function Home() {
   // (движение курсора на десктопе, гироскоп/тряска на мобильных), теперь
   // везде одно и то же: картинка alex, картинка галереи (art) и шрифт
   // "drink water" меняются вместе, каждые 2 секунды, без всякой привязки к
-  // курсору или датчикам.
+  // курсору или датчикам. Стартует только ПОСЛЕ того, как ВСЕ шрифты
+  // подтверждённо загружены (см. fontsReady ниже) — иначе первые несколько
+  // переключений могли бы попасть на ещё не загруженный шрифт: браузер
+  // показывает шрифт-заменитель, потом (когда шрифт наконец скачивается)
+  // подменяет его на настоящий — это и выглядело как "быстро мелькает
+  // несколько других шрифтов перед тем как остановиться".
   useEffect(() => {
+    if (!fontsReady) return;
     const timer = setInterval(() => {
       advanceAlexImage();
       advanceArtImage();
       randomizeDrinkWaterStyle();
     }, 2000);
     return () => clearInterval(timer);
-  }, [advanceAlexImage, advanceArtImage, randomizeDrinkWaterStyle]);
+  }, [fontsReady, advanceAlexImage, advanceArtImage, randomizeDrinkWaterStyle]);
   // Подключаем Google Fonts для "Problem solver" (см. PROBLEM_SOLVER_FONTS) —
   // добавляем <link> в document.head программно: файл — "use client"-компонент
   // без доступа к layout.tsx, куда по канону Next.js полагалось бы это класть.
@@ -1737,19 +1747,31 @@ export default function Home() {
   // используется (т.е. в момент, когда "drink water" впервые выбирает его
   // случайно) — до этого момента показывается шрифт-заменитель, а через миг
   // — настоящий, что и выглядело как "перескакивает несколько раз".
-  // Предзагрузка всех шрифтов заранее устраняет эту гонку.
+  // Предзагрузка всех шрифтов заранее устраняет эту гонку — а fontsReady
+  // (см. использование в таймере выше) гарантирует, что сам цикл смены НЕ
+  // СТАРТУЕТ, пока это подтверждённо не завершится (Promise.all), так что
+  // ни одно переключение никогда не попадёт на ещё не загруженный шрифт.
   useEffect(() => {
-    if (document.querySelector('link[data-ps-fonts="1"]')) return;
+    let cancelled = false;
+    const markReady = () => { if (!cancelled) setFontsReady(true); };
+    // Подстраховка — если Font Loading API недоступен, или какой-то шрифт
+    // так и не подтвердит загрузку (сеть, редкий шрифт и т.п.), не ждём
+    // вечно — запускаем цикл всё равно, максимум через 3с.
+    const safetyTimer = setTimeout(markReady, 3000);
+    if (document.querySelector('link[data-ps-fonts="1"]')) { markReady(); return () => { cancelled = true; clearTimeout(safetyTimer); }; }
     const link = document.createElement("link");
     link.rel = "stylesheet";
     link.href = GOOGLE_FONTS_HREF;
     link.dataset.psFonts = "1";
     document.head.appendChild(link);
     if ((document as any).fonts?.load) {
-      PROBLEM_SOLVER_FONTS.forEach(font => {
-        (document as any).fonts.load(`900 100px ${font}`).catch(() => { });
-      });
+      Promise.all(
+        PROBLEM_SOLVER_FONTS.map(font => (document as any).fonts.load(`900 100px ${font}`).catch(() => { }))
+      ).then(() => { clearTimeout(safetyTimer); markReady(); });
+    } else {
+      markReady();
     }
+    return () => { cancelled = true; clearTimeout(safetyTimer); };
   }, []);
   // Подгонка ширины заголовка "solve:" под ТОЧНУЮ ширину поля ввода —
   // ResizeObserver на СКРЫТОМ, никогда не масштабируемом "образце" (см.
