@@ -3513,17 +3513,19 @@ export default function Home() {
              экран широкий, прямоугольник — landscape). Задача — чтобы
              открывалось "точно так же, как на компьютерной версии":
              сохраняем ту же широкую (16:9) форму, просто вписанную по
-             ширине экрана — без отступов по бокам (padding:0), высота
-             считается из aspect-ratio, а не растягивается на весь экран.
-             Высота ОБЁРТКИ секции (.section-wrap) — тоже не 100vh: раньше
-             между alex и галереей при скролле было ОГРОМНОЕ расстояние
-             (почти весь экран — просто чёрный фон вокруг небольшого по
-             высоте прямоугольника). Теперь высота обёртки ТОЧНО равна
-             высоте самого прямоугольника (100vw*9/16) плюс фиксированный
-             зазор в 20px — тот же GAP, что используется между ячейками по
-             всему сайту — секции идут чётко друг за другом. */
-          .section-wrap{padding:0!important;height:calc(100vw * 9 / 16 + 20px)!important;}
-          .section-rect{width:100vw!important;height:auto!important;aspect-ratio:16/9;}
+             ширине экрана. Внешние отступы по бокам (до краёв экрана) —
+             ВСЕГДА присутствуют, зафиксированы и равны GAP (тому же зазору,
+             что между ячейками по всему сайту) — на десктопе то же самое
+             (см. инлайн-стиль padding у самих секций, ниже в JSX).
+             Высота ОБЁРТКИ секции (.section-wrap) — не 100vh: раньше между
+             alex и галереей при скролле было ОГРОМНОЕ расстояние (почти
+             весь экран — просто чёрный фон вокруг небольшого по высоте
+             прямоугольника). height:auto — flex-контейнер сам естественно
+             подстраивается под высоту содержимого (прямоугольник по
+             aspect-ratio) плюс свой padding — секции идут чётко друг за
+             другом, без ручного расчёта через calc(). */
+          .section-wrap{height:auto!important;}
+          .section-rect{width:100%!important;height:auto!important;aspect-ratio:16/9;}
         }
         @media(min-width:769px){
           .cursor-el{display:block!important;}
@@ -3598,7 +3600,7 @@ export default function Home() {
             тряской телефона (переиспользует уже существующий гироскоп/
             акселерометр эффект). Гейтинг по overlayOpacity — секция не
             существует в DOM, пока не погас экран загрузки. */}
-        <div ref={alexSectionRef} className="section-wrap" style={{ position: "relative", height: "100vh", overflow: "hidden", background: "#000", display: "flex", alignItems: "center", justifyContent: "center", padding: "clamp(16px,4vw,48px)" }}>
+        <div ref={alexSectionRef} className="section-wrap" style={{ position: "relative", height: "100vh", overflow: "hidden", background: "#000", display: "flex", alignItems: "center", justifyContent: "center", padding: `${GAP}px` }}>
           {overlayOpacity <= 0.01 && (
             <div className="section-rect" style={{ width: "100%", height: "100%", borderRadius: "clamp(24px,5vw,64px)", overflow: "hidden", position: "relative", background: "#111" }}>
               {/* Рендерим ВСЕ картинки сразу, друг на друге (position:absolute,
@@ -3682,7 +3684,7 @@ export default function Home() {
             Контент — ART_IMAGES (art1..art36.png из public/). Спустя 20с
             после захода на сайт (см. showArtVideo) — цикл картинок сменяется
             видео fit.mp4, в том же контейнере, тем же object-fit:cover. */}
-        <div ref={artSectionRef} className="section-wrap" style={{ position: "relative", height: "100vh", overflow: "hidden", background: "#000", display: "flex", alignItems: "center", justifyContent: "center", padding: "clamp(16px,4vw,48px)" }}>
+        <div ref={artSectionRef} className="section-wrap" style={{ position: "relative", height: "100vh", overflow: "hidden", background: "#000", display: "flex", alignItems: "center", justifyContent: "center", padding: `${GAP}px` }}>
           {overlayOpacity <= 0.01 && (
             <div className="section-rect" style={{ width: "100%", height: "100%", borderRadius: "clamp(24px,5vw,64px)", overflow: "hidden", position: "relative", background: "#111" }}>
               {showArtVideo ? (
