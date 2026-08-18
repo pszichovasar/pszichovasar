@@ -1400,17 +1400,24 @@ export default function Home() {
   // CSS-свойства). decode() — стандартный, надёжный способ дождаться ПОЛНОГО
   // декодирования заранее, до того как картинка вообще понадобится.
   useEffect(() => {
-    // Первую картинку декодируем сразу — она показывается немедленно.
-    const first = new window.Image();
-    first.src = ALEX_IMAGES[0];
-    first.decode?.().catch(() => { });
-    // Остальные — постепенно, во время простоя браузера (requestIdleCallback,
-    // с фолбэком на setTimeout для браузеров без поддержки), а не ВСЕ СРАЗУ
-    // при монтировании — именно одновременное декодирование ~14+36=50
-    // картинок разом ровно в момент первой отрисовки страницы и давало
-    // заметное "подвисание" именно на самой загрузке экрана alex.
-    const schedule = (window as any).requestIdleCallback || ((cb: () => void) => setTimeout(cb, 150));
-    const rest = ALEX_IMAGES.slice(1);
+    // Первые несколько картинок декодируем сразу и параллельно — они
+    // понадобятся уже в первые секунды цикла (2с на картинку).
+    const PRIORITY_COUNT = 3;
+    ALEX_IMAGES.slice(0, PRIORITY_COUNT).forEach(src => {
+      const img = new window.Image();
+      img.src = src;
+      img.decode?.().catch(() => { });
+    });
+    // Остальные — постепенно, но БЫСТРО и ПРЕДСКАЗУЕМО (короткий
+    // фиксированный интервал через setTimeout, а не requestIdleCallback —
+    // тот может непредсказуемо затягиваться, если браузер чем-то занят, и
+    // картинка с более поздним номером могла не успеть декодироваться к
+    // моменту, когда цикл (каждые 2с) до неё доходит — из-за этого картинка
+    // визуально запаздывала относительно мгновенной смены текста). При
+    // интервале 80мс все ~20 оставшихся успевают декодироваться меньше чем
+    // за 2 секунды — то есть заведомо раньше, чем понадобится хотя бы вторая
+    // картинка цикла.
+    const rest = ALEX_IMAGES.slice(PRIORITY_COUNT);
     let i = 0;
     const loadNext = () => {
       if (i >= rest.length) return;
@@ -1418,9 +1425,9 @@ export default function Home() {
       img.src = rest[i];
       img.decode?.().catch(() => { });
       i++;
-      schedule(loadNext);
+      setTimeout(loadNext, 80);
     };
-    schedule(loadNext);
+    setTimeout(loadNext, 80);
   }, []);
   // Секция-галерея (ART_IMAGES, art1..art36.png) — теперь ТОЧНО ТАКОЙ ЖЕ
   // экран, что и у alex: одна картинка за раз, последовательно по кругу, та
@@ -1442,11 +1449,13 @@ export default function Home() {
     return () => clearTimeout(timer);
   }, []);
   useEffect(() => {
-    const first = new window.Image();
-    first.src = ART_IMAGES[0];
-    first.decode?.().catch(() => { });
-    const schedule = (window as any).requestIdleCallback || ((cb: () => void) => setTimeout(cb, 150));
-    const rest = ART_IMAGES.slice(1);
+    const PRIORITY_COUNT = 3;
+    ART_IMAGES.slice(0, PRIORITY_COUNT).forEach(src => {
+      const img = new window.Image();
+      img.src = src;
+      img.decode?.().catch(() => { });
+    });
+    const rest = ART_IMAGES.slice(PRIORITY_COUNT);
     let i = 0;
     const loadNext = () => {
       if (i >= rest.length) return;
@@ -1454,9 +1463,9 @@ export default function Home() {
       img.src = rest[i];
       img.decode?.().catch(() => { });
       i++;
-      schedule(loadNext);
+      setTimeout(loadNext, 80);
     };
-    schedule(loadNext);
+    setTimeout(loadNext, 80);
   }, []);
   // "drink water" — теперь ЧАСТЬ секции alex (position:absolute внутри неё,
   // а не fixed поверх всего сайта) — физически прокручивается вместе с ней
@@ -3532,7 +3541,6 @@ export default function Home() {
                 transformOrigin: "center center",
                 color: "#ffffff",
                 userSelect: "none",
-                transition: "font-style 0.15s ease",
               }}
             >
               {drinkWaterStyle.text}
