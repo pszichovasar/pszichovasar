@@ -1467,7 +1467,7 @@ export default function Home() {
   // монтировании и ресайзе.
   const preMosaicPxRef = useRef(0);
   const touchStartRef = useRef(0);
-  const [pinkOpacity, setPinkOpacity] = useState(0);
+  const [pinkOpacity, setPinkOpacity] = useState(1);
   const [overlayOpacity, setOverlayOpacity] = useState(0);
   // Зеркало overlayOpacity в реф — на случай возврата к экрану загрузки
   // (сейчас overlayOpacity стартует с 0 и не меняется, экран загрузки
@@ -2233,6 +2233,22 @@ export default function Home() {
     const animate = (time: number) => {
       const dt = lastTimeRef.current ? Math.min((time - lastTimeRef.current) / 1000, 0.05) : 0.016;
       lastTimeRef.current = time;
+
+      // Пропускаем ВСЮ дорогую физику/рендеринг (кубики, кольца мозаик,
+      // canvas-трейлы — весь этот цикл целиком), если секция мозаик далеко
+      // за пределами видимости — раньше этот цикл работал КАЖДЫЙ кадр
+      // безусловно, отъедая время у главного потока даже когда пользователь
+      // смотрит на alex/галерею, далеко от мозаик — это была значительная
+      // часть причины "подвисания" при смене картинок там. Небольшой запас
+      // (0.3vh/1.3vh) — чтобы не было заметного "холодного старта" ровно в
+      // момент попадания в кадр.
+      const vh = window.innerHeight;
+      const inMosaicRange = scrollRef.current >= preMosaicPxRef.current - vh * 0.3 && scrollRef.current <= preMosaicPxRef.current + vh * 1.3;
+      if (!inMosaicRange) {
+        rafRef.current = requestAnimationFrame(animate);
+        return;
+      }
+
       const W = stableDimsRef.current.w, H = stableDimsRef.current.h, S = getImgSize(W, H);
       const states = physState.current;
 
@@ -2949,6 +2965,12 @@ export default function Home() {
         const fs = parseFloat(getComputedStyle(titleEl).fontSize) || 48;
         const overlay = document.getElementById("explosion-overlay");
         if (!overlay) return;
+        // overlay теперь position:absolute внутри секции мозаик (не fixed
+        // поверх всего сайта, как было раньше) — все viewport-relative
+        // координаты (из getBoundingClientRect()) нужно пересчитать
+        // относительно overlay, иначе слова будут смещены на величину его
+        // собственного положения на странице.
+        const overlayRect = overlay.getBoundingClientRect();
 
         // Создаём span для каждой буквы прямо в overlay
         type LP = { el: HTMLSpanElement; x: number; y: number; vx: number; vy: number; a: number; rs: number };
@@ -2970,7 +2992,7 @@ export default function Home() {
 
           const span = document.createElement("span");
           span.textContent = ch === " " ? " " : ch;
-          span.style.cssText = `position:fixed;left:${r.left}px;top:${r.top}px;font-family:'Arial Black',Arial,sans-serif;font-weight:900;font-size:${fs}px;letter-spacing:-0.04em;color:white;white-space:nowrap;pointer-events:none;z-index:10;transform-origin:center center;`;
+          span.style.cssText = `position:absolute;left:${r.left - overlayRect.left}px;top:${r.top - overlayRect.top}px;font-family:'Arial Black',Arial,sans-serif;font-weight:900;font-size:${fs}px;letter-spacing:-0.04em;color:white;white-space:nowrap;pointer-events:none;z-index:10;transform-origin:center center;`;
           overlay.appendChild(span);
 
           const lx = r.left + r.width / 2, ly = r.top + r.height / 2;
@@ -2978,7 +3000,7 @@ export default function Home() {
           const dist = Math.sqrt(dx * dx + dy * dy) || 1;
           const force = 2500 + Math.random() * 3000;
           letters.push({
-            el: span, x: lx, y: ly,
+            el: span, x: lx - overlayRect.left, y: ly - overlayRect.top,
             vx: (dx / dist) * force + (Math.random() - 0.5) * 1500,
             vy: (dy / dist) * force + (Math.random() - 0.5) * 1500,
             a: 0, rs: (Math.random() - 0.5) * 18
@@ -3017,15 +3039,16 @@ export default function Home() {
             const lx = r.left + r.width / 2, ly = r.top + r.height / 2;
             const dx = lx - cx, dy = ly - cy;
             const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+            const relLeft = r.left - overlayRect.left, relTop = r.top - overlayRect.top;
 
             // 30% слов остаются с физикой кубиков
             if (Math.random() < 0.30) {
               span.dataset.explosion = "1";
-              span.style.cssText = `position:fixed;left:${r.left}px;top:${r.top}px;font-family:'Arial Black',Arial,sans-serif;font-weight:900;font-size:${bioFs}px;text-transform:uppercase;color:white;white-space:nowrap;pointer-events:none;z-index:10;transform-origin:center center;`;
+              span.style.cssText = `position:absolute;left:${relLeft}px;top:${relTop}px;font-family:'Arial Black',Arial,sans-serif;font-weight:900;font-size:${bioFs}px;text-transform:uppercase;color:white;white-space:nowrap;pointer-events:none;z-index:10;transform-origin:center center;`;
               span.dataset.sticky = "1"; // маркер для управления opacity
-              document.body.appendChild(span);
+              overlay.appendChild(span); // раньше — document.body.appendChild — с position:fixed это "зависало" поверх других секций при скролле; теперь span — часть секции мозаик и уезжает вместе с ней
               wordPhysRef.current.push({
-                el: span, x: lx, y: ly,
+                el: span, x: lx - overlayRect.left, y: ly - overlayRect.top,
                 vx: (dx / dist) * 800 + (Math.random() - 0.5) * 600,
                 vy: (dy / dist) * 800 + (Math.random() - 0.5) * 600,
                 ang: 0, rotSpeed: (Math.random() - 0.5) * 3,
@@ -3033,11 +3056,11 @@ export default function Home() {
             } else {
               // 70% улетают через overlay
               span.dataset.explosion = "1";
-              span.style.cssText = `position:fixed;left:${r.left}px;top:${r.top}px;font-family:'Arial Black',Arial,sans-serif;font-weight:900;font-size:${bioFs}px;text-transform:uppercase;color:white;white-space:nowrap;pointer-events:none;z-index:10;transform-origin:center center;`;
+              span.style.cssText = `position:absolute;left:${relLeft}px;top:${relTop}px;font-family:'Arial Black',Arial,sans-serif;font-weight:900;font-size:${bioFs}px;text-transform:uppercase;color:white;white-space:nowrap;pointer-events:none;z-index:10;transform-origin:center center;`;
               overlay.appendChild(span);
               const force = 2000 + Math.random() * 2500;
               letters.push({
-                el: span, x: lx, y: ly,
+                el: span, x: lx - overlayRect.left, y: ly - overlayRect.top,
                 vx: (dx / dist) * force + (Math.random() - 0.5) * 1200,
                 vy: (dy / dist) * force + (Math.random() - 0.5) * 1200,
                 a: 0, rs: (Math.random() - 0.5) * 12
@@ -3706,7 +3729,7 @@ export default function Home() {
           </div>
 
           {/* Explosion overlay — полностью изолированный */}
-          <div id="explosion-overlay" style={{ position: "fixed", inset: 0, zIndex: 10, pointerEvents: "none" }} />
+          <div id="explosion-overlay" style={{ position: "absolute", inset: 0, zIndex: 10, pointerEvents: "none" }} />
         </div>
 
         {/* "5 РЯДОВ" — теперь СВОЯ отдельная, обычная (физически
