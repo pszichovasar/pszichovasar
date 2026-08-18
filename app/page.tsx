@@ -230,7 +230,7 @@ const MOSAIC_TOTAL_UNITS = 2;
 // ниже) — системные (Georgia/Impact/Times) добавлены для ещё большего
 // разнообразия без дополнительной загрузки. Цвета фона — только светлые/
 // пастельные, чтобы чёрный текст оставался читаемым при любом из них.
-const GOOGLE_FONTS_HREF = "https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Bebas+Neue&family=Space+Mono:wght@700&family=Pacifico&family=Anton&family=Abril+Fatface&family=Caveat:wght@700&family=Oswald:wght@700&family=Righteous&family=Courier+Prime:wght@700&family=Permanent+Marker&family=Archivo+Black&family=Bangers&family=Lobster&family=Special+Elite&family=Shrikhand&family=Fredoka:wght@700&family=Rubik+Mono+One&family=Bungee&family=Chewy&family=Monoton&family=Press+Start+2P&family=Rubik+Wet+Paint&family=Rubik+Glitch&family=Sixtyfour&family=Fascinate&family=Diplomata&family=Nabla&family=Rubik+Iso&family=Modak&family=Silkscreen&family=Faster+One&display=swap";
+const GOOGLE_FONTS_HREF = "https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Bebas+Neue&family=Space+Mono:wght@700&family=Pacifico&family=Anton&family=Abril+Fatface&family=Caveat:wght@700&family=Oswald:wght@700&family=Righteous&family=Courier+Prime:wght@700&family=Permanent+Marker&family=Archivo+Black&family=Bangers&family=Lobster&family=Special+Elite&family=Shrikhand&family=Fredoka:wght@700&family=Rubik+Mono+One&family=Bungee&family=Chewy&family=Press+Start+2P&family=Silkscreen&family=Faster+One&family=Poppins:wght@700;900&family=Montserrat:wght@700;900&family=Raleway:wght@700;900&family=Merriweather:wght@700;900&family=Nunito:wght@700;900&family=Quicksand:wght@700&family=Comfortaa:wght@700&family=Kalam:wght@700&family=Barlow+Condensed:wght@700;900&family=Roboto+Slab:wght@700;900&family=Alfa+Slab+One&family=Bevan&family=Passion+One:wght@700;900&family=Amatic+SC:wght@700&family=Cinzel:wght@700;900&family=Staatliches&family=Baloo+2:wght@700;800&family=Concert+One&family=Luckiest+Guy&family=Titan+One&family=Patrick+Hand&family=Kanit:wght@700;900&family=Bree+Serif&family=Julius+Sans+One&display=swap";
 const PROBLEM_SOLVER_FONTS = [
   "'Playfair Display', serif",
   "'Bebas Neue', sans-serif",
@@ -252,21 +252,36 @@ const PROBLEM_SOLVER_FONTS = [
   "'Rubik Mono One', monospace",
   "'Bungee', cursive",
   "'Chewy', cursive",
-  "'Monoton', cursive",
   "'Press Start 2P', monospace",
-  "'Rubik Wet Paint', cursive",
-  "'Rubik Glitch', cursive",
-  "'Sixtyfour', monospace",
-  "'Fascinate', cursive",
-  "'Diplomata', cursive",
-  "'Nabla', cursive",
-  "'Rubik Iso', cursive",
-  "'Modak', cursive",
   "'Silkscreen', monospace",
   "'Faster One', cursive",
   "Georgia, serif",
   "Impact, sans-serif",
   "'Times New Roman', serif",
+  "'Poppins', sans-serif",
+  "'Montserrat', sans-serif",
+  "'Raleway', sans-serif",
+  "'Merriweather', serif",
+  "'Nunito', sans-serif",
+  "'Quicksand', sans-serif",
+  "'Comfortaa', sans-serif",
+  "'Kalam', cursive",
+  "'Barlow Condensed', sans-serif",
+  "'Roboto Slab', serif",
+  "'Alfa Slab One', serif",
+  "'Bevan', serif",
+  "'Passion One', cursive",
+  "'Amatic SC', cursive",
+  "'Cinzel', serif",
+  "'Staatliches', cursive",
+  "'Baloo 2', cursive",
+  "'Concert One', cursive",
+  "'Luckiest Guy', cursive",
+  "'Titan One', cursive",
+  "'Patrick Hand', cursive",
+  "'Kanit', sans-serif",
+  "'Bree Serif', serif",
+  "'Julius Sans One', sans-serif",
 ];
 
 // "drink water" — переводы на 10 самых распространённых языков мира (по
@@ -318,7 +333,7 @@ const PS_THEMES: { bg: string; text: string; inputBg: string; inputText: string;
 // сглаженными углами, показывает одну из 7 картинок за раз, ПОСЛЕДОВАТЕЛЬНО
 // по кругу (не случайно — см. advanceAlexImage), чтобы не было слишком
 // ранних повторов.
-const ALEX_IMAGES = Array.from({ length: 21 }, (_, i) => `/alex${i + 1}.png`);
+const ALEX_IMAGES = Array.from({ length: 17 }, (_, i) => `/alex${i + 1}.png`);
 
 // Форма поля ввода — не только базовые скругления, но и асимметричные
 // (по разным углам) — визуально куда интереснее, чем просто "больше/меньше
@@ -1733,7 +1748,6 @@ export default function Home() {
     if ((document as any).fonts?.load) {
       PROBLEM_SOLVER_FONTS.forEach(font => {
         (document as any).fonts.load(`900 100px ${font}`).catch(() => { });
-        (document as any).fonts.load(`italic 900 100px ${font}`).catch(() => { });
       });
     }
   }, []);
