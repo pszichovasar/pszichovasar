@@ -1386,7 +1386,6 @@ export default function Home() {
   // рано: идём по кругу 1→2→...→7→1→2... — гарантированно максимально
   // возможный интервал между повторами одной и той же картинки (7 показов).
   const [alexIndex, setAlexIndex] = useState(0);
-  const alexImage = ALEX_IMAGES[alexIndex];
   const alexSectionRef = useRef<HTMLDivElement>(null);
   const advanceAlexImage = useCallback(() => {
     setAlexIndex(prev => (prev + 1) % ALEX_IMAGES.length);
@@ -1434,7 +1433,6 @@ export default function Home() {
   // же предзагрузка, тот же принцип смены (см. JSX и объединённый
   // mousemove/гироскоп-эффект ниже).
   const [artIndex, setArtIndex] = useState(0);
-  const artImage = ART_IMAGES[artIndex];
   const artSectionRef = useRef<HTMLDivElement>(null);
   const advanceArtImage = useCallback(() => {
     setArtIndex(prev => (prev + 1) % ART_IMAGES.length);
@@ -3509,7 +3507,19 @@ export default function Home() {
         <div ref={alexSectionRef} style={{ position: "relative", height: "100vh", overflow: "hidden", background: "#000", display: "flex", alignItems: "center", justifyContent: "center", padding: "clamp(16px,4vw,48px)" }}>
           {overlayOpacity <= 0.01 && (
             <div style={{ width: "100%", height: "100%", borderRadius: "clamp(24px,5vw,64px)", overflow: "hidden", position: "relative", background: "#111" }}>
-              <img src={alexImage} alt="" decoding="sync" loading="eager" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+              {/* Рендерим ВСЕ картинки сразу, друг на друге (position:absolute,
+                  все кроме текущей — opacity:0) — переключение становится
+                  ЧИСТО CSS-операцией (просто смена opacity), без всякой
+                  зависимости от декодирования КОНКРЕТНО в момент смены —
+                  каждая картинка уже полностью отрисована браузером заранее,
+                  задолго до того как до неё дойдёт очередь. Раньше был один
+                  <img>, чей src менялся — там переключение зависело от того,
+                  успел ли браузер декодировать именно эту, новую картинку
+                  ровно в нужный момент. */}
+              {ALEX_IMAGES.map((src, i) => (
+                <img key={src} src={src} alt="" decoding="sync" loading="eager"
+                  style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", display: "block", opacity: i === alexIndex ? 1 : 0 }} />
+              ))}
             </div>
           )}
 
@@ -3585,7 +3595,10 @@ export default function Home() {
                 <video ref={artVideoRef} src="/fit.mp4" autoPlay muted loop playsInline
                   style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
               ) : (
-                <img src={artImage} alt="" decoding="sync" loading="eager" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                ART_IMAGES.map((src, i) => (
+                  <img key={src} src={src} alt="" decoding="sync" loading="eager"
+                    style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", display: "block", opacity: i === artIndex ? 1 : 0 }} />
+                ))
               )}
             </div>
           )}
