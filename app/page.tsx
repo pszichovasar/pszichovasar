@@ -269,6 +269,32 @@ const PROBLEM_SOLVER_FONTS = [
   "'Times New Roman', serif",
 ];
 
+// "drink water" — переводы на 20 самых распространённых языков мира (по
+// числу носителей+второй язык). Меняется вместе со шрифтом (см.
+// randomizeDrinkWaterStyle) каждые 2 секунды.
+const DRINK_WATER_TEXTS = [
+  "drink water", // английский
+  "喝水", // китайский (мандарин)
+  "पानी पियो", // хинди
+  "bebe agua", // испанский
+  "buvez de l'eau", // французский
+  "اشرب الماء", // арабский
+  "জল পান করুন", // бенгальский
+  "beba água", // португальский
+  "пей воду", // русский
+  "پانی پیو", // урду
+  "minum air", // индонезийский
+  "trink wasser", // немецкий
+  "水を飲む", // японский
+  "kunywa maji", // суахили
+  "पाणी प्या", // маратхи
+  "నీళ్ళు తాగండి", // телугу
+  "su iç", // турецкий
+  "물을 마셔요", // корейский
+  "uống nước", // вьетнамский
+  "bevi acqua", // итальянский
+];
+
 // Целостные "темы" — вместо независимой рандомизации каждого цвета
 // (фон секции/текст/фон поля/текст поля/обводка/курсор — по отдельности,
 // как было раньше), теперь ВСЕ цвета для одной вариации выбираются как
@@ -302,7 +328,7 @@ const PS_THEMES: { bg: string; text: string; inputBg: string; inputText: string;
 // сглаженными углами, показывает одну из 7 картинок за раз, ПОСЛЕДОВАТЕЛЬНО
 // по кругу (не случайно — см. advanceAlexImage), чтобы не было слишком
 // ранних повторов.
-const ALEX_IMAGES = Array.from({ length: 11 }, (_, i) => `/alex${i + 1}.png`);
+const ALEX_IMAGES = Array.from({ length: 14 }, (_, i) => `/alex${i + 1}.png`);
 
 // Форма поля ввода — не только базовые скругления, но и асимметричные
 // (по разным углам) — визуально куда интереснее, чем просто "больше/меньше
@@ -1384,11 +1410,27 @@ export default function Home() {
   // CSS-свойства). decode() — стандартный, надёжный способ дождаться ПОЛНОГО
   // декодирования заранее, до того как картинка вообще понадобится.
   useEffect(() => {
-    ALEX_IMAGES.forEach(src => {
+    // Первую картинку декодируем сразу — она показывается немедленно.
+    const first = new window.Image();
+    first.src = ALEX_IMAGES[0];
+    first.decode?.().catch(() => { });
+    // Остальные — постепенно, во время простоя браузера (requestIdleCallback,
+    // с фолбэком на setTimeout для браузеров без поддержки), а не ВСЕ СРАЗУ
+    // при монтировании — именно одновременное декодирование ~14+36=50
+    // картинок разом ровно в момент первой отрисовки страницы и давало
+    // заметное "подвисание" именно на самой загрузке экрана alex.
+    const schedule = (window as any).requestIdleCallback || ((cb: () => void) => setTimeout(cb, 150));
+    const rest = ALEX_IMAGES.slice(1);
+    let i = 0;
+    const loadNext = () => {
+      if (i >= rest.length) return;
       const img = new window.Image();
-      img.src = src;
-      img.decode?.().catch(() => { }); // catch — decode() может отклониться, если картинка ещё не полностью скачана к моменту вызова; это не ошибка, а нормальный краевой случай
-    });
+      img.src = rest[i];
+      img.decode?.().catch(() => { });
+      i++;
+      schedule(loadNext);
+    };
+    schedule(loadNext);
   }, []);
   // Секция-галерея (ART_IMAGES, art1..art36.png) — теперь ТОЧНО ТАКОЙ ЖЕ
   // экран, что и у alex: одна картинка за раз, последовательно по кругу, та
@@ -1401,22 +1443,39 @@ export default function Home() {
     setArtIndex(prev => (prev + 1) % ART_IMAGES.length);
   }, []);
   useEffect(() => {
-    ART_IMAGES.forEach(src => {
+    const first = new window.Image();
+    first.src = ART_IMAGES[0];
+    first.decode?.().catch(() => { });
+    const schedule = (window as any).requestIdleCallback || ((cb: () => void) => setTimeout(cb, 150));
+    const rest = ART_IMAGES.slice(1);
+    let i = 0;
+    const loadNext = () => {
+      if (i >= rest.length) return;
       const img = new window.Image();
-      img.src = src;
+      img.src = rest[i];
       img.decode?.().catch(() => { });
-    });
+      i++;
+      schedule(loadNext);
+    };
+    schedule(loadNext);
   }, []);
   // "drink water" — теперь ЧАСТЬ секции alex (position:absolute внутри неё,
   // а не fixed поверх всего сайта) — физически прокручивается вместе с ней
   // (см. JSX). Та же логика смены шрифта/курсива, что у "solve:", теперь
   // синхронизирована с advanceAlexImage (см. объединённый эффект ниже).
-  const [drinkWaterStyle, setDrinkWaterStyle] = useState({ font: PROBLEM_SOLVER_FONTS[1], italic: false });
+  // text — сам перевод (см. DRINK_WATER_TEXTS) — меняется СИНХРОННО со
+  // шрифтом, тем же таймером.
+  const [drinkWaterStyle, setDrinkWaterStyle] = useState({ font: PROBLEM_SOLVER_FONTS[1], italic: false, text: DRINK_WATER_TEXTS[0] });
   const drinkWaterStyleRef = useRef(drinkWaterStyle);
   useEffect(() => { drinkWaterStyleRef.current = drinkWaterStyle; }, [drinkWaterStyle]);
   const randomizeDrinkWaterStyle = useCallback(() => {
-    const pool = PROBLEM_SOLVER_FONTS.filter(f => f !== drinkWaterStyleRef.current.font);
-    setDrinkWaterStyle({ font: pool[Math.floor(Math.random() * pool.length)], italic: Math.random() < 0.5 });
+    const fontPool = PROBLEM_SOLVER_FONTS.filter(f => f !== drinkWaterStyleRef.current.font);
+    const textPool = DRINK_WATER_TEXTS.filter(t => t !== drinkWaterStyleRef.current.text);
+    setDrinkWaterStyle({
+      font: fontPool[Math.floor(Math.random() * fontPool.length)],
+      italic: Math.random() < 0.5,
+      text: textPool[Math.floor(Math.random() * textPool.length)],
+    });
   }, []);
   // Масштаб "drink water" — та же самая техника, что и у "solve:" (см.
   // problemScaleX/problemMeasureRef ниже): скрытый образец без масштаба +
@@ -1652,7 +1711,13 @@ export default function Home() {
   // добавляем <link> в document.head программно: файл — "use client"-компонент
   // без доступа к layout.tsx, куда по канону Next.js полагалось бы это класть.
   // Проверка на dataset.psFonts — чтобы не добавить тег повторно (React Strict
-  // Mode в dev вызывает эффекты дважды).
+  // Mode в dev вызывает эффекты дважды). Плюс сразу же ЯВНО запрашиваем
+  // загрузку КАЖДОГО шрифта через document.fonts.load() — без этого браузер
+  // начинает грузить конкретный шрифт только когда он ВПЕРВЫЕ реально
+  // используется (т.е. в момент, когда "drink water" впервые выбирает его
+  // случайно) — до этого момента показывается шрифт-заменитель, а через миг
+  // — настоящий, что и выглядело как "перескакивает несколько раз".
+  // Предзагрузка всех шрифтов заранее устраняет эту гонку.
   useEffect(() => {
     if (document.querySelector('link[data-ps-fonts="1"]')) return;
     const link = document.createElement("link");
@@ -1660,6 +1725,12 @@ export default function Home() {
     link.href = GOOGLE_FONTS_HREF;
     link.dataset.psFonts = "1";
     document.head.appendChild(link);
+    if ((document as any).fonts?.load) {
+      PROBLEM_SOLVER_FONTS.forEach(font => {
+        (document as any).fonts.load(`900 100px ${font}`).catch(() => { });
+        (document as any).fonts.load(`italic 900 100px ${font}`).catch(() => { });
+      });
+    }
   }, []);
   // Подгонка ширины заголовка "solve:" под ТОЧНУЮ ширину поля ввода —
   // ResizeObserver на СКРЫТОМ, никогда не масштабируемом "образце" (см.
@@ -1711,7 +1782,7 @@ export default function Home() {
       ro.disconnect();
       window.removeEventListener("resize", recompute);
     };
-  }, [drinkWaterStyle.font, drinkWaterStyle.italic]);
+  }, [drinkWaterStyle.font, drinkWaterStyle.italic, drinkWaterStyle.text]);
   // Одно число на кольцо (растёт по мере появления новых колец) — каждое
   // кольцо крутится с собственным накопленным углом, см. getRingDirection().
   const ringRotationRefs = useRef<number[]>([0]);
@@ -3466,7 +3537,7 @@ export default function Home() {
                 transition: "font-style 0.15s ease",
               }}
             >
-              drink water
+              {drinkWaterStyle.text}
             </div>
             {/* Скрытый образец для замера — та же строка/шрифт/начертание, но
                 БЕЗ transform: scale() — ResizeObserver следит именно за этим
@@ -3489,7 +3560,7 @@ export default function Home() {
                 whiteSpace: "nowrap",
               }}
             >
-              drink water
+              {drinkWaterStyle.text}
             </div>
           </div>
         </div>
