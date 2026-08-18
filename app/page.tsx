@@ -1634,31 +1634,19 @@ export default function Home() {
     window.addEventListener("mousemove", onMove);
     return () => window.removeEventListener("mousemove", onMove);
   }, []);
-  // "alex" + "drink water" + галерея (art) — ОДНА синхронизированная
-  // система: раньше это были ДВА независимых mousemove-слушателя с разными
-  // порогами (30px и 100px) — картинка и шрифт меняись врозь, вдобавок два
-  // отдельных слушателя на один и тот же mousemove давали лишнюю,
-  // дублирующую нагрузку (отсюда и ощущение "подвисания"). Теперь один
-  // порог, одна накопленная дистанция — картинка (alex и art), шрифт
-  // меняются СТРОГО одновременно, по одному и тому же событию. На
-  // мобильных — тоже один и тот же триггер (гироскоп/тряска, см. эффект
-  // ниже), вместо отдельного таймера у drink water.
+  // "alex" + "drink water" + галерея (art) — теперь ПРОСТОЙ таймер (2с),
+  // ОДИНАКОВЫЙ и на десктопе, и на мобильных — раньше было по-разному
+  // (движение курсора на десктопе, гироскоп/тряска на мобильных), теперь
+  // везде одно и то же: картинка alex, картинка галереи (art) и шрифт
+  // "drink water" меняются вместе, каждые 2 секунды, без всякой привязки к
+  // курсору или датчикам.
   useEffect(() => {
-    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    if (isMobile) return;
-    const MOVE_THRESHOLD_PX = 30;
-    let lastX: number | null = null, lastY: number | null = null;
-    const onMove = (e: MouseEvent) => {
-      if (lastX === null || lastY === null) { lastX = e.clientX; lastY = e.clientY; return; }
-      const dx = e.clientX - lastX, dy = e.clientY - lastY;
-      if (Math.sqrt(dx * dx + dy * dy) < MOVE_THRESHOLD_PX) return;
-      lastX = e.clientX; lastY = e.clientY;
+    const timer = setInterval(() => {
       advanceAlexImage();
       advanceArtImage();
       randomizeDrinkWaterStyle();
-    };
-    window.addEventListener("mousemove", onMove);
-    return () => window.removeEventListener("mousemove", onMove);
+    }, 2000);
+    return () => clearInterval(timer);
   }, [advanceAlexImage, advanceArtImage, randomizeDrinkWaterStyle]);
   // Подключаем Google Fonts для "Problem solver" (см. PROBLEM_SOLVER_FONTS) —
   // добавляем <link> в document.head программно: файл — "use client"-компонент
@@ -1842,9 +1830,6 @@ export default function Home() {
       const dG = g - lastTiltG, dB = b - lastTiltB;
       if (Math.sqrt(dG * dG + dB * dB) >= TILT_THRESHOLD_DEG) {
         lastTiltG = g; lastTiltB = b;
-        advanceAlexImage();
-        advanceArtImage();
-        randomizeDrinkWaterStyle();
       }
     };
     const onMot = (e: DeviceMotionEvent) => {
@@ -1857,9 +1842,6 @@ export default function Home() {
       if (delta > 20 && now - sh.lastShakeTime > 700) {
         sh.lastShakeTime = now;
         explodeFromPoint(window.innerWidth / 2, window.innerHeight / 2, 9999, 60000);
-        advanceAlexImage(); // тряска — тоже триггер смены картинки в "alex"
-        advanceArtImage(); // и в галерее (art) — синхронно
-        randomizeDrinkWaterStyle(); // и шрифта "drink water" — синхронно
       }
     };
     const add = () => {
@@ -1878,7 +1860,7 @@ export default function Home() {
       window.removeEventListener("deviceorientation", onOri, true);
       window.removeEventListener("devicemotion", onMot, true);
     };
-  }, [advanceAlexImage, advanceArtImage, randomizeDrinkWaterStyle]);
+  }, []);
 
   const ALL_IMAGES = [
     "/1.jpg", "/2.jpg", "/3.jpg", "/4.jpg", "/5.jpg", "/6.jpg", "/7.jpg",
