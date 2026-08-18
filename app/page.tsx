@@ -269,7 +269,7 @@ const PROBLEM_SOLVER_FONTS = [
   "'Times New Roman', serif",
 ];
 
-// "drink water" — переводы на 20 самых распространённых языков мира (по
+// "drink water" — переводы на 10 самых распространённых языков мира (по
 // числу носителей+второй язык). Меняется вместе со шрифтом (см.
 // randomizeDrinkWaterStyle) каждые 2 секунды.
 const DRINK_WATER_TEXTS = [
@@ -283,16 +283,6 @@ const DRINK_WATER_TEXTS = [
   "beba água", // португальский
   "пей воду", // русский
   "پانی پیو", // урду
-  "minum air", // индонезийский
-  "trink wasser", // немецкий
-  "水を飲む", // японский
-  "kunywa maji", // суахили
-  "पाणी प्या", // маратхи
-  "నీళ్ళు తాగండి", // телугу
-  "su iç", // турецкий
-  "물을 마셔요", // корейский
-  "uống nước", // вьетнамский
-  "bevi acqua", // итальянский
 ];
 
 // Целостные "темы" — вместо независимой рандомизации каждого цвета
@@ -328,7 +318,7 @@ const PS_THEMES: { bg: string; text: string; inputBg: string; inputText: string;
 // сглаженными углами, показывает одну из 7 картинок за раз, ПОСЛЕДОВАТЕЛЬНО
 // по кругу (не случайно — см. advanceAlexImage), чтобы не было слишком
 // ранних повторов.
-const ALEX_IMAGES = Array.from({ length: 14 }, (_, i) => `/alex${i + 1}.png`);
+const ALEX_IMAGES = Array.from({ length: 21 }, (_, i) => `/alex${i + 1}.png`);
 
 // Форма поля ввода — не только базовые скругления, но и асимметричные
 // (по разным углам) — визуально куда интереснее, чем просто "больше/меньше
@@ -1442,6 +1432,15 @@ export default function Home() {
   const advanceArtImage = useCallback(() => {
     setArtIndex(prev => (prev + 1) % ART_IMAGES.length);
   }, []);
+  // Видео fit.mp4 на второй секции (art) — появляется спустя 20с ПОСЛЕ
+  // захода на сайт (от монтирования страницы), заменяя собой цикл сменяемых
+  // картинок в том же контейнере.
+  const [showArtVideo, setShowArtVideo] = useState(false);
+  const artVideoRef = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    const timer = setTimeout(() => setShowArtVideo(true), 20000);
+    return () => clearTimeout(timer);
+  }, []);
   useEffect(() => {
     const first = new window.Image();
     first.src = ART_IMAGES[0];
@@ -1461,11 +1460,11 @@ export default function Home() {
   }, []);
   // "drink water" — теперь ЧАСТЬ секции alex (position:absolute внутри неё,
   // а не fixed поверх всего сайта) — физически прокручивается вместе с ней
-  // (см. JSX). Та же логика смены шрифта/курсива, что у "solve:", теперь
+  // (см. JSX). Та же логика смены шрифта, что у "solve:", теперь
   // синхронизирована с advanceAlexImage (см. объединённый эффект ниже).
   // text — сам перевод (см. DRINK_WATER_TEXTS) — меняется СИНХРОННО со
-  // шрифтом, тем же таймером.
-  const [drinkWaterStyle, setDrinkWaterStyle] = useState({ font: PROBLEM_SOLVER_FONTS[1], italic: false, text: DRINK_WATER_TEXTS[0] });
+  // шрифтом, тем же таймером. Вариация курсива убрана.
+  const [drinkWaterStyle, setDrinkWaterStyle] = useState({ font: PROBLEM_SOLVER_FONTS[1], text: DRINK_WATER_TEXTS[0] });
   const drinkWaterStyleRef = useRef(drinkWaterStyle);
   useEffect(() => { drinkWaterStyleRef.current = drinkWaterStyle; }, [drinkWaterStyle]);
   const randomizeDrinkWaterStyle = useCallback(() => {
@@ -1473,7 +1472,6 @@ export default function Home() {
     const textPool = DRINK_WATER_TEXTS.filter(t => t !== drinkWaterStyleRef.current.text);
     setDrinkWaterStyle({
       font: fontPool[Math.floor(Math.random() * fontPool.length)],
-      italic: Math.random() < 0.5,
       text: textPool[Math.floor(Math.random() * textPool.length)],
     });
   }, []);
@@ -1782,7 +1780,7 @@ export default function Home() {
       ro.disconnect();
       window.removeEventListener("resize", recompute);
     };
-  }, [drinkWaterStyle.font, drinkWaterStyle.italic, drinkWaterStyle.text]);
+  }, [drinkWaterStyle.font, drinkWaterStyle.text]);
   // Одно число на кольцо (растёт по мере появления новых колец) — каждое
   // кольцо крутится с собственным накопленным углом, см. getRingDirection().
   const ringRotationRefs = useRef<number[]>([0]);
@@ -3249,6 +3247,7 @@ export default function Home() {
     const onTS = (e: TouchEvent) => {
       if (showContact) return; tSY = e.touches[0].clientY; tSX = e.touches[0].clientX; tMoved = false;
       videoRef.current?.paused && videoRef.current.play().catch(() => { });
+      artVideoRef.current?.paused && artVideoRef.current.play().catch(() => { });
     };
     const onTM = (e: TouchEvent) => {
       if (showContact) return;
@@ -3500,7 +3499,7 @@ export default function Home() {
             существует в DOM, пока не погас экран загрузки. */}
         <div ref={alexSectionRef} style={{ position: "relative", height: "100vh", overflow: "hidden", background: "#000", display: "flex", alignItems: "center", justifyContent: "center", padding: "clamp(16px,4vw,48px)" }}>
           {overlayOpacity <= 0.01 && (
-            <div style={{ width: "100%", height: "100%", maxWidth: "1600px", borderRadius: "clamp(24px,5vw,64px)", overflow: "hidden", position: "relative", background: "#111" }}>
+            <div style={{ width: "100%", height: "100%", borderRadius: "clamp(24px,5vw,64px)", overflow: "hidden", position: "relative", background: "#111" }}>
               <img src={alexImage} alt="" decoding="sync" loading="eager" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
             </div>
           )}
@@ -3524,7 +3523,6 @@ export default function Home() {
               className="ps-font"
               style={{
                 ["--ps-font" as any]: drinkWaterStyle.font,
-                fontStyle: drinkWaterStyle.italic ? "italic" : "normal",
                 fontWeight: 900,
                 fontSize: "clamp(48px,10vw,160px)",
                 lineHeight: 1,
@@ -3553,7 +3551,6 @@ export default function Home() {
                 visibility: "hidden",
                 pointerEvents: "none",
                 ["--ps-font" as any]: drinkWaterStyle.font,
-                fontStyle: drinkWaterStyle.italic ? "italic" : "normal",
                 fontWeight: 900,
                 fontSize: "clamp(48px,10vw,160px)",
                 lineHeight: 1,
@@ -3570,11 +3567,18 @@ export default function Home() {
             углами, одна картинка за раз, ПОСЛЕДОВАТЕЛЬНО по кругу (см.
             advanceArtImage). Обычный блок ровно 100vh, БЕЗ sticky-паузы
             (пауза при скролле остаётся только у секции мозаик ниже).
-            Контент — ART_IMAGES (art1..art36.png из public/). */}
+            Контент — ART_IMAGES (art1..art36.png из public/). Спустя 20с
+            после захода на сайт (см. showArtVideo) — цикл картинок сменяется
+            видео fit.mp4, в том же контейнере, тем же object-fit:cover. */}
         <div ref={artSectionRef} style={{ position: "relative", height: "100vh", overflow: "hidden", background: "#000", display: "flex", alignItems: "center", justifyContent: "center", padding: "clamp(16px,4vw,48px)" }}>
           {overlayOpacity <= 0.01 && (
-            <div style={{ width: "100%", height: "100%", maxWidth: "1600px", borderRadius: "clamp(24px,5vw,64px)", overflow: "hidden", position: "relative", background: "#111" }}>
-              <img src={artImage} alt="" decoding="sync" loading="eager" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+            <div style={{ width: "100%", height: "100%", borderRadius: "clamp(24px,5vw,64px)", overflow: "hidden", position: "relative", background: "#111" }}>
+              {showArtVideo ? (
+                <video ref={artVideoRef} src="/fit.mp4" autoPlay muted loop playsInline
+                  style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+              ) : (
+                <img src={artImage} alt="" decoding="sync" loading="eager" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+              )}
             </div>
           )}
         </div>
