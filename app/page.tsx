@@ -1803,14 +1803,19 @@ export default function Home() {
       window.removeEventListener("resize", recompute);
     };
   }, [problemStyle.font, problemStyle.italic, problemStyle.inputWidthPct, problemHeadingText]);
-  // То же самое для "drink water" — целевая ширина фиксированная
-  // (min(70vw, 1200px)), а не ширина поля ввода (тут поля ввода нет).
+  // То же самое для "drink water" — целевая ширина фиксированная (min(35vw,
+  // 600px) — вдвое меньше, чем раньше, по просьбе сделать текст вдвое
+  // компактнее), а не ширина поля ввода (тут поля ввода нет). Важно: просто
+  // уменьшить font-size недостаточно — система масштабирования сама
+  // подгоняет scale под targetWidth, автоматически компенсируя любое
+  // изменение font-size — targetWidth тоже должен уменьшиться вдвое, иначе
+  // видимый размер остался бы прежним.
   useLayoutEffect(() => {
     if (!drinkWaterMeasureRef.current) return;
     const measureEl = drinkWaterMeasureRef.current;
     const recompute = () => {
       if (!measureEl) return;
-      const targetWidth = Math.min(window.innerWidth * 0.7, 1200);
+      const targetWidth = Math.min(window.innerWidth * 0.35, 600);
       const naturalWidth = measureEl.getBoundingClientRect().width;
       if (targetWidth <= 0 || naturalWidth <= 0) return;
       setDrinkWaterScale(targetWidth / naturalWidth);
@@ -1979,12 +1984,23 @@ export default function Home() {
     "/8.jpg", "/9.jpg", "/10.jpg", "/11.jpg", "/12.jpg", "/13.jpg", "/14.jpg",
     "/15.jpg", "/16.jpg", "/17.jpg", "/18.jpg", "/19.jpg", "/20.jpg", "/21.jpg"
   ];
-  const ROWS = useMemo(() => [
-    shuffleWithSeed(ALL_IMAGES, 1001), shuffleWithSeed(ALL_IMAGES, 2002),
-    shuffleWithSeed(ALL_IMAGES, 3003), shuffleWithSeed(ALL_IMAGES, 4004),
-    shuffleWithSeed(ALL_IMAGES, 5005),
-  ], []);
-  const REVERSED = [false, true, false, true, false];
+  // Количество рядов "5 РЯДОВ" (название условное — теперь их не всегда 5) —
+  // подстраивается под ширину экрана: чем УЖЕ экран, тем БОЛЬШЕ рядов (и,
+  // соответственно, тем МЕЛЬЧЕ сама плитка — см. tileSize/calcTileSize
+  // ниже, который делит высоту экрана на текущее число рядов). На широком
+  // десктопе (1920px и шире) — 5 рядов, как было; к узкому мобильному
+  // (~390px) — плавно растёт до 12. Формула через sqrt — рост не резкий
+  // рывками, а плавный по мере сужения экрана. Обновляется вместе с
+  // tileSize, в одном и том же обработчике resize (см. ниже, у
+  // calcTileSize) — чтобы оба значения всегда были согласованы друг с
+  // другом, без риска рассинхрона между двумя независимыми эффектами.
+  const [rowCount, setRowCount] = useState(5);
+  const ROWS = useMemo(() =>
+    Array.from({ length: rowCount }, (_, i) => shuffleWithSeed(ALL_IMAGES, 1001 + i * 1001)),
+    [rowCount]);
+  const REVERSED = useMemo(() =>
+    Array.from({ length: rowCount }, (_, i) => i % 2 === 1),
+    [rowCount]);
   // Было 800 — увеличено при переходе на обычный, физический скролл
   // (sticky-секции): каждая sticky-обёртка должна быть ЗАМЕТНО выше 100vh,
   // иначе на высоких экранах у неё просто не будет запаса на "задержку" —
@@ -3000,7 +3016,19 @@ export default function Home() {
     return () => video.removeEventListener('canplay', h);
   }, [videoSrc]);
 
-  const calcTileSize = () => Math.floor((window.innerHeight - GAP * 6) / 5);
+  // Количество рядов "5 РЯДОВ" — чем УЖЕ экран, тем БОЛЬШЕ рядов (и тем
+  // МЕЛЬЧЕ сама плитка, см. calcTileSize ниже — делит высоту экрана на
+  // ТЕКУЩЕЕ число рядов, не всегда на 5). На широком десктопе (1920px и
+  // шире) — 5 рядов, как было; к узкому мобильному (~390px) — плавно растёт
+  // до 12 (формула через sqrt — рост постепенный, без резких скачков).
+  // Обычная функция (не завязана на state) — всегда считает заново от
+  // ТЕКУЩИХ размеров окна, без риска устаревшего замыкания в обработчике
+  // resize.
+  const calcRowCount = () => Math.round(Math.min(12, Math.max(5, 5 * Math.sqrt(1920 / window.innerWidth))));
+  const calcTileSize = () => {
+    const rc = calcRowCount();
+    return Math.floor((window.innerHeight - GAP * (rc + 1)) / rc);
+  };
   const getRowWidth = () => (calcTileSize() + GAP) * ALL_IMAGES.length + GAP;
   // Для колец мозаик/кубиков — то же самое, но от МЕНЬШЕЙ стороны экрана, не
   // только высоты. На узком мобильном экране ширина меньше высоты, и именно
@@ -3253,9 +3281,21 @@ export default function Home() {
   // у самого рефа выше). Должен быть объявлен/выполнен ДО эффекта со
   // scroll-слушателем ниже, чтобы к первому вызову applyAnimations там уже
   // было верное значение — React гарантированно выполняет эффекты в
-  // порядке их объявления в компоненте.
+  // порядке их объявления в компоненте. Раньше это было "2×высота экрана"
+  // (предполагалось, что alex и галерея — ВСЕГДА ровно 100vh каждая) — но
+  // на мобильном (см. .section-wrap/.section-rect в CSS выше) их реальная
+  // высота теперь другая (по aspect-ratio, а не 100vh) — вместо допущения
+  // измеряем РЕАЛЬНУЮ высоту через сам DOM-элемент галереи (её нижний край
+  // = где физически начинается секция мозаик), это верно независимо от
+  // того, десктоп сейчас или мобильный.
   useEffect(() => {
-    const upd = () => { preMosaicPxRef.current = window.innerHeight * 2; };
+    const upd = () => {
+      if (artSectionRef.current) {
+        preMosaicPxRef.current = artSectionRef.current.getBoundingClientRect().bottom + window.scrollY;
+      } else {
+        preMosaicPxRef.current = window.innerHeight * 2; // временный фолбэк, пока artSectionRef ещё не смонтирован
+      }
+    };
     upd();
     window.addEventListener("resize", upd);
     return () => window.removeEventListener("resize", upd);
@@ -3412,7 +3452,7 @@ export default function Home() {
 
   const [tileSize, setTileSize] = useState(140);
   useEffect(() => {
-    const upd = () => setTileSize(calcTileSize());
+    const upd = () => { setTileSize(calcTileSize()); setRowCount(calcRowCount()); };
     upd(); window.addEventListener("resize", upd);
     return () => window.removeEventListener("resize", upd);
   }, []);
@@ -3466,6 +3506,24 @@ export default function Home() {
           .card-input{-webkit-text-stroke:0.4px #000;paint-order:stroke fill}
           .card-btn{-webkit-text-stroke:0.4px #fff;paint-order:stroke fill}
           .cursor-el{display:none!important;}
+          /* alex/галерея (art) — на мобильном контейнер РАСТЯГИВАЛСЯ по
+             высоте экрана (100vh), а поскольку мобильный экран узкий и
+             высокий (портретный) — прямоугольник получался вытянутым по
+             вертикали, визуально СОВСЕМ другой формы, чем на десктопе (там
+             экран широкий, прямоугольник — landscape). Задача — чтобы
+             открывалось "точно так же, как на компьютерной версии":
+             сохраняем ту же широкую (16:9) форму, просто вписанную по
+             ширине экрана — без отступов по бокам (padding:0), высота
+             считается из aspect-ratio, а не растягивается на весь экран.
+             Высота ОБЁРТКИ секции (.section-wrap) — тоже не 100vh: раньше
+             между alex и галереей при скролле было ОГРОМНОЕ расстояние
+             (почти весь экран — просто чёрный фон вокруг небольшого по
+             высоте прямоугольника). Теперь высота обёртки ТОЧНО равна
+             высоте самого прямоугольника (100vw*9/16) плюс фиксированный
+             зазор в 20px — тот же GAP, что используется между ячейками по
+             всему сайту — секции идут чётко друг за другом. */
+          .section-wrap{padding:0!important;height:calc(100vw * 9 / 16 + 20px)!important;}
+          .section-rect{width:100vw!important;height:auto!important;aspect-ratio:16/9;}
         }
         @media(min-width:769px){
           .cursor-el{display:block!important;}
@@ -3540,9 +3598,9 @@ export default function Home() {
             тряской телефона (переиспользует уже существующий гироскоп/
             акселерометр эффект). Гейтинг по overlayOpacity — секция не
             существует в DOM, пока не погас экран загрузки. */}
-        <div ref={alexSectionRef} style={{ position: "relative", height: "100vh", overflow: "hidden", background: "#000", display: "flex", alignItems: "center", justifyContent: "center", padding: "clamp(16px,4vw,48px)" }}>
+        <div ref={alexSectionRef} className="section-wrap" style={{ position: "relative", height: "100vh", overflow: "hidden", background: "#000", display: "flex", alignItems: "center", justifyContent: "center", padding: "clamp(16px,4vw,48px)" }}>
           {overlayOpacity <= 0.01 && (
-            <div style={{ width: "100%", height: "100%", borderRadius: "clamp(24px,5vw,64px)", overflow: "hidden", position: "relative", background: "#111" }}>
+            <div className="section-rect" style={{ width: "100%", height: "100%", borderRadius: "clamp(24px,5vw,64px)", overflow: "hidden", position: "relative", background: "#111" }}>
               {/* Рендерим ВСЕ картинки сразу, друг на друге (position:absolute,
                   все кроме текущей — opacity:0) — переключение становится
                   ЧИСТО CSS-операцией (просто смена opacity), без всякой
@@ -3579,7 +3637,7 @@ export default function Home() {
               style={{
                 ["--ps-font" as any]: drinkWaterStyle.font,
                 fontWeight: 900,
-                fontSize: "clamp(48px,10vw,160px)",
+                fontSize: "clamp(24px,5vw,80px)",
                 lineHeight: 1,
                 whiteSpace: "nowrap",
                 display: "inline-block",
@@ -3606,7 +3664,7 @@ export default function Home() {
                 pointerEvents: "none",
                 ["--ps-font" as any]: drinkWaterStyle.font,
                 fontWeight: 900,
-                fontSize: "clamp(48px,10vw,160px)",
+                fontSize: "clamp(24px,5vw,80px)",
                 lineHeight: 1,
                 whiteSpace: "nowrap",
               }}
@@ -3624,9 +3682,9 @@ export default function Home() {
             Контент — ART_IMAGES (art1..art36.png из public/). Спустя 20с
             после захода на сайт (см. showArtVideo) — цикл картинок сменяется
             видео fit.mp4, в том же контейнере, тем же object-fit:cover. */}
-        <div ref={artSectionRef} style={{ position: "relative", height: "100vh", overflow: "hidden", background: "#000", display: "flex", alignItems: "center", justifyContent: "center", padding: "clamp(16px,4vw,48px)" }}>
+        <div ref={artSectionRef} className="section-wrap" style={{ position: "relative", height: "100vh", overflow: "hidden", background: "#000", display: "flex", alignItems: "center", justifyContent: "center", padding: "clamp(16px,4vw,48px)" }}>
           {overlayOpacity <= 0.01 && (
-            <div style={{ width: "100%", height: "100%", borderRadius: "clamp(24px,5vw,64px)", overflow: "hidden", position: "relative", background: "#111" }}>
+            <div className="section-rect" style={{ width: "100%", height: "100%", borderRadius: "clamp(24px,5vw,64px)", overflow: "hidden", position: "relative", background: "#111" }}>
               {showArtVideo ? (
                 <video ref={artVideoRef} src="/fit.mp4" autoPlay muted loop playsInline
                   style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
