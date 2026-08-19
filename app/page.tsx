@@ -1400,11 +1400,39 @@ export default function Home() {
   // ПОСЛЕДОВАТЕЛЬНО (не случайно), чтобы картинки не повторялись слишком
   // рано: идём по кругу 1→2→...→7→1→2... — гарантированно максимально
   // возможный интервал между повторами одной и той же картинки (7 показов).
+  // Сетка квадратных ячеек — как и у остальных ячеек по сайту (сглаженные
+  // углы, зазор GAP между ними и по краям) — заполняет весь экран целиком.
+  // Общая и для alex, и для галереи (art), поскольку обе секции — на весь
+  // экран, сетка получается одинаковой. Распределение колонок/строк — по
+  // ориентации экрана: шире, чем выше (landscape) — 3×2 (3 колонки, 2
+  // строки); выше, чем шире (portrait) — 2×3.
+  const [grid, setGrid] = useState({ cellPx: 0, cols: 3, rows: 2 });
+  useEffect(() => {
+    let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+    const computeGrid = () => {
+      const landscape = window.innerWidth >= window.innerHeight;
+      const cols = landscape ? 3 : 2;
+      const rows = landscape ? 2 : 3;
+      const availW = (window.innerWidth - GAP * (cols + 1)) / cols;
+      const availH = (window.innerHeight - GAP * (rows + 1)) / rows;
+      setGrid({ cellPx: Math.max(0, Math.floor(Math.min(availW, availH))), cols, rows });
+    };
+    computeGrid();
+    const onResize = () => {
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(computeGrid, 150);
+    };
+    window.addEventListener("resize", onResize);
+    return () => {
+      window.removeEventListener("resize", onResize);
+      if (resizeTimer) clearTimeout(resizeTimer);
+    };
+  }, []);
   const [alexIndex, setAlexIndex] = useState(0);
   const alexSectionRef = useRef<HTMLDivElement>(null);
   const advanceAlexImage = useCallback(() => {
-    setAlexIndex(prev => (prev + 1) % ALEX_IMAGES.length);
-  }, []);
+    setAlexIndex(prev => (prev + grid.cols * grid.rows) % ALEX_IMAGES.length);
+  }, [grid.cols, grid.rows]);
   // Предзагрузка всех 7 картинок один раз при монтировании — через
   // decode(), а не просто src=... — new Image()+src только СКАЧИВАЕТ байты,
   // но НЕ гарантирует полное декодирование: браузер может декодировать
@@ -1443,15 +1471,14 @@ export default function Home() {
     };
     setTimeout(loadNext, 80);
   }, []);
-  // Секция-галерея (ART_IMAGES, art1..art36.png) — теперь ТОЧНО ТАКОЙ ЖЕ
-  // экран, что и у alex: одна картинка за раз, последовательно по кругу, та
-  // же предзагрузка, тот же принцип смены (см. JSX и объединённый
-  // mousemove/гироскоп-эффект ниже).
+  // Секция-галерея (ART_IMAGES, art1..art36.png) — теперь ТОЧНО ТАКАЯ ЖЕ
+  // сетка ячеек, что и у alex: та же предзагрузка, тот же принцип смены (см.
+  // JSX и объединённый mousemove/гироскоп-эффект ниже).
   const [artIndex, setArtIndex] = useState(0);
   const artSectionRef = useRef<HTMLDivElement>(null);
   const advanceArtImage = useCallback(() => {
-    setArtIndex(prev => (prev + 1) % ART_IMAGES.length);
-  }, []);
+    setArtIndex(prev => (prev + grid.cols * grid.rows) % ART_IMAGES.length);
+  }, [grid.cols, grid.rows]);
   // Видео fit.mp4 на второй секции (art) — появляется спустя 20с ПОСЛЕ
   // захода на сайт (от монтирования страницы), заменяя собой цикл сменяемых
   // картинок в том же контейнере.
@@ -1984,23 +2011,12 @@ export default function Home() {
     "/8.jpg", "/9.jpg", "/10.jpg", "/11.jpg", "/12.jpg", "/13.jpg", "/14.jpg",
     "/15.jpg", "/16.jpg", "/17.jpg", "/18.jpg", "/19.jpg", "/20.jpg", "/21.jpg"
   ];
-  // Количество рядов "5 РЯДОВ" (название условное — теперь их не всегда 5) —
-  // подстраивается под ширину экрана: чем УЖЕ экран, тем БОЛЬШЕ рядов (и,
-  // соответственно, тем МЕЛЬЧЕ сама плитка — см. tileSize/calcTileSize
-  // ниже, который делит высоту экрана на текущее число рядов). На широком
-  // десктопе (1920px и шире) — 5 рядов, как было; к узкому мобильному
-  // (~390px) — плавно растёт до 12. Формула через sqrt — рост не резкий
-  // рывками, а плавный по мере сужения экрана. Обновляется вместе с
-  // tileSize, в одном и том же обработчике resize (см. ниже, у
-  // calcTileSize) — чтобы оба значения всегда были согласованы друг с
-  // другом, без риска рассинхрона между двумя независимыми эффектами.
-  const [rowCount, setRowCount] = useState(5);
-  const ROWS = useMemo(() =>
-    Array.from({ length: rowCount }, (_, i) => shuffleWithSeed(ALL_IMAGES, 1001 + i * 1001)),
-    [rowCount]);
-  const REVERSED = useMemo(() =>
-    Array.from({ length: rowCount }, (_, i) => i % 2 === 1),
-    [rowCount]);
+  const ROWS = useMemo(() => [
+    shuffleWithSeed(ALL_IMAGES, 1001), shuffleWithSeed(ALL_IMAGES, 2002),
+    shuffleWithSeed(ALL_IMAGES, 3003), shuffleWithSeed(ALL_IMAGES, 4004),
+    shuffleWithSeed(ALL_IMAGES, 5005),
+  ], []);
+  const REVERSED = [false, true, false, true, false];
   // Было 800 — увеличено при переходе на обычный, физический скролл
   // (sticky-секции): каждая sticky-обёртка должна быть ЗАМЕТНО выше 100vh,
   // иначе на высоких экранах у неё просто не будет запаса на "задержку" —
@@ -3016,19 +3032,7 @@ export default function Home() {
     return () => video.removeEventListener('canplay', h);
   }, [videoSrc]);
 
-  // Количество рядов "5 РЯДОВ" — чем УЖЕ экран, тем БОЛЬШЕ рядов (и тем
-  // МЕЛЬЧЕ сама плитка, см. calcTileSize ниже — делит высоту экрана на
-  // ТЕКУЩЕЕ число рядов, не всегда на 5). На широком десктопе (1920px и
-  // шире) — 5 рядов, как было; к узкому мобильному (~390px) — плавно растёт
-  // до 12 (формула через sqrt — рост постепенный, без резких скачков).
-  // Обычная функция (не завязана на state) — всегда считает заново от
-  // ТЕКУЩИХ размеров окна, без риска устаревшего замыкания в обработчике
-  // resize.
-  const calcRowCount = () => Math.round(Math.min(12, Math.max(5, 5 * Math.sqrt(1920 / window.innerWidth))));
-  const calcTileSize = () => {
-    const rc = calcRowCount();
-    return Math.floor((window.innerHeight - GAP * (rc + 1)) / rc);
-  };
+  const calcTileSize = () => Math.floor((window.innerHeight - GAP * 6) / 5);
   const getRowWidth = () => (calcTileSize() + GAP) * ALL_IMAGES.length + GAP;
   // Для колец мозаик/кубиков — то же самое, но от МЕНЬШЕЙ стороны экрана, не
   // только высоты. На узком мобильном экране ширина меньше высоты, и именно
@@ -3281,21 +3285,9 @@ export default function Home() {
   // у самого рефа выше). Должен быть объявлен/выполнен ДО эффекта со
   // scroll-слушателем ниже, чтобы к первому вызову applyAnimations там уже
   // было верное значение — React гарантированно выполняет эффекты в
-  // порядке их объявления в компоненте. Раньше это было "2×высота экрана"
-  // (предполагалось, что alex и галерея — ВСЕГДА ровно 100vh каждая) — но
-  // на мобильном (см. .section-wrap/.section-rect в CSS выше) их реальная
-  // высота теперь другая (по aspect-ratio, а не 100vh) — вместо допущения
-  // измеряем РЕАЛЬНУЮ высоту через сам DOM-элемент галереи (её нижний край
-  // = где физически начинается секция мозаик), это верно независимо от
-  // того, десктоп сейчас или мобильный.
+  // порядке их объявления в компоненте.
   useEffect(() => {
-    const upd = () => {
-      if (artSectionRef.current) {
-        preMosaicPxRef.current = artSectionRef.current.getBoundingClientRect().bottom + window.scrollY;
-      } else {
-        preMosaicPxRef.current = window.innerHeight * 2; // временный фолбэк, пока artSectionRef ещё не смонтирован
-      }
-    };
+    const upd = () => { preMosaicPxRef.current = window.innerHeight * 2; };
     upd();
     window.addEventListener("resize", upd);
     return () => window.removeEventListener("resize", upd);
@@ -3452,7 +3444,7 @@ export default function Home() {
 
   const [tileSize, setTileSize] = useState(140);
   useEffect(() => {
-    const upd = () => { setTileSize(calcTileSize()); setRowCount(calcRowCount()); };
+    const upd = () => setTileSize(calcTileSize());
     upd(); window.addEventListener("resize", upd);
     return () => window.removeEventListener("resize", upd);
   }, []);
@@ -3506,26 +3498,6 @@ export default function Home() {
           .card-input{-webkit-text-stroke:0.4px #000;paint-order:stroke fill}
           .card-btn{-webkit-text-stroke:0.4px #fff;paint-order:stroke fill}
           .cursor-el{display:none!important;}
-          /* alex/галерея (art) — на мобильном контейнер РАСТЯГИВАЛСЯ по
-             высоте экрана (100vh), а поскольку мобильный экран узкий и
-             высокий (портретный) — прямоугольник получался вытянутым по
-             вертикали, визуально СОВСЕМ другой формы, чем на десктопе (там
-             экран широкий, прямоугольник — landscape). Задача — чтобы
-             открывалось "точно так же, как на компьютерной версии":
-             сохраняем ту же широкую (16:9) форму, просто вписанную по
-             ширине экрана. Внешние отступы по бокам (до краёв экрана) —
-             ВСЕГДА присутствуют, зафиксированы и равны GAP (тому же зазору,
-             что между ячейками по всему сайту) — на десктопе то же самое
-             (см. инлайн-стиль padding у самих секций, ниже в JSX).
-             Высота ОБЁРТКИ секции (.section-wrap) — не 100vh: раньше между
-             alex и галереей при скролле было ОГРОМНОЕ расстояние (почти
-             весь экран — просто чёрный фон вокруг небольшого по высоте
-             прямоугольника). height:auto — flex-контейнер сам естественно
-             подстраивается под высоту содержимого (прямоугольник по
-             aspect-ratio) плюс свой padding — секции идут чётко друг за
-             другом, без ручного расчёта через calc(). */
-          .section-wrap{height:auto!important;}
-          .section-rect{width:100%!important;height:auto!important;aspect-ratio:16/9;}
         }
         @media(min-width:769px){
           .cursor-el{display:block!important;}
@@ -3593,28 +3565,24 @@ export default function Home() {
 
         {/* ALEX — теперь самая первая ФИЗИЧЕСКИ проскролливаемая секция —
             обычный блок ровно 100vh, БЕЗ sticky-паузы (по просьбе — пауза
-            при скролле остаётся только у секции мозаик ниже). Большой
-            прямоугольник со сильно сглаженными углами — одна из 7 картинок
-            за раз, ПОСЛЕДОВАТЕЛЬНО по кругу (см. advanceAlexImage). На
-            десктопе меняется движением курсора; на мобильных — наклоном/
-            тряской телефона (переиспользует уже существующий гироскоп/
-            акселерометр эффект). Гейтинг по overlayOpacity — секция не
-            существует в DOM, пока не погас экран загрузки. */}
-        <div ref={alexSectionRef} className="section-wrap" style={{ position: "relative", height: "100vh", overflow: "hidden", background: "#000", display: "flex", alignItems: "center", justifyContent: "center", padding: `${GAP}px` }}>
-          {overlayOpacity <= 0.01 && (
-            <div className="section-rect" style={{ width: "100%", height: "100%", borderRadius: "clamp(24px,5vw,64px)", overflow: "hidden", position: "relative", background: "#111" }}>
-              {/* Рендерим ВСЕ картинки сразу, друг на друге (position:absolute,
-                  все кроме текущей — opacity:0) — переключение становится
-                  ЧИСТО CSS-операцией (просто смена opacity), без всякой
-                  зависимости от декодирования КОНКРЕТНО в момент смены —
-                  каждая картинка уже полностью отрисована браузером заранее,
-                  задолго до того как до неё дойдёт очередь. Раньше был один
-                  <img>, чей src менялся — там переключение зависело от того,
-                  успел ли браузер декодировать именно эту, новую картинку
-                  ровно в нужный момент. */}
-              {ALEX_IMAGES.map((src, i) => (
-                <img key={src} src={src} alt="" decoding="sync" loading="eager"
-                  style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", display: "block", opacity: i === alexIndex ? 1 : 0 }} />
+            при скролле остаётся только у секции мозаик ниже). Сетка
+            квадратных ячеек со сглаженными углами (тот же формат, что и у
+            остальных ячеек по сайту — зазор GAP между ними и по краям),
+            заполняющая весь экран целиком. Колонки/строки — по ориентации
+            экрана (см. grid выше). Каждая ячейка показывает СВОЮ картинку
+            из набора, все ячейки продвигаются по кругу СИНХРОННО, каждые 2с
+            (см. advanceAlexImage — шаг сразу на весь размер сетки, а не на
+            1, чтобы за раз показывался целиком новый набор картинок, без
+            повторов внутри одного "кадра"). Гейтинг по overlayOpacity —
+            секция не существует в DOM, пока не погас экран загрузки. */}
+        <div ref={alexSectionRef} style={{ position: "relative", height: "100vh", overflow: "hidden", background: "#000", display: "flex", alignItems: "center", justifyContent: "center", padding: `${GAP}px` }}>
+          {overlayOpacity <= 0.01 && grid.cellPx > 0 && (
+            <div style={{ display: "grid", gridTemplateColumns: `repeat(${grid.cols},${grid.cellPx}px)`, gridTemplateRows: `repeat(${grid.rows},${grid.cellPx}px)`, gap: `${GAP}px` }}>
+              {Array.from({ length: grid.cols * grid.rows }, (_, cellIdx) => (
+                <div key={cellIdx} style={{ width: `${grid.cellPx}px`, height: `${grid.cellPx}px`, borderRadius: "14%", overflow: "hidden", position: "relative", background: "#111" }}>
+                  <img src={ALEX_IMAGES[(alexIndex + cellIdx) % ALEX_IMAGES.length]} alt="" decoding="sync" loading="eager"
+                    style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                </div>
               ))}
             </div>
           )}
@@ -3676,27 +3644,37 @@ export default function Home() {
           </div>
         </div>
 
-        {/* СЕКЦИЯ-ПРЕЗЕНТАЦИЯ С ГАЛЕРЕЕЙ — теперь ТОЧНО ТАКОЙ ЖЕ экран, что и
-            у alex (см. выше): большой прямоугольник со сильно сглаженными
-            углами, одна картинка за раз, ПОСЛЕДОВАТЕЛЬНО по кругу (см.
-            advanceArtImage). Обычный блок ровно 100vh, БЕЗ sticky-паузы
-            (пауза при скролле остаётся только у секции мозаик ниже).
-            Контент — ART_IMAGES (art1..art36.png из public/). Спустя 20с
-            после захода на сайт (см. showArtVideo) — цикл картинок сменяется
-            видео fit.mp4, в том же контейнере, тем же object-fit:cover. */}
-        <div ref={artSectionRef} className="section-wrap" style={{ position: "relative", height: "100vh", overflow: "hidden", background: "#000", display: "flex", alignItems: "center", justifyContent: "center", padding: `${GAP}px` }}>
+        {/* Зазор между alex и галереей — фиксированной высоты, равен GAP
+            (тому же зазору, что между ячейками по всему сайту) — на всех
+            экранах одинаково. */}
+        <div style={{ height: `${GAP}px`, background: "#000" }} />
+
+        {/* СЕКЦИЯ-ПРЕЗЕНТАЦИЯ С ГАЛЕРЕЕЙ — теперь ТОЧНО ТАКАЯ ЖЕ сетка ячеек,
+            что и у alex (см. выше): те же квадратные ячейки со сглаженными
+            углами, GAP между ними, заполняют весь экран, синхронно
+            продвигаются по кругу каждые 2с. Обычный блок ровно 100vh, БЕЗ
+            sticky-паузы (пауза при скролле остаётся только у секции мозаик
+            ниже). Контент — ART_IMAGES (art1..art36.png из public/). Спустя
+            20с после захода на сайт (см. showArtVideo) — сетка сменяется
+            ОДНИМ полноэкранным видео fit.mp4 (не сеткой — эта часть без
+            изменений). */}
+        <div ref={artSectionRef} style={{ position: "relative", height: "100vh", overflow: "hidden", background: "#000", display: "flex", alignItems: "center", justifyContent: "center", padding: `${GAP}px` }}>
           {overlayOpacity <= 0.01 && (
-            <div className="section-rect" style={{ width: "100%", height: "100%", borderRadius: "clamp(24px,5vw,64px)", overflow: "hidden", position: "relative", background: "#111" }}>
-              {showArtVideo ? (
+            showArtVideo ? (
+              <div style={{ width: "100%", height: "100%", borderRadius: "clamp(24px,5vw,64px)", overflow: "hidden", position: "relative", background: "#111" }}>
                 <video ref={artVideoRef} src="/fit.mp4" autoPlay muted loop playsInline
                   style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-              ) : (
-                ART_IMAGES.map((src, i) => (
-                  <img key={src} src={src} alt="" decoding="sync" loading="eager"
-                    style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", display: "block", opacity: i === artIndex ? 1 : 0 }} />
-                ))
-              )}
-            </div>
+              </div>
+            ) : grid.cellPx > 0 && (
+              <div style={{ display: "grid", gridTemplateColumns: `repeat(${grid.cols},${grid.cellPx}px)`, gridTemplateRows: `repeat(${grid.rows},${grid.cellPx}px)`, gap: `${GAP}px` }}>
+                {Array.from({ length: grid.cols * grid.rows }, (_, cellIdx) => (
+                  <div key={cellIdx} style={{ width: `${grid.cellPx}px`, height: `${grid.cellPx}px`, borderRadius: "14%", overflow: "hidden", position: "relative", background: "#111" }}>
+                    <img src={ART_IMAGES[(artIndex + cellIdx) % ART_IMAGES.length]} alt="" decoding="sync" loading="eager"
+                      style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                  </div>
+                ))}
+              </div>
+            )
           )}
         </div>
 
