@@ -13,6 +13,181 @@ function shuffleWithSeed(arr: string[], seed: number): string[] {
   return a;
 }
 
+// Сетка квадратных ячеек, заполняющая экран БЕЗ остатка по краям — раньше
+// фиксированная сетка (3×2/2×3) выбирала cellPx как МЕНЬШЕЕ из "сколько
+// влезает по ширине" и "сколько влезает по высоте" при ФИКСИРОВАННОМ
+// зазоре — если экран не попадал ровно в пропорцию этой сетки, одна из
+// осей оставалась "недозаполненной" этим меньшим cellPx, и на ней
+// появлялось ЛИШНЕЕ поле сверх зазора (именно то, что видно на
+// скриншоте — большие поля по бокам). Теперь — перебор разумных вариантов
+// cols×rows, и для каждого зазор по горизонтали/вертикали считается
+// ОТДЕЛЬНО так, чтобы точно (без остатка) заполнить именно свою ось этим
+// cellPx — гарантированно нулевой остаток по построению. Из всех вариантов
+// выбирается тот, где оба зазора (гориз./верт.) ближе всего к номинальному
+// (тому же GAP, что и у остальных ячеек по сайту) — то есть паттерн ячеек
+// подстраивается под конкретную пропорцию экрана, а не наоборот. Диапазон
+// (2-4 колонки/строки, 4-9 ячеек всего) — специально УЖЕ прежнего (было
+// 2-6/16) — чем МЕНЬШЕ ячеек, тем КАЖДАЯ из них крупнее при том же экране.
+function computeCellGrid(w: number, h: number, nominalGap: number) {
+  let best: { cols: number; rows: number; cellPx: number; gapX: number; gapY: number } | null = null;
+  for (let cols = 2; cols <= 4; cols++) {
+    for (let rows = 2; rows <= 4; rows++) {
+      const total = cols * rows;
+      if (total < 4 || total > 9) continue;
+      const cellPxW = (w - nominalGap * (cols + 1)) / cols;
+      const cellPxH = (h - nominalGap * (rows + 1)) / rows;
+      if (cellPxW <= 30 || cellPxH <= 30) continue;
+      const cellPx = Math.floor(Math.min(cellPxW, cellPxH));
+      const gapX = (w - cellPx * cols) / (cols + 1);
+      const gapY = (h - cellPx * rows) / (rows + 1);
+      const deviation = Math.abs(gapX - nominalGap) + Math.abs(gapY - nominalGap);
+      if (!best || deviation < (Math.abs(best.gapX - nominalGap) + Math.abs(best.gapY - nominalGap)) - 0.5) {
+        best = { cols, rows, cellPx, gapX, gapY };
+      }
+    }
+  }
+  return best || { cols: 3, rows: 2, cellPx: 100, gapX: nominalGap, gapY: nominalGap };
+}
+
+// Независимое переключение каждой ячейки сетки — раз в секунду, каждая
+// ячейка САМА ПО СЕБЕ (не синхронно со всеми остальными) переключается на
+// СЛУЧАЙНУЮ следующую картинку — но так, чтобы среди картинок, показанных
+// прямо сейчас во всех ячейках сразу, никогда не было повторов (выбор
+// каждый раз идёт только из тех индексов, которые в данный момент НЕ
+// заняты ни одной другой ячейкой). Старт каждой ячейки случайно смещён по
+// времени (0-1с) — иначе все ячейки переключались бы синхронно, одним
+// "миганием" раз в секунду, а не независимо друг от друга.
+function useCellCycler(imagesLength: number, cellCount: number): number[] {
+  const [cells, setCells] = useState<number[]>(() =>
+    Array.from({ length: cellCount }, (_, i) => i % imagesLength)
+  );
+  // При изменении числа ячеек (ресайз, другая сетка) — пересобираем массив
+  // нужной длины, сохраняя прежние значения там, где можем, и добавляя
+  // новые (гарантированно ещё не занятые) индексы для новых ячеек.
+  useEffect(() => {
+    setCells(prev => {
+      if (prev.length === cellCount) return prev;
+      const next = prev.slice(0, cellCount);
+      const used = new Set(next);
+      while (next.length < cellCount) {
+        let candidate = next.length % imagesLength;
+        let guard = 0;
+        while (used.has(candidate) && guard < imagesLength) {
+          candidate = (candidate + 1) % imagesLength;
+          guard++;
+        }
+        used.add(candidate);
+        next.push(candidate);
+      }
+      return next;
+    });
+  }, [cellCount, imagesLength]);
+  useEffect(() => {
+    let cancelled = false;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    for (let i = 0; i < cellCount; i++) {
+      const tick = () => {
+        if (cancelled) return;
+        const t = setTimeout(() => {
+          setCells(prev => {
+            if (i >= prev.length) return prev;
+            const used = new Set(prev);
+            const avail: number[] = [];
+            for (let k = 0; k < imagesLength; k++) if (!used.has(k)) avail.push(k);
+            if (avail.length === 0) return prev; // на практике не случается — картинок всегда больше, чем ячеек
+            const nextIdx = avail[Math.floor(Math.random() * avail.length)];
+            const copy = prev.slice();
+            copy[i] = nextIdx;
+            return copy;
+          });
+          tick();
+        }, 1000);
+        timers.push(t);
+      };
+      const initialDelay = Math.random() * 1000; // случайное смещение старта — чтобы ячейки не мигали синхронно
+      const startTimer = setTimeout(tick, initialDelay);
+      timers.push(startTimer);
+    }
+    return () => { cancelled = true; timers.forEach(clearTimeout); };
+  }, [cellCount, imagesLength]);
+  return cells;
+}
+
+// То же самое, что useCellCycler выше, но КАЖДАЯ ячейка дополнительно несёт
+// СВОЙ шрифт и СВОЙ язык (для "drink water" внутри неё) — меняются СТРОГО
+// вместе с картинкой в этой же ячейке (один и тот же setCells внутри
+// одного тика — гарантированно один и тот же рендер, без риска рассинхрона
+// между картинкой и текстом). В отличие от картинок, шрифт/язык НЕ обязаны
+// быть разными между ячейками одновременно — повтор шрифта или языка в
+// двух разных ячейках допустим и никак не проверяется.
+type StyledCell = { imageIndex: number; font: string; text: string };
+function useStyledCellCycler(imagesLength: number, cellCount: number): StyledCell[] {
+  const [cells, setCells] = useState<StyledCell[]>(() =>
+    Array.from({ length: cellCount }, (_, i) => ({
+      imageIndex: i % imagesLength,
+      font: PROBLEM_SOLVER_FONTS[i % PROBLEM_SOLVER_FONTS.length],
+      text: DRINK_WATER_TEXTS[i % DRINK_WATER_TEXTS.length],
+    }))
+  );
+  useEffect(() => {
+    setCells(prev => {
+      if (prev.length === cellCount) return prev;
+      const next = prev.slice(0, cellCount);
+      const used = new Set(next.map(c => c.imageIndex));
+      while (next.length < cellCount) {
+        let candidate = next.length % imagesLength;
+        let guard = 0;
+        while (used.has(candidate) && guard < imagesLength) {
+          candidate = (candidate + 1) % imagesLength;
+          guard++;
+        }
+        used.add(candidate);
+        next.push({
+          imageIndex: candidate,
+          font: PROBLEM_SOLVER_FONTS[next.length % PROBLEM_SOLVER_FONTS.length],
+          text: DRINK_WATER_TEXTS[next.length % DRINK_WATER_TEXTS.length],
+        });
+      }
+      return next;
+    });
+  }, [cellCount, imagesLength]);
+  useEffect(() => {
+    let cancelled = false;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    for (let i = 0; i < cellCount; i++) {
+      const tick = () => {
+        if (cancelled) return;
+        const t = setTimeout(() => {
+          setCells(prev => {
+            if (i >= prev.length) return prev;
+            const used = new Set(prev.map(c => c.imageIndex));
+            const avail: number[] = [];
+            for (let k = 0; k < imagesLength; k++) if (!used.has(k)) avail.push(k);
+            if (avail.length === 0) return prev;
+            const nextImg = avail[Math.floor(Math.random() * avail.length)];
+            const fontPool = PROBLEM_SOLVER_FONTS.filter(f => f !== prev[i].font);
+            const textPool = DRINK_WATER_TEXTS.filter(t => t !== prev[i].text);
+            const copy = prev.slice();
+            copy[i] = {
+              imageIndex: nextImg,
+              font: fontPool[Math.floor(Math.random() * fontPool.length)],
+              text: textPool[Math.floor(Math.random() * textPool.length)],
+            };
+            return copy;
+          });
+          tick();
+        }, 1000);
+        timers.push(t);
+      };
+      const initialDelay = Math.random() * 1000;
+      const startTimer = setTimeout(tick, initialDelay);
+      timers.push(startTimer);
+    }
+    return () => { cancelled = true; timers.forEach(clearTimeout); };
+  }, [cellCount, imagesLength]);
+  return cells;
+}
+
 // Кольцо 0 — исходное (радиус R0). Кольцо 1 (первое переполнение) — наружное,
 // больше R0. Кольцо 2 (второе переполнение) — внутреннее, меньше R0. Дальше
 // чередование продолжается тем же способом. Шаг АДДИТИВНЫЙ и равен radialGap —
@@ -212,8 +387,8 @@ function roundedPolygonPath(n: number, roundFrac: number = 0.22): string {
 const CIRCLE_SIDES_APPROX = 64;
 
 // Контент для секции-галереи — art1.png..art36.png из public/. Показывается
-// точно так же, как у alex — одна картинка за раз, последовательно (см.
-// advanceArtImage).
+// сеткой ячеек, каждая независимо переключается на случайную картинку раз в
+// секунду, без повторов среди одновременно показанных (см. useCellCycler).
 const ART_IMAGES = Array.from({ length: 36 }, (_, i) => `/art${i + 1}.png`);
 // Сколько ЕДИНИЦ (× SCROLL_PER_UNIT) занимает секция мозаик САМА ПО СЕБЕ
 // (раскрытие+интерактив, переход "5 рядов") — единственная секция, у
@@ -329,10 +504,10 @@ const PS_THEMES: { bg: string; text: string; inputBg: string; inputText: string;
   { bg: "#1a1a2e", text: "#ffffff", inputBg: "#ffffff", inputText: "#1a1a2e", inputBorder: "#ffffff", caret: "#f7d716" },
 ];
 
-// Новая секция "alex" (над Problem solver) — большой прямоугольник со
-// сглаженными углами, показывает одну из 7 картинок за раз, ПОСЛЕДОВАТЕЛЬНО
-// по кругу (не случайно — см. advanceAlexImage), чтобы не было слишком
-// ранних повторов.
+// Новая секция "alex" (над Problem solver) — сетка квадратных ячеек
+// (см. computeCellGrid), каждая независимо переключается на случайную
+// картинку раз в секунду, без повторов среди одновременно показанных (см.
+// useCellCycler).
 const ALEX_IMAGES = Array.from({ length: 17 }, (_, i) => `/alex${i + 1}.png`);
 
 // Форма поля ввода — не только базовые скругления, но и асимметричные
@@ -1341,6 +1516,13 @@ function generate3DShapePoints(
 
 
 export default function Home() {
+  // GAP — зазор между ячейками (и от них до краёв экрана) по всему сайту.
+  // Объявлен в самом начале компонента — используется в synchронно
+  // выполняемых useState-инициализаторах (например, у сетки alex/art ниже),
+  // которым нужно реальное значение уже во время самого рендера, а не
+  // после него (в отличие от useEffect, где порядок объявления в теле
+  // компонента не имеет значения).
+  const GAP = 20;
   const [videoSrc, setVideoSrc] = useState("/me.mp4");
 
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -1401,26 +1583,22 @@ export default function Home() {
   // рано: идём по кругу 1→2→...→7→1→2... — гарантированно максимально
   // возможный интервал между повторами одной и той же картинки (7 показов).
   // Сетка квадратных ячеек — как и у остальных ячеек по сайту (сглаженные
-  // углы, зазор GAP между ними и по краям) — заполняет весь экран целиком.
-  // Общая и для alex, и для галереи (art), поскольку обе секции — на весь
-  // экран, сетка получается одинаковой. Распределение колонок/строк — по
-  // ориентации экрана: шире, чем выше (landscape) — 3×2 (3 колонки, 2
-  // строки); выше, чем шире (portrait) — 2×3.
-  const [grid, setGrid] = useState({ cellPx: 0, cols: 3, rows: 2 });
+  // углы) — заполняет весь экран целиком, БЕЗ лишних полей по краям (см.
+  // computeCellGrid выше — количество колонок/строк и сам зазор
+  // подстраиваются под конкретную пропорцию экрана). Общая и для alex, и
+  // для галереи (art), поскольку обе секции — на весь экран, сетка
+  // получается одинаковой.
+  const [grid, setGrid] = useState(() =>
+    typeof window === "undefined"
+      ? { cellPx: 0, cols: 3, rows: 2, gapX: GAP, gapY: GAP }
+      : computeCellGrid(window.innerWidth, window.innerHeight, GAP)
+  );
   useEffect(() => {
     let resizeTimer: ReturnType<typeof setTimeout> | null = null;
-    const computeGrid = () => {
-      const landscape = window.innerWidth >= window.innerHeight;
-      const cols = landscape ? 3 : 2;
-      const rows = landscape ? 2 : 3;
-      const availW = (window.innerWidth - GAP * (cols + 1)) / cols;
-      const availH = (window.innerHeight - GAP * (rows + 1)) / rows;
-      setGrid({ cellPx: Math.max(0, Math.floor(Math.min(availW, availH))), cols, rows });
-    };
-    computeGrid();
+    const upd = () => setGrid(computeCellGrid(window.innerWidth, window.innerHeight, GAP));
     const onResize = () => {
       if (resizeTimer) clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(computeGrid, 150);
+      resizeTimer = setTimeout(upd, 150);
     };
     window.addEventListener("resize", onResize);
     return () => {
@@ -1428,11 +1606,40 @@ export default function Home() {
       if (resizeTimer) clearTimeout(resizeTimer);
     };
   }, []);
-  const [alexIndex, setAlexIndex] = useState(0);
   const alexSectionRef = useRef<HTMLDivElement>(null);
-  const advanceAlexImage = useCallback(() => {
-    setAlexIndex(prev => (prev + grid.cols * grid.rows) % ALEX_IMAGES.length);
-  }, [grid.cols, grid.rows]);
+  const alexCells = useStyledCellCycler(ALEX_IMAGES.length, grid.cols * grid.rows);
+  // "drink water" теперь ВНУТРИ каждой ячейки (не общий текст на всю
+  // секцию) — у каждой ячейки СВОЙ масштаб, чтобы текст всегда был
+  // центрирован и одного и того же видимого размера ВНУТРИ этой конкретной
+  // ячейки, независимо от того, какой шрифт/язык у неё сейчас (та же
+  // техника измерения через скрытый образец + ResizeObserver, что и раньше
+  // — просто теперь по экземпляру на каждую ячейку, а не один на всю
+  // секцию).
+  const [cellScales, setCellScales] = useState<number[]>([]);
+  const cellMeasureRefs = useRef<(HTMLDivElement | null)[]>([]);
+  useEffect(() => {
+    const n = grid.cols * grid.rows;
+    const observers: ResizeObserver[] = [];
+    for (let i = 0; i < n; i++) {
+      const measureEl = cellMeasureRefs.current[i];
+      if (!measureEl) continue;
+      const recompute = () => {
+        const naturalWidth = measureEl.getBoundingClientRect().width;
+        const targetWidth = grid.cellPx * 0.75; // с запасом от края ячейки
+        if (naturalWidth <= 0 || targetWidth <= 0) return;
+        setCellScales(prev => {
+          const copy = prev.slice();
+          copy[i] = targetWidth / naturalWidth;
+          return copy;
+        });
+      };
+      recompute();
+      const ro = new ResizeObserver(recompute);
+      ro.observe(measureEl);
+      observers.push(ro);
+    }
+    return () => observers.forEach(ro => ro.disconnect());
+  }, [grid.cols, grid.rows, grid.cellPx]);
   // Предзагрузка всех 7 картинок один раз при монтировании — через
   // decode(), а не просто src=... — new Image()+src только СКАЧИВАЕТ байты,
   // но НЕ гарантирует полное декодирование: браузер может декодировать
@@ -1474,11 +1681,8 @@ export default function Home() {
   // Секция-галерея (ART_IMAGES, art1..art36.png) — теперь ТОЧНО ТАКАЯ ЖЕ
   // сетка ячеек, что и у alex: та же предзагрузка, тот же принцип смены (см.
   // JSX и объединённый mousemove/гироскоп-эффект ниже).
-  const [artIndex, setArtIndex] = useState(0);
   const artSectionRef = useRef<HTMLDivElement>(null);
-  const advanceArtImage = useCallback(() => {
-    setArtIndex(prev => (prev + grid.cols * grid.rows) % ART_IMAGES.length);
-  }, [grid.cols, grid.rows]);
+  const artCells = useCellCycler(ART_IMAGES.length, grid.cols * grid.rows);
   // Видео fit.mp4 на второй секции (art) — появляется спустя 20с ПОСЛЕ
   // захода на сайт (от монтирования страницы), заменяя собой цикл сменяемых
   // картинок в том же контейнере.
@@ -1509,36 +1713,17 @@ export default function Home() {
   }, []);
   // "drink water" — теперь ЧАСТЬ секции alex (position:absolute внутри неё,
   // а не fixed поверх всего сайта) — физически прокручивается вместе с ней
-  // (см. JSX). Та же логика смены шрифта, что у "solve:", теперь
-  // синхронизирована с advanceAlexImage (см. объединённый эффект ниже).
-  // text — сам перевод (см. DRINK_WATER_TEXTS) — меняется СИНХРОННО со
-  // шрифтом, тем же таймером. Вариация курсива убрана.
+  // (см. JSX). Та же логика смены шрифта, что у "solve:" — на своём
+  // собственном таймере (см. ниже), НЕ синхронно с картинками сетки alex
+  // (у тех — своя, независимая логика на каждую ячейку, см. useCellCycler).
+  // "drink water" теперь ВНУТРИ каждой ячейки alex (см. useStyledCellCycler
+  // и cellScales выше) — глобального, общего на всю секцию текста больше
+  // нет.
   // fontsReady — true как только все шрифты в PROBLEM_SOLVER_FONTS
-  // подтверждённо загружены (см. эффект ниже) — до этого момента таймер
-  // смены alex/art/drink water не запускается вовсе.
+  // подтверждённо загружены (см. эффект ниже) — используется, чтобы задать
+  // начальные значения ячеек только после подтверждённой загрузки шрифтов
+  // (устраняет "мелькание" шрифта-заменителя перед настоящим).
   const [fontsReady, setFontsReady] = useState(false);
-  const [drinkWaterStyle, setDrinkWaterStyle] = useState({ font: PROBLEM_SOLVER_FONTS[1], text: DRINK_WATER_TEXTS[0] });
-  const drinkWaterStyleRef = useRef(drinkWaterStyle);
-  useEffect(() => { drinkWaterStyleRef.current = drinkWaterStyle; }, [drinkWaterStyle]);
-  const randomizeDrinkWaterStyle = useCallback(() => {
-    const fontPool = PROBLEM_SOLVER_FONTS.filter(f => f !== drinkWaterStyleRef.current.font);
-    const textPool = DRINK_WATER_TEXTS.filter(t => t !== drinkWaterStyleRef.current.text);
-    setDrinkWaterStyle({
-      font: fontPool[Math.floor(Math.random() * fontPool.length)],
-      text: textPool[Math.floor(Math.random() * textPool.length)],
-    });
-  }, []);
-  // Масштаб "drink water" — та же самая техника, что и у "solve:" (см.
-  // problemScaleX/problemMeasureRef ниже): скрытый образец без масштаба +
-  // ResizeObserver + равномерный scale(). Разные шрифты дают разную
-  // естественную ширину строки при одном и том же font-size — без этого
-  // некоторые шрифты (особенно широкие) переносили бы "drink water" на
-  // вторую строку. Целевая ширина фиксированная (не зависит от поля ввода,
-  // как у "solve:", поскольку тут поля ввода нет) — вычисляется из самого
-  // же элемента, см. эффект.
-  const [drinkWaterScale, setDrinkWaterScale] = useState(1);
-  const drinkWaterHeadingRef = useRef<HTMLDivElement>(null);
-  const drinkWaterMeasureRef = useRef<HTMLDivElement>(null);
   // Скрытый "образец" — та же строка/шрифт/начертание, что и видимый
   // заголовок, но НИКОГДА не масштабируется — нужен ResizeObserver'у ниже,
   // чтобы поймать момент, когда шрифт РЕАЛЬНО подгрузится и натуральная
@@ -1745,25 +1930,9 @@ export default function Home() {
     return () => window.removeEventListener("mousemove", onMove);
   }, []);
   // "alex" + "drink water" + галерея (art) — теперь ПРОСТОЙ таймер (2с),
-  // ОДИНАКОВЫЙ и на десктопе, и на мобильных — раньше было по-разному
-  // (движение курсора на десктопе, гироскоп/тряска на мобильных), теперь
-  // везде одно и то же: картинка alex, картинка галереи (art) и шрифт
-  // "drink water" меняются вместе, каждые 2 секунды, без всякой привязки к
-  // курсору или датчикам. Стартует только ПОСЛЕ того, как ВСЕ шрифты
-  // подтверждённо загружены (см. fontsReady ниже) — иначе первые несколько
-  // переключений могли бы попасть на ещё не загруженный шрифт: браузер
-  // показывает шрифт-заменитель, потом (когда шрифт наконец скачивается)
-  // подменяет его на настоящий — это и выглядело как "быстро мелькает
-  // несколько других шрифтов перед тем как остановиться".
-  useEffect(() => {
-    if (!fontsReady) return;
-    const timer = setInterval(() => {
-      advanceAlexImage();
-      advanceArtImage();
-      randomizeDrinkWaterStyle();
-    }, 2000);
-    return () => clearInterval(timer);
-  }, [fontsReady, advanceAlexImage, advanceArtImage, randomizeDrinkWaterStyle]);
+  // "drink water" — теперь ВНУТРИ каждой ячейки alex, меняется вместе с
+  // картинкой в этой ячейке (см. useStyledCellCycler выше) — отдельного,
+  // общего на всю секцию таймера больше не нужно.
   // Подключаем Google Fonts для "Problem solver" (см. PROBLEM_SOLVER_FONTS) —
   // добавляем <link> в document.head программно: файл — "use client"-компонент
   // без доступа к layout.tsx, куда по канону Next.js полагалось бы это класть.
@@ -1830,32 +1999,9 @@ export default function Home() {
       window.removeEventListener("resize", recompute);
     };
   }, [problemStyle.font, problemStyle.italic, problemStyle.inputWidthPct, problemHeadingText]);
-  // То же самое для "drink water" — целевая ширина фиксированная (min(35vw,
-  // 600px) — вдвое меньше, чем раньше, по просьбе сделать текст вдвое
-  // компактнее), а не ширина поля ввода (тут поля ввода нет). Важно: просто
-  // уменьшить font-size недостаточно — система масштабирования сама
-  // подгоняет scale под targetWidth, автоматически компенсируя любое
-  // изменение font-size — targetWidth тоже должен уменьшиться вдвое, иначе
-  // видимый размер остался бы прежним.
-  useLayoutEffect(() => {
-    if (!drinkWaterMeasureRef.current) return;
-    const measureEl = drinkWaterMeasureRef.current;
-    const recompute = () => {
-      if (!measureEl) return;
-      const targetWidth = Math.min(window.innerWidth * 0.35, 600);
-      const naturalWidth = measureEl.getBoundingClientRect().width;
-      if (targetWidth <= 0 || naturalWidth <= 0) return;
-      setDrinkWaterScale(targetWidth / naturalWidth);
-    };
-    recompute();
-    const ro = new ResizeObserver(recompute);
-    ro.observe(measureEl);
-    window.addEventListener("resize", recompute);
-    return () => {
-      ro.disconnect();
-      window.removeEventListener("resize", recompute);
-    };
-  }, [drinkWaterStyle.font, drinkWaterStyle.text]);
+  // "drink water" — масштаб теперь считается ОТДЕЛЬНО на каждую ячейку (см.
+  // cellScales/эффект с ResizeObserver рядом с useStyledCellCycler выше) —
+  // глобального, общего на всю секцию эффекта измерения больше нет.
   // Одно число на кольцо (растёт по мере появления новых колец) — каждое
   // кольцо крутится с собственным накопленным углом, см. getRingDirection().
   const ringRotationRefs = useRef<number[]>([0]);
@@ -1955,8 +2101,6 @@ export default function Home() {
       sg.rotSpeed += ((Math.random() - 0.5) * 0.8) * t;
     }
   };
-
-  const GAP = 20;
 
   useEffect(() => {
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
@@ -3569,79 +3713,80 @@ export default function Home() {
             квадратных ячеек со сглаженными углами (тот же формат, что и у
             остальных ячеек по сайту — зазор GAP между ними и по краям),
             заполняющая весь экран целиком. Колонки/строки — по ориентации
-            экрана (см. grid выше). Каждая ячейка показывает СВОЮ картинку
-            из набора, все ячейки продвигаются по кругу СИНХРОННО, каждые 2с
-            (см. advanceAlexImage — шаг сразу на весь размер сетки, а не на
-            1, чтобы за раз показывался целиком новый набор картинок, без
-            повторов внутри одного "кадра"). Гейтинг по overlayOpacity —
-            секция не существует в DOM, пока не погас экран загрузки. */}
-        <div ref={alexSectionRef} style={{ position: "relative", height: "100vh", overflow: "hidden", background: "#000", display: "flex", alignItems: "center", justifyContent: "center", padding: `${GAP}px` }}>
+            экрана (см. grid выше). Каждая ячейка переключается НЕЗАВИСИМО
+            от остальных, раз в секунду, на СЛУЧАЙНУЮ следующую картинку —
+            но так, чтобы среди картинок, показанных прямо сейчас во всех
+            ячейках сразу, никогда не было повторов (см. useCellCycler).
+            Гейтинг по overlayOpacity — секция не существует в DOM, пока не
+            погас экран загрузки. */}
+        <div ref={alexSectionRef} style={{ position: "relative", height: "100vh", overflow: "hidden", background: "#000", display: "flex", alignItems: "center", justifyContent: "center", padding: `${grid.gapY}px ${grid.gapX}px` }}>
           {overlayOpacity <= 0.01 && grid.cellPx > 0 && (
-            <div style={{ display: "grid", gridTemplateColumns: `repeat(${grid.cols},${grid.cellPx}px)`, gridTemplateRows: `repeat(${grid.rows},${grid.cellPx}px)`, gap: `${GAP}px` }}>
-              {Array.from({ length: grid.cols * grid.rows }, (_, cellIdx) => (
-                <div key={cellIdx} style={{ width: `${grid.cellPx}px`, height: `${grid.cellPx}px`, borderRadius: "14%", overflow: "hidden", position: "relative", background: "#111" }}>
-                  <img src={ALEX_IMAGES[(alexIndex + cellIdx) % ALEX_IMAGES.length]} alt="" decoding="sync" loading="eager"
-                    style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-                </div>
-              ))}
+            <div style={{ display: "grid", gridTemplateColumns: `repeat(${grid.cols},${grid.cellPx}px)`, gridTemplateRows: `repeat(${grid.rows},${grid.cellPx}px)`, gap: `${grid.gapY}px ${grid.gapX}px` }}>
+              {Array.from({ length: grid.cols * grid.rows }, (_, cellIdx) => {
+                const cell = alexCells[cellIdx];
+                return (
+                  <div key={cellIdx} style={{ width: `${grid.cellPx}px`, height: `${grid.cellPx}px`, borderRadius: "14%", overflow: "hidden", position: "relative", background: "#111" }}>
+                    <img src={ALEX_IMAGES[cell?.imageIndex ?? 0]} alt="" decoding="sync" loading="eager"
+                      style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                    {/* "drink water" — теперь ВНУТРИ каждой ячейки (не общий
+                        текст на всю секцию) — центрировано, чуть меньше, чем
+                        было раньше, свой шрифт и свой язык на каждую
+                        ячейку, меняются СТРОГО вместе с картинкой в этой же
+                        ячейке (см. useStyledCellCycler — один и тот же
+                        setCells на оба). whiteSpace:nowrap + scale() —
+                        гарантированно ОДНА строка и ОДИНАКОВЫЙ видимый
+                        размер внутри ЭТОЙ ячейки независимо от шрифта/языка
+                        (та же техника, что и раньше — скрытый образец +
+                        ResizeObserver, см. cellScales выше — просто теперь
+                        по экземпляру на каждую ячейку). */}
+                    {cell && (
+                      <div style={{ position: "absolute", inset: 0, zIndex: 5, background: "rgba(0,0,0,0.55)", pointerEvents: "none", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+                        <div
+                          className="ps-font"
+                          style={{
+                            ["--ps-font" as any]: cell.font,
+                            fontWeight: 900,
+                            fontSize: "clamp(10px,2.5vw,32px)",
+                            lineHeight: 1,
+                            whiteSpace: "nowrap",
+                            display: "inline-block",
+                            transform: `scale(${cellScales[cellIdx] ?? 1})`,
+                            transformOrigin: "center center",
+                            color: "#ffffff",
+                            userSelect: "none",
+                          }}
+                        >
+                          {cell.text}
+                        </div>
+                        {/* Скрытый образец для замера — БЕЗ transform: scale() —
+                            ResizeObserver следит именно за этим элементом (см.
+                            эффект с cellScales выше). */}
+                        <div
+                          ref={el => { cellMeasureRefs.current[cellIdx] = el; }}
+                          aria-hidden="true"
+                          className="ps-font"
+                          style={{
+                            position: "fixed",
+                            top: 0,
+                            left: 0,
+                            visibility: "hidden",
+                            pointerEvents: "none",
+                            ["--ps-font" as any]: cell.font,
+                            fontWeight: 900,
+                            fontSize: "clamp(10px,2.5vw,32px)",
+                            lineHeight: 1,
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {cell.text}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
-
-          {/* "drink water" — теперь ЧАСТЬ секции alex (position:absolute
-              относительно неё, а не fixed поверх всего сайта) — физически
-              прокручивается ВМЕСТЕ с alex, естественно уезжая вместе с ней,
-              а не отдельно управляется через JS-видимость. Полноэкранная
-              (в пределах alex) затемняющая подложка + крупный
-              центрированный текст. Шрифт/курсив меняются той же логикой,
-              что у "solve:" (движение курсора / гироскоп на мобильных, см.
-              drinkWaterStyle выше, синхронизировано с advanceAlexImage).
-              whiteSpace:nowrap + scale() — гарантированно ОДНА строка, без
-              переноса на второй абзац, и ОДИНАКОВЫЙ видимый размер
-              независимо от шрифта (та же техника, что и у "solve:" — см.
-              drinkWaterMeasureRef). pointerEvents:none — не мешает
-              взаимодействию с тем, что под ним. */}
-          <div style={{ position: "absolute", inset: 0, zIndex: 5, background: "rgba(0,0,0,0.55)", pointerEvents: "none", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
-            <div
-              ref={drinkWaterHeadingRef}
-              className="ps-font"
-              style={{
-                ["--ps-font" as any]: drinkWaterStyle.font,
-                fontWeight: 900,
-                fontSize: "clamp(24px,5vw,80px)",
-                lineHeight: 1,
-                whiteSpace: "nowrap",
-                display: "inline-block",
-                transform: `scale(${drinkWaterScale})`,
-                transformOrigin: "center center",
-                color: "#ffffff",
-                userSelect: "none",
-              }}
-            >
-              {drinkWaterStyle.text}
-            </div>
-            {/* Скрытый образец для замера — та же строка/шрифт/начертание, но
-                БЕЗ transform: scale() — ResizeObserver следит именно за этим
-                элементом (см. эффект выше). */}
-            <div
-              ref={drinkWaterMeasureRef}
-              aria-hidden="true"
-              className="ps-font"
-              style={{
-                position: "fixed",
-                top: 0,
-                left: 0,
-                visibility: "hidden",
-                pointerEvents: "none",
-                ["--ps-font" as any]: drinkWaterStyle.font,
-                fontWeight: 900,
-                fontSize: "clamp(24px,5vw,80px)",
-                lineHeight: 1,
-                whiteSpace: "nowrap",
-              }}
-            >
-              {drinkWaterStyle.text}
-            </div>
-          </div>
         </div>
 
         {/* Зазор между alex и галереей — фиксированной высоты, равен GAP
@@ -3658,7 +3803,7 @@ export default function Home() {
             20с после захода на сайт (см. showArtVideo) — сетка сменяется
             ОДНИМ полноэкранным видео fit.mp4 (не сеткой — эта часть без
             изменений). */}
-        <div ref={artSectionRef} style={{ position: "relative", height: "100vh", overflow: "hidden", background: "#000", display: "flex", alignItems: "center", justifyContent: "center", padding: `${GAP}px` }}>
+        <div ref={artSectionRef} style={{ position: "relative", height: "100vh", overflow: "hidden", background: "#000", display: "flex", alignItems: "center", justifyContent: "center", padding: `${grid.gapY}px ${grid.gapX}px` }}>
           {overlayOpacity <= 0.01 && (
             showArtVideo ? (
               <div style={{ width: "100%", height: "100%", borderRadius: "clamp(24px,5vw,64px)", overflow: "hidden", position: "relative", background: "#111" }}>
@@ -3666,10 +3811,10 @@ export default function Home() {
                   style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
               </div>
             ) : grid.cellPx > 0 && (
-              <div style={{ display: "grid", gridTemplateColumns: `repeat(${grid.cols},${grid.cellPx}px)`, gridTemplateRows: `repeat(${grid.rows},${grid.cellPx}px)`, gap: `${GAP}px` }}>
+              <div style={{ display: "grid", gridTemplateColumns: `repeat(${grid.cols},${grid.cellPx}px)`, gridTemplateRows: `repeat(${grid.rows},${grid.cellPx}px)`, gap: `${grid.gapY}px ${grid.gapX}px` }}>
                 {Array.from({ length: grid.cols * grid.rows }, (_, cellIdx) => (
                   <div key={cellIdx} style={{ width: `${grid.cellPx}px`, height: `${grid.cellPx}px`, borderRadius: "14%", overflow: "hidden", position: "relative", background: "#111" }}>
-                    <img src={ART_IMAGES[(artIndex + cellIdx) % ART_IMAGES.length]} alt="" decoding="sync" loading="eager"
+                    <img src={ART_IMAGES[artCells[cellIdx] ?? 0]} alt="" decoding="sync" loading="eager"
                       style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
                   </div>
                 ))}
