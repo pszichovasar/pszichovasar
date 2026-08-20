@@ -3873,7 +3873,7 @@ export default function Home() {
                       loop
                       playsInline
                       style={{
-                        position: "fixed", inset: 0, width: "100vw", height: "100vh", objectFit: "cover",
+                        position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover",
                         WebkitMaskImage: "url(#artVideoMask)", maskImage: "url(#artVideoMask)",
                         opacity: showArtVideo ? 1 : 0,
                         transition: "opacity 1s ease",
