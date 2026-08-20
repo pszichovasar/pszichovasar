@@ -3513,12 +3513,56 @@ export default function Home() {
 
   useEffect(() => {
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent); if (isMobile) return;
-    if (cursorRef.current) { cursorRef.current.style.opacity = "1"; cursorRef.current.style.transition = "none"; }
+    if (cursorRef.current) { cursorRef.current.style.transition = "none"; }
+    // Инерция курсора — раньше позиция курсора ПРЯМО синхронизировалась с
+    // мышью на каждое движение (мгновенно, без задержки). Теперь курсор
+    // "догоняет" реальную позицию мыши с отставанием (FOLLOW — доля
+    // расстояния, проходимая за кадр; меньше значение — сильнее инерция,
+    // курсор "тяжелее"), а не телепортируется в неё мгновенно. Угол поворота
+    // считается из направления и скорости этого "подтягивания" — при
+    // быстром движении мыши курсор не успевает за ней, отстаёт сильнее, и
+    // это отставание (вектор от текущей позиции курсора к цели) даёт более
+    // резкий, выраженный угол — визуально это и есть "переворот в сторону
+    // движения". При медленном/стоящем курсоре поворот плавно возвращается
+    // к 0.
+    let mouseX = -9999, mouseY = -9999;
+    let curX = -9999, curY = -9999;
+    let rotation = 0;
+    let hasMouse = false;
+    const FOLLOW = 0.18;
     const onMM = (e: MouseEvent) => {
-      if (cursorRef.current) { cursorRef.current.style.transition = "none"; cursorRef.current.style.transform = `translate(${e.clientX}px,${e.clientY}px)`; cursorRef.current.style.opacity = "1"; }
+      mouseX = e.clientX; mouseY = e.clientY;
+      if (!hasMouse) { curX = mouseX; curY = mouseY; hasMouse = true; }
     };
     window.addEventListener("mousemove", onMM);
-    return () => window.removeEventListener("mousemove", onMM);
+    let raf: number;
+    const animate = () => {
+      if (hasMouse) {
+        const dx = mouseX - curX, dy = mouseY - curY;
+        curX += dx * FOLLOW;
+        curY += dy * FOLLOW;
+        const dist = Math.sqrt(dx * dx + dy * dy); // насколько курсор сейчас отстаёт от цели — чем быстрее двигать мышь, тем больше это отставание
+        if (dist > 3) {
+          const targetAngle = Math.atan2(dy, dx) * 180 / Math.PI;
+          // Чем сильнее отставание (быстрее было движение), тем ПОЛНЕЕ курсор
+          // доворачивается в сторону движения (при плавном, медленном
+          // движении — поворот мягкий, лишь слегка "подруливает"; при резком
+          // быстром взмахе — почти сразу доворачивается на весь угол,
+          // ощущаясь как настоящий "переворот").
+          const turnAmount = Math.min(dist / 40, 1);
+          let diff = targetAngle - rotation;
+          diff = ((diff + 180) % 360 + 360) % 360 - 180; // кратчайший путь поворота, без "перекрута" через 350°
+          rotation += diff * turnAmount;
+        }
+        if (cursorRef.current) {
+          cursorRef.current.style.transform = `translate(${curX}px,${curY}px) rotate(${rotation}deg)`;
+          cursorRef.current.style.opacity = "1";
+        }
+      }
+      raf = requestAnimationFrame(animate);
+    };
+    raf = requestAnimationFrame(animate);
+    return () => { window.removeEventListener("mousemove", onMM); cancelAnimationFrame(raf); };
   }, []);
 
   useEffect(() => {
