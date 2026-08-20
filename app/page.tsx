@@ -52,6 +52,45 @@ function computeCellGrid(w: number, h: number, nominalGap: number) {
 // Независимое переключение каждой ячейки сетки — раз в секунду, каждая
 // ячейка САМА ПО СЕБЕ (не синхронно со всеми остальными) переключается на
 // СЛУЧАЙНУЮ следующую картинку — но так, чтобы среди картинок, показанных
+// Точка на периметре рамки-меню — t от 0 (левый верхний угол) до 1 (полный
+// круг обратно туда же), идёт по часовой стрелке: верх → право → низ →
+// лево. half — половина толщины рамки (сама точка идёт по осевой линии
+// рамки, посередине её толщины). Используется и для расстановки пунктов
+// меню, и для расчёта расстояния от перетаскиваемой кнопки до каждого из
+// них (насколько сильно должен "вырасти" горб жидкости в этом месте).
+function perimeterPoint(t: number, vw: number, vh: number, frameW: number): { x: number; y: number } {
+  const half = frameW / 2;
+  const w = vw - frameW, h = vh - frameW;
+  const perim = 2 * (w + h);
+  let d = ((t % 1) + 1) % 1 * perim;
+  if (d < w) return { x: half + d, y: half };
+  d -= w;
+  if (d < h) return { x: vw - half, y: half + d };
+  d -= h;
+  if (d < w) return { x: vw - half - d, y: vh - half };
+  d -= w;
+  return { x: half, y: vh - half - d };
+}
+
+// Пункты меню — самые базовые/классические, шрифт Arial (см. JSX ниже —
+// намеренно БЕЗ класса .ps-font/другого декоративного шрифта, обычный
+// Arial, как и просили). Расставлены по периметру рамки НЕ строго
+// равномерно — внутри каждого "слота" (полоса периметра шириной 1/N)
+// случайное (но фиксированное, seeded — не меняется при каждом рендере)
+// смещение, чтобы расстановка выглядела действительно случайной, а не
+// механически равномерной, но при этом пункты не толпились в одном месте.
+const MENU_ITEM_LABELS = ["HOME", "ABOUT", "WORK", "SERVICES", "BLOG", "CONTACT"];
+const MENU_ITEMS = MENU_ITEM_LABELS.map((label, i) => {
+  let s = 5000 + i * 977;
+  s = (s * 1664525 + 1013904223) & 0xffffffff;
+  const jitter = (Math.abs(s) % 1000) / 1000; // 0..1, детерминированный "случайный" сдвиг внутри своего слота
+  const t = (i + 0.15 + jitter * 0.7) / MENU_ITEM_LABELS.length;
+  return { label, t };
+});
+
+// Независимое переключение каждой ячейки сетки — раз в секунду, каждая
+// ячейка САМА ПО СЕБЕ (не синхронно со всеми остальными) переключается на
+// СЛУЧАЙНУЮ следующую картинку — но так, чтобы среди картинок, показанных
 // прямо сейчас во всех ячейках сразу, никогда не было повторов (выбор
 // каждый раз идёт только из тех индексов, которые в данный момент НЕ
 // заняты ни одной другой ячейкой). Старт каждой ячейки случайно смещён по
@@ -1537,6 +1576,46 @@ export default function Home() {
   // после него (в отличие от useEffect, где порядок объявления в теле
   // компонента не имеет значения).
   const GAP = 20;
+  // Расцветка сайта — 3 режима, переключаются кнопкой (см. ниже), цикл по
+  // кругу: "pinkYellow" (новая, по умолчанию) → "pink" → "normal" →
+  // обратно на "pinkYellow". Первые два — "постеризация" всей палитры
+  // сайта через SVG-фильтр (см. <filter> в JSX ниже): каждый пиксель
+  // сначала переводится в градации серого, а потом его яркость
+  // прогоняется через таблицу, отображающую в один из опорных цветов
+  // (самый похожий по яркости оригинала цвет — в самый похожий из
+  // палитры). Тот же принцип, что у классического "дуотон" эффекта,
+  // просто расширенный до 4-5 цветов вместо привычных двух.
+  // "pinkYellow" — 5 цветов: чёрный, тёмно-розовый ce203a, розовый ff3250,
+  // тёмно-жёлтый d0d621, жёлтый f8ff2f.
+  // "pink" — 4 цвета: чёрный, тёмно-розовый e29ea9, розовый ffbbc6, белый.
+  const [colorScheme, setColorScheme] = useState<"pinkYellow" | "pink" | "normal">("pinkYellow");
+  const colorSchemeFilter = colorScheme === "pinkYellow" ? "url(#pinkYellowQuadtoneFilter)" : colorScheme === "pink" ? "url(#pinkQuadtoneFilter)" : "none";
+  // Кнопка-переключатель — теперь ПЕРЕТАСКИВАЕМАЯ (раньше была статично в
+  // левом верхнем углу). togglePos — её текущий центр в пикселях экрана.
+  // toggleDiameter — диаметр самой кнопки (был clamp(36px,6vw,52px) —
+  // фиксируем как число, чтобы использовать и в JS-расчётах геометрии
+  // рамки/пунктов меню, не только в CSS). frameWidth — толщина рамки-меню
+  // по бокам экрана — примерно в 3 раза меньше диаметра кнопки, как и
+  // просили.
+  const [toggleDims, setToggleDims] = useState(() => {
+    const d = typeof window === "undefined" ? 44 : Math.max(36, Math.min(52, window.innerWidth * 0.06));
+    return { diameter: d, frameWidth: d / 3 };
+  });
+  useEffect(() => {
+    const upd = () => {
+      const d = Math.max(36, Math.min(52, window.innerWidth * 0.06));
+      setToggleDims({ diameter: d, frameWidth: d / 3 });
+    };
+    window.addEventListener("resize", upd);
+    return () => window.removeEventListener("resize", upd);
+  }, []);
+  const [togglePos, setTogglePos] = useState(() => ({
+    x: typeof window === "undefined" ? 40 : 24 + toggleDims.diameter / 2,
+    y: typeof window === "undefined" ? 40 : 24 + toggleDims.diameter / 2,
+  }));
+  const draggingRef = useRef(false);
+  const dragMovedRef = useRef(false);
+  const dragStartRef = useRef({ x: 0, y: 0 });
   const [videoSrc, setVideoSrc] = useState("/me.mp4");
 
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -1947,6 +2026,48 @@ export default function Home() {
   // "drink water" — теперь ВНУТРИ каждой ячейки alex, меняется вместе с
   // картинкой в этой ячейке (см. useStyledCellCycler выше) — отдельного,
   // общего на всю секцию таймера больше не нужно.
+  // Перетаскивание кнопки-переключателя расцветки — та же логика различения
+  // клика от перетаскивания, что и в тап-детекции на мобильных (см. onTS/
+  // onTM/onTE выше): если между нажатием и отпусканием курсор сдвинулся
+  // больше чем на несколько пикселей — это было перетаскивание (просто
+  // двигаем кнопку); если нет — это клик (переключаем расцветку по кругу).
+  const onToggleDown = (clientX: number, clientY: number) => {
+    draggingRef.current = true;
+    dragMovedRef.current = false;
+    dragStartRef.current = { x: clientX, y: clientY };
+  };
+  useEffect(() => {
+    const onMove = (clientX: number, clientY: number) => {
+      if (!draggingRef.current) return;
+      const dx = clientX - dragStartRef.current.x, dy = clientY - dragStartRef.current.y;
+      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) dragMovedRef.current = true;
+      const r = toggleDims.diameter / 2;
+      setTogglePos({
+        x: Math.max(r, Math.min(window.innerWidth - r, clientX)),
+        y: Math.max(r, Math.min(window.innerHeight - r, clientY)),
+      });
+    };
+    const onUp = () => {
+      if (draggingRef.current && !dragMovedRef.current) {
+        setColorScheme(s => s === "pinkYellow" ? "pink" : s === "pink" ? "normal" : "pinkYellow");
+      }
+      draggingRef.current = false;
+    };
+    const onMouseMove = (e: MouseEvent) => onMove(e.clientX, e.clientY);
+    const onMouseUp = () => onUp();
+    const onTouchMove = (e: TouchEvent) => { if (draggingRef.current) { onMove(e.touches[0].clientX, e.touches[0].clientY); e.preventDefault(); } };
+    const onTouchEnd = () => onUp();
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    window.addEventListener("touchmove", onTouchMove, { passive: false });
+    window.addEventListener("touchend", onTouchEnd);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+      window.removeEventListener("touchmove", onTouchMove);
+      window.removeEventListener("touchend", onTouchEnd);
+    };
+  }, [toggleDims.diameter]);
   // Подключаем Google Fonts для "Problem solver" (см. PROBLEM_SOLVER_FONTS) —
   // добавляем <link> в document.head программно: файл — "use client"-компонент
   // без доступа к layout.tsx, куда по канону Next.js полагалось бы это класть.
@@ -3542,14 +3663,19 @@ export default function Home() {
         curX += dx * FOLLOW;
         curY += dy * FOLLOW;
         const dist = Math.sqrt(dx * dx + dy * dy); // насколько курсор сейчас отстаёт от цели — чем быстрее двигать мышь, тем больше это отставание
-        if (dist > 3) {
+        if (dist > 15) {
           const targetAngle = Math.atan2(dy, dx) * 180 / Math.PI;
-          // Чем сильнее отставание (быстрее было движение), тем ПОЛНЕЕ курсор
-          // доворачивается в сторону движения (при плавном, медленном
-          // движении — поворот мягкий, лишь слегка "подруливает"; при резком
-          // быстром взмахе — почти сразу доворачивается на весь угол,
-          // ощущаясь как настоящий "переворот").
-          const turnAmount = Math.min(dist / 40, 1);
+          // Раньше поворот срабатывал слишком легко — уже на 40px отставания
+          // курсор доворачивался ПОЛНОСТЬЮ (turnAmount=1), из-за чего даже
+          // небольшое движение мыши давало резкий, "дёрганый" разворот.
+          // Теперь порог начала поворота выше (игнорируем совсем мелкие
+          // движения/дрожание руки), а сама чувствительность заметно ниже —
+          // требуется куда более быстрое и уверенное движение мыши, чтобы
+          // курсор довернулся ощутимо, и даже тогда поворот ограничен
+          // максимум ~35% угла за кадр — довороты в сторону нового
+          // направления идут постепенно, за несколько кадров, а не одним
+          // резким скачком.
+          const turnAmount = Math.min(dist / 220, 0.35);
           let diff = targetAngle - rotation;
           diff = ((diff + 180) % 360 + 360) % 360 - 180; // кратчайший путь поворота, без "перекрута" через 350°
           rotation += diff * turnAmount;
@@ -3653,6 +3779,168 @@ export default function Home() {
 
   return (
     <>
+      {/* SVG-фильтр "постеризации" всей палитры сайта до 4 цветов — чёрный,
+          тёмно-розовый (e29ea9), розовый (ffbbc6), белый. feColorMatrix
+          сначала переводит всё в градации серого (стандартные ITU-R BT.709
+          коэффициенты яркости), затем feComponentTransfer прогоняет
+          получившуюся яркость (0=чёрное...1=белое) через таблицу из 4 точек
+          — на каждом из трёх RGB-каналов отдельно — так, что самый тёмный
+          исходный цвет уходит в чёрный, самый светлый — в белый, а
+          промежуточные яркости плавно интерполируются между этими четырьмя
+          опорными цветами (тот же принцип, что и у классического "дуотон"
+          эффекта, просто с 4 цветами вместо 2 — самый похожий по яркости
+          оригинала цвет отображается в самый похожий из палитры). */}
+      <svg width="0" height="0" style={{ position: "absolute" }}>
+        <defs>
+          <filter id="pinkQuadtoneFilter">
+            <feColorMatrix type="matrix" values="
+              0.2126 0.7152 0.0722 0 0
+              0.2126 0.7152 0.0722 0 0
+              0.2126 0.7152 0.0722 0 0
+              0      0      0      1 0" />
+            <feComponentTransfer>
+              <feFuncR type="table" tableValues="0 0.886 1 1" />
+              <feFuncG type="table" tableValues="0 0.620 0.733 1" />
+              <feFuncB type="table" tableValues="0 0.663 0.776 1" />
+            </feComponentTransfer>
+          </filter>
+          {/* Второй режим расцветки — 5 цветов вместо 4: чёрный, тёмно-розовый
+              ce203a, розовый ff3250, тёмно-жёлтый d0d621, жёлтый f8ff2f —
+              упорядочены по возрастанию яркости (тот же принцип, что и у
+              4-цветного фильтра выше, просто с одной дополнительной опорной
+              точкой в таблице). */}
+          <filter id="pinkYellowQuadtoneFilter">
+            <feColorMatrix type="matrix" values="
+              0.2126 0.7152 0.0722 0 0
+              0.2126 0.7152 0.0722 0 0
+              0.2126 0.7152 0.0722 0 0
+              0      0      0      1 0" />
+            <feComponentTransfer>
+              <feFuncR type="table" tableValues="0 0.8078 1 0.8157 0.9725" />
+              <feFuncG type="table" tableValues="0 0.1255 0.1961 0.8392 1" />
+              <feFuncB type="table" tableValues="0 0.2275 0.3137 0.1294 0.1843" />
+            </feComponentTransfer>
+          </filter>
+          {/* "Жидкий" (goo) фильтр для рамки-меню — классическая техника:
+              сильно размываем исходную графику (feGaussianBlur), а затем
+              feColorMatrix резко повышает контраст альфа-канала — то, что
+              было мягким, размытым переходом между двумя близко
+              расположенными фигурами, снова становится чётким контуром, но
+              уже единым, слитным — как если бы фигуры были каплями жидкости
+              и притянулись друг к другу. Работает АВТОМАТИЧЕСКИ — как
+              только перетаскиваемая кнопка (см. круг ниже) оказывается
+              достаточно близко к одной из "точек-бугорков" пунктов меню на
+              рамке, между ними САМ ПО СЕБЕ образуется тянущийся мостик —
+              никакого ручного расчёта формы не требуется. */}
+          <filter id="menuGooFilter">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="10" result="blur" />
+            <feColorMatrix in="blur" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 24 -10" result="goo" />
+          </filter>
+        </defs>
+      </svg>
+
+      {/* Рамка-меню — sticky (position:fixed, вне <main>, не пролистывается
+          при скролле), с каждой стороны экрана, толщиной примерно втрое
+          меньше диаметра кнопки-переключателя (см. toggleDims выше). Сама
+          рамка — БЕЗ фильтра, рисуется как обычные чёткие прямоугольники
+          (раньше была ВНУТРИ goo-группы вместе с остальным, из-за чего даже
+          в покое, без кнопки поблизости, её края были слегка размыты —
+          побочный эффект самой техники "жидкости": Gaussian-блюр не
+          идеально резко "досушивается" обратно феКонтрастом на больших
+          плоских фигурах). Эффект жидкости при этом остаётся — просто
+          вынесен в ОТДЕЛЬНУЮ, следующую goo-группу (см. ниже), которая
+          содержит ТОЛЬКО маленькие "бугорки" и саму кнопку — эти мелкие
+          фигуры сливаются друг с другом при сближении так же, как и
+          раньше, но уже не влияют на резкость самой рамки. */}
+      <svg
+        width={typeof window === "undefined" ? 0 : window.innerWidth}
+        height={typeof window === "undefined" ? 0 : window.innerHeight}
+        style={{ position: "fixed", inset: 0, width: "100vw", height: "100vh", zIndex: 999997, pointerEvents: "none" }}
+      >
+        <g fill="#fff">
+          <rect x={0} y={0} width={typeof window === "undefined" ? 0 : window.innerWidth} height={toggleDims.frameWidth} />
+          <rect x={0} y={typeof window === "undefined" ? 0 : window.innerHeight - toggleDims.frameWidth} width={typeof window === "undefined" ? 0 : window.innerWidth} height={toggleDims.frameWidth} />
+          <rect x={0} y={0} width={toggleDims.frameWidth} height={typeof window === "undefined" ? 0 : window.innerHeight} />
+          <rect x={typeof window === "undefined" ? 0 : window.innerWidth - toggleDims.frameWidth} y={0} width={toggleDims.frameWidth} height={typeof window === "undefined" ? 0 : window.innerHeight} />
+        </g>
+      </svg>
+
+      {/* Отдельный, goo-отфильтрованный слой ПОВЕРХ чёткой рамки —
+          маленькие "точки-бугорки" в местах пунктов меню (расставлены по
+          периметру — см. MENU_ITEMS/perimeterPoint) + круг, отслеживающий
+          ЖИВУЮ позицию перетаскиваемой кнопки. Эти бугорки того же цвета и
+          сидят точно на линии рамки, поэтому в покое сливаются с ней
+          визуально незаметно — эффект "жидкости" (см. menuGooFilter)
+          проявляется, только когда сама кнопка (её отдельный, невидимый
+          здесь трекинг-круг) окажется рядом. pointerEvents:none — чисто
+          декоративный слой; реальное перетаскивание обрабатывает сама
+          кнопка (обычный HTML <button>, см. ниже — она НЕ входит в эту
+          goo-группу, чтобы сама кнопка оставалась чёткой, не размытой
+          фильтром). */}
+      <svg
+        width={typeof window === "undefined" ? 0 : window.innerWidth}
+        height={typeof window === "undefined" ? 0 : window.innerHeight}
+        style={{ position: "fixed", inset: 0, width: "100vw", height: "100vh", zIndex: 999998, pointerEvents: "none" }}
+      >
+        <g filter="url(#menuGooFilter)" fill="#fff">
+          {MENU_ITEMS.map((item, i) => {
+            if (typeof window === "undefined") return null;
+            const p = perimeterPoint(item.t, window.innerWidth, window.innerHeight, toggleDims.frameWidth);
+            return <circle key={i} cx={p.x} cy={p.y} r={toggleDims.frameWidth * 0.7} />;
+          })}
+          <circle cx={togglePos.x} cy={togglePos.y} r={toggleDims.diameter / 2} />
+        </g>
+      </svg>
+
+      {/* Подписи пунктов меню — обычный Arial (намеренно БЕЗ декоративных
+          шрифтов сайта), изначально невидимы (opacity:0) — появляются по
+          мере приближения перетаскиваемой кнопки к точке этого пункта на
+          рамке (см. dist/opacity ниже) — чем ближе кнопка, тем виднее
+          подпись, синхронно с тем, как к ней тянется "жидкий" бугорок рамки
+          (см. goo-группу выше). */}
+      {MENU_ITEMS.map((item, i) => {
+        if (typeof window === "undefined") return null;
+        const vw = window.innerWidth, vh = window.innerHeight;
+        const p = perimeterPoint(item.t, vw, vh, toggleDims.frameWidth);
+        const dist = Math.hypot(togglePos.x - p.x, togglePos.y - p.y);
+        const opacity = Math.max(0, Math.min(1, 1 - (dist - 50) / 160));
+        // Смещение подписи внутрь от рамки (наружу от края экрана к центру) —
+        // зависит от того, у какого края экрана находится эта точка.
+        const margin = toggleDims.frameWidth + 14;
+        let style: React.CSSProperties = { position: "fixed", zIndex: 999999, fontFamily: "Arial, sans-serif", fontWeight: 700, fontSize: "13px", color: "#fff", letterSpacing: "0.04em", pointerEvents: "none", opacity, transition: "opacity 0.15s ease", whiteSpace: "nowrap" };
+        if (p.y <= toggleDims.frameWidth + 1) { style = { ...style, left: p.x, top: margin, transform: "translateX(-50%)" }; }
+        else if (p.y >= vh - toggleDims.frameWidth - 1) { style = { ...style, left: p.x, bottom: margin, transform: "translateX(-50%)" }; }
+        else if (p.x <= toggleDims.frameWidth + 1) { style = { ...style, left: margin, top: p.y, transform: "translateY(-50%)" }; }
+        else { style = { ...style, right: margin, top: p.y, transform: "translateY(-50%)" }; }
+        return <div key={i} style={style}>{item.label}</div>;
+      })}
+
+      {/* Кнопка-переключатель расцветки — теперь ПЕРЕТАСКИВАЕМАЯ (позиция —
+          togglePos, обновляется при drag, см. эффект выше). Клик (без
+          сдвига) по-прежнему переключает расцветку по кругу: pinkYellow →
+          pink → normal → обратно на pinkYellow. position:fixed, вне <main>,
+          поэтому сама НЕ затрагивается фильтром расцветки — иначе сама
+          кнопка стала бы отфильтрованной и потерялась на фоне. */}
+      <button
+        onMouseDown={e => onToggleDown(e.clientX, e.clientY)}
+        onTouchStart={e => onToggleDown(e.touches[0].clientX, e.touches[0].clientY)}
+        aria-label="Переключить расцветку сайта (перетащите, чтобы подвинуть; нажмите, чтобы переключить)"
+        style={{
+          position: "fixed",
+          left: togglePos.x,
+          top: togglePos.y,
+          transform: "translate(-50%,-50%)",
+          zIndex: 1000000,
+          width: `${toggleDims.diameter}px`,
+          height: `${toggleDims.diameter}px`,
+          borderRadius: "50%",
+          border: "2px solid #fff",
+          background: colorScheme === "pinkYellow" ? "linear-gradient(135deg,#ff3250 50%,#f8ff2f 50%)" : colorScheme === "pink" ? "#ffbbc6" : "#000",
+          cursor: "none",
+          padding: 0,
+        }}
+      />
+
       <style>{`
         html,body{margin:0;padding:0;width:100vw;background:black;cursor:none!important;}
         *{font-family:'Arial Black',Arial,sans-serif!important;text-transform:uppercase!important;box-sizing:border-box;cursor:none!important;}
@@ -3763,7 +4051,7 @@ export default function Home() {
         </div>
       )}
 
-      <main ref={mainRef} style={{ position: "relative", width: "100vw", touchAction: "auto" }}>
+      <main ref={mainRef} style={{ position: "relative", width: "100vw", touchAction: "auto", filter: colorSchemeFilter }}>
 
         {/* ALEX — теперь самая первая ФИЗИЧЕСКИ проскролливаемая секция —
             обычный блок ровно 100vh, БЕЗ sticky-паузы (по просьбе — пауза
