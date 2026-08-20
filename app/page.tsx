@@ -122,31 +122,40 @@ function useCellCycler(imagesLength: number, cellCount: number): number[] {
 // двух разных ячейках допустим и никак не проверяется.
 type StyledCell = { imageIndex: number; font: string; text: string };
 function useStyledCellCycler(imagesLength: number, cellCount: number): StyledCell[] {
-  const [cells, setCells] = useState<StyledCell[]>(() =>
-    Array.from({ length: cellCount }, (_, i) => ({
-      imageIndex: i % imagesLength,
-      font: PROBLEM_SOLVER_FONTS[i % PROBLEM_SOLVER_FONTS.length],
-      text: DRINK_WATER_TEXTS[i % DRINK_WATER_TEXTS.length],
-    }))
-  );
+  const [cells, setCells] = useState<StyledCell[]>(() => {
+    const usedFonts = new Set<string>();
+    const usedTexts = new Set<string>();
+    return Array.from({ length: cellCount }, (_, i) => {
+      let font = PROBLEM_SOLVER_FONTS[i % PROBLEM_SOLVER_FONTS.length];
+      let fg = 0;
+      while (usedFonts.has(font) && fg < PROBLEM_SOLVER_FONTS.length) { font = PROBLEM_SOLVER_FONTS[(i + ++fg) % PROBLEM_SOLVER_FONTS.length]; }
+      usedFonts.add(font);
+      let text = DRINK_WATER_TEXTS[i % DRINK_WATER_TEXTS.length];
+      let tg = 0;
+      while (usedTexts.has(text) && tg < DRINK_WATER_TEXTS.length) { text = DRINK_WATER_TEXTS[(i + ++tg) % DRINK_WATER_TEXTS.length]; }
+      usedTexts.add(text);
+      return { imageIndex: i % imagesLength, font, text };
+    });
+  });
   useEffect(() => {
     setCells(prev => {
       if (prev.length === cellCount) return prev;
       const next = prev.slice(0, cellCount);
-      const used = new Set(next.map(c => c.imageIndex));
+      const usedImg = new Set(next.map(c => c.imageIndex));
+      const usedFonts = new Set(next.map(c => c.font));
+      const usedTexts = new Set(next.map(c => c.text));
       while (next.length < cellCount) {
-        let candidate = next.length % imagesLength;
-        let guard = 0;
-        while (used.has(candidate) && guard < imagesLength) {
-          candidate = (candidate + 1) % imagesLength;
-          guard++;
-        }
-        used.add(candidate);
-        next.push({
-          imageIndex: candidate,
-          font: PROBLEM_SOLVER_FONTS[next.length % PROBLEM_SOLVER_FONTS.length],
-          text: DRINK_WATER_TEXTS[next.length % DRINK_WATER_TEXTS.length],
-        });
+        const i = next.length;
+        let candidate = i % imagesLength, guard = 0;
+        while (usedImg.has(candidate) && guard < imagesLength) { candidate = (candidate + 1) % imagesLength; guard++; }
+        usedImg.add(candidate);
+        let font = PROBLEM_SOLVER_FONTS[i % PROBLEM_SOLVER_FONTS.length], fg = 0;
+        while (usedFonts.has(font) && fg < PROBLEM_SOLVER_FONTS.length) { font = PROBLEM_SOLVER_FONTS[(i + ++fg) % PROBLEM_SOLVER_FONTS.length]; }
+        usedFonts.add(font);
+        let text = DRINK_WATER_TEXTS[i % DRINK_WATER_TEXTS.length], tg = 0;
+        while (usedTexts.has(text) && tg < DRINK_WATER_TEXTS.length) { text = DRINK_WATER_TEXTS[(i + ++tg) % DRINK_WATER_TEXTS.length]; }
+        usedTexts.add(text);
+        next.push({ imageIndex: candidate, font, text });
       }
       return next;
     });
@@ -160,18 +169,23 @@ function useStyledCellCycler(imagesLength: number, cellCount: number): StyledCel
         const t = setTimeout(() => {
           setCells(prev => {
             if (i >= prev.length) return prev;
-            const used = new Set(prev.map(c => c.imageIndex));
-            const avail: number[] = [];
-            for (let k = 0; k < imagesLength; k++) if (!used.has(k)) avail.push(k);
-            if (avail.length === 0) return prev;
-            const nextImg = avail[Math.floor(Math.random() * avail.length)];
-            const fontPool = PROBLEM_SOLVER_FONTS.filter(f => f !== prev[i].font);
-            const textPool = DRINK_WATER_TEXTS.filter(t => t !== prev[i].text);
+            const usedImg = new Set(prev.map(c => c.imageIndex));
+            const availImg: number[] = [];
+            for (let k = 0; k < imagesLength; k++) if (!usedImg.has(k)) availImg.push(k);
+            if (availImg.length === 0) return prev;
+            const nextImg = availImg[Math.floor(Math.random() * availImg.length)];
+            // Не повторяем ни картинку, ни шрифт, ни язык, что показаны сейчас
+            // в ДРУГИХ ячейках — "ячейка" целиком (фото+шрифт+язык) не должна
+            // совпадать с любой другой видимой прямо сейчас.
+            const usedFonts = new Set(prev.map((c, idx) => idx === i ? null : c.font).filter(Boolean));
+            const fontPool = PROBLEM_SOLVER_FONTS.filter(f => f !== prev[i].font && !usedFonts.has(f));
+            const usedTexts = new Set(prev.map((c, idx) => idx === i ? null : c.text).filter(Boolean));
+            const textPool = DRINK_WATER_TEXTS.filter(t => t !== prev[i].text && !usedTexts.has(t));
             const copy = prev.slice();
             copy[i] = {
               imageIndex: nextImg,
-              font: fontPool[Math.floor(Math.random() * fontPool.length)],
-              text: textPool[Math.floor(Math.random() * textPool.length)],
+              font: (fontPool.length > 0 ? fontPool : PROBLEM_SOLVER_FONTS.filter(f => f !== prev[i].font))[Math.floor(Math.random() * (fontPool.length > 0 ? fontPool.length : PROBLEM_SOLVER_FONTS.length - 1))],
+              text: (textPool.length > 0 ? textPool : DRINK_WATER_TEXTS.filter(t => t !== prev[i].text))[Math.floor(Math.random() * (textPool.length > 0 ? textPool.length : DRINK_WATER_TEXTS.length - 1))],
             };
             return copy;
           });
@@ -1625,7 +1639,7 @@ export default function Home() {
       if (!measureEl) continue;
       const recompute = () => {
         const naturalWidth = measureEl.getBoundingClientRect().width;
-        const targetWidth = grid.cellPx * 0.75; // с запасом от края ячейки
+        const targetWidth = grid.cellPx * 0.5; // уменьшено с 0.75 — по просьбе сделать текст компактнее
         if (naturalWidth <= 0 || targetWidth <= 0) return;
         setCellScales(prev => {
           const copy = prev.slice();
@@ -3746,7 +3760,7 @@ export default function Home() {
                           style={{
                             ["--ps-font" as any]: cell.font,
                             fontWeight: 900,
-                            fontSize: "clamp(10px,2.5vw,32px)",
+                            fontSize: "clamp(8px,1.8vw,24px)",
                             lineHeight: 1,
                             whiteSpace: "nowrap",
                             display: "inline-block",
@@ -3773,7 +3787,7 @@ export default function Home() {
                             pointerEvents: "none",
                             ["--ps-font" as any]: cell.font,
                             fontWeight: 900,
-                            fontSize: "clamp(10px,2.5vw,32px)",
+                            fontSize: "clamp(8px,1.8vw,24px)",
                             lineHeight: 1,
                             whiteSpace: "nowrap",
                           }}
@@ -3796,22 +3810,21 @@ export default function Home() {
 
         {/* СЕКЦИЯ-ПРЕЗЕНТАЦИЯ С ГАЛЕРЕЕЙ — теперь ТОЧНО ТАКАЯ ЖЕ сетка ячеек,
             что и у alex (см. выше): те же квадратные ячейки со сглаженными
-            углами, GAP между ними, заполняют весь экран, синхронно
-            продвигаются по кругу каждые 2с. Обычный блок ровно 100vh, БЕЗ
-            sticky-паузы (пауза при скролле остаётся только у секции мозаик
-            ниже). Контент — ART_IMAGES (art1..art36.png из public/). Спустя
-            20с после захода на сайт (см. showArtVideo) — сетка сменяется
-            ОДНИМ полноэкранным видео fit.mp4 (не сеткой — эта часть без
-            изменений). */}
+            углами, GAP между ними, заполняют весь экран. Каждая ячейка
+            независимо переключается на случайную картинку раз в секунду,
+            без повторов среди одновременно показанных (см. useCellCycler).
+            Обычный блок ровно 100vh, БЕЗ sticky-паузы (пауза при скролле
+            остаётся только у секции мозаик ниже). Контент — ART_IMAGES
+            (art1..art36.png из public/). Спустя 20с после захода на сайт
+            (см. showArtVideo) — вместо картинок в ячейках сквозь них
+            начинает "просвечивать" видео fit.mp4: сами ячейки (их форма и
+            положение) используются как МАСКА для ОДНОГО общего видео —
+            видно видео ровно там, где раньше были картинки, и нигде
+            больше. */}
         <div ref={artSectionRef} style={{ position: "relative", height: "100vh", overflow: "hidden", background: "#000", display: "flex", alignItems: "center", justifyContent: "center", padding: `${grid.gapY}px ${grid.gapX}px` }}>
-          {overlayOpacity <= 0.01 && (
-            showArtVideo ? (
-              <div style={{ width: "100%", height: "100%", borderRadius: "clamp(24px,5vw,64px)", overflow: "hidden", position: "relative", background: "#111" }}>
-                <video ref={artVideoRef} src="/fit.mp4" autoPlay muted loop playsInline
-                  style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-              </div>
-            ) : grid.cellPx > 0 && (
-              <div style={{ display: "grid", gridTemplateColumns: `repeat(${grid.cols},${grid.cellPx}px)`, gridTemplateRows: `repeat(${grid.rows},${grid.cellPx}px)`, gap: `${grid.gapY}px ${grid.gapX}px` }}>
+          {overlayOpacity <= 0.01 && grid.cellPx > 0 && (
+            <>
+              <div style={{ display: "grid", gridTemplateColumns: `repeat(${grid.cols},${grid.cellPx}px)`, gridTemplateRows: `repeat(${grid.rows},${grid.cellPx}px)`, gap: `${grid.gapY}px ${grid.gapX}px`, opacity: showArtVideo ? 0 : 1, transition: "opacity 1s ease" }}>
                 {Array.from({ length: grid.cols * grid.rows }, (_, cellIdx) => (
                   <div key={cellIdx} style={{ width: `${grid.cellPx}px`, height: `${grid.cellPx}px`, borderRadius: "14%", overflow: "hidden", position: "relative", background: "#111" }}>
                     <img src={ART_IMAGES[artCells[cellIdx] ?? 0]} alt="" decoding="sync" loading="eager"
@@ -3819,7 +3832,58 @@ export default function Home() {
                   </div>
                 ))}
               </div>
-            )
+              {/* Видео fit.mp4 "сквозь" ячейки — ОДНО общее полноэкранное
+                  видео, видимое только в форме и на месте ячеек (SVG-маска
+                  со скруглёнными прямоугольниками, вычисленными из той же
+                  раскладки, что и сама сетка — центрирование флексом плюс
+                  раскладка по строкам/столбцам, см. cellRects ниже). Плавно
+                  проявляется (1с) через showArtVideo, вместо мгновенного
+                  появления. */}
+              {(() => {
+                const vw = window.innerWidth, vh = window.innerHeight;
+                const gridW = grid.cols * grid.cellPx + (grid.cols - 1) * grid.gapX;
+                const gridH = grid.rows * grid.cellPx + (grid.rows - 1) * grid.gapY;
+                const gridLeft = (vw - gridW) / 2;
+                const gridTop = (vh - gridH) / 2;
+                const cellRects = Array.from({ length: grid.cols * grid.rows }, (_, i) => {
+                  const row = Math.floor(i / grid.cols);
+                  const col = i % grid.cols;
+                  return {
+                    x: gridLeft + col * (grid.cellPx + grid.gapX),
+                    y: gridTop + row * (grid.cellPx + grid.gapY),
+                    s: grid.cellPx,
+                  };
+                });
+                return (
+                  <>
+                    <svg width="0" height="0" style={{ position: "absolute" }}>
+                      <defs>
+                        <mask id="artVideoMask" maskUnits="userSpaceOnUse" x={0} y={0} width={vw} height={vh}>
+                          {cellRects.map((r, i) => (
+                            <rect key={i} x={r.x} y={r.y} width={r.s} height={r.s} rx={r.s * 0.14} fill="#fff" />
+                          ))}
+                        </mask>
+                      </defs>
+                    </svg>
+                    <video
+                      ref={artVideoRef}
+                      src="/fit.mp4"
+                      autoPlay
+                      muted
+                      loop
+                      playsInline
+                      style={{
+                        position: "fixed", inset: 0, width: "100vw", height: "100vh", objectFit: "cover",
+                        WebkitMaskImage: "url(#artVideoMask)", maskImage: "url(#artVideoMask)",
+                        opacity: showArtVideo ? 1 : 0,
+                        transition: "opacity 1s ease",
+                        pointerEvents: "none",
+                      } as React.CSSProperties}
+                    />
+                  </>
+                );
+              })()}
+            </>
           )}
         </div>
 
