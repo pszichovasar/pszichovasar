@@ -13,114 +13,20 @@ function shuffleWithSeed(arr: string[], seed: number): string[] {
   return a;
 }
 
-// Палитра "розово-жёлтой" расцветки — те же 5 цветов, что и у SVG-фильтра
-// для всего остального сайта (текст, фон, интерфейс — там дешёвый,
-// в реальном времени работающий luminance-based фильтр остаётся, см. JSX
-// ниже). Для САМИХ КАРТИНОК (alex/галерея) — этого недостаточно: перевод в
-// градации серого ПЕРЕД постеризацией теряет цвет — два РАЗНЫХ по оттенку,
-// но похожих по яркости пикселя (например, насыщенный синий и насыщенный
-// зелёный близкой яркости) схлопываются в ОДИН И ТОТ ЖЕ итоговый цвет.
-// Вместо этого — см. usePosterizedImage ниже — для картинок берётся
-// НАСТОЯЩИЙ ближайший цвет из палитры по полному RGB (Евклидово
-// расстояние в трёхмерном цветовом пространстве), а не только по яркости —
-// так каждый оттенок отображается в максимально похожий на него цвет
-// палитры, различия между разными исходными цветами сохраняются куда
-// лучше.
-const PINK_YELLOW_PALETTE: [number, number, number][] = [
-  [0, 0, 0],
-  [0xce, 0x20, 0x3a],
-  [0xff, 0x32, 0x50],
-  [0xd0, 0xd6, 0x21],
-  [0xf8, 0xff, 0x2f],
-];
-
-// Кэш обработанных картинок — на комбинацию "исходный URL + режим
-// расцветки" (ключ — просто URL, поскольку кэш создаётся заново при каждой
-// смене режима — см. imageCacheRef в самом хуке). Общий на все компоненты/
-// вызовы, чтобы одна и та же картинка не переобрабатывалась повторно, даже
-// если показывается в нескольких ячейках сразу.
-const posterizedImageCache = new Map<string, string>();
-
-// Хук — при enabled=true возвращает URL картинки, обработанной через
-// нахождение ближайшего цвета палитры для КАЖДОГО пикселя (canvas,
-// getImageData/putImageData); при enabled=false — просто исходный src без
-// изменений. Понижение разрешения перед обработкой (до maxDim) — картинки
-// показываются в ячейках небольшого размера, обрабатывать их в полном
-// разрешении было бы намного медленнее без всякой пользы для итоговой
-// картинки.
-function usePosterizedImage(src: string, enabled: boolean, maxDim = 400): string {
-  const [result, setResult] = useState(src);
-  useEffect(() => {
-    if (!enabled) { setResult(src); return; }
-    const cacheKey = src;
-    const cached = posterizedImageCache.get(cacheKey);
-    if (cached) { setResult(cached); return; }
-    let cancelled = false;
-    const img = new window.Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => {
-      if (cancelled) return;
-      const scale = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight));
-      const w = Math.max(1, Math.round(img.naturalWidth * scale));
-      const h = Math.max(1, Math.round(img.naturalHeight * scale));
-      const canvas = document.createElement("canvas");
-      canvas.width = w; canvas.height = h;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) { setResult(src); return; }
-      ctx.drawImage(img, 0, 0, w, h);
-      const imageData = ctx.getImageData(0, 0, w, h);
-      const data = imageData.data;
-      for (let i = 0; i < data.length; i += 4) {
-        const r = data[i], g = data[i + 1], b = data[i + 2];
-        let bestIdx = 0, bestDist = Infinity;
-        for (let p = 0; p < PINK_YELLOW_PALETTE.length; p++) {
-          const [pr, pg, pb] = PINK_YELLOW_PALETTE[p];
-          const dr = r - pr, dg = g - pg, db = b - pb;
-          const dist = dr * dr + dg * dg + db * db; // квадрат евклидова расстояния — сравнения ради, корень не нужен
-          if (dist < bestDist) { bestDist = dist; bestIdx = p; }
-        }
-        const [nr, ng, nb] = PINK_YELLOW_PALETTE[bestIdx];
-        data[i] = nr; data[i + 1] = ng; data[i + 2] = nb;
-      }
-      ctx.putImageData(imageData, 0, 0);
-      const dataUrl = canvas.toDataURL("image/png");
-      posterizedImageCache.set(cacheKey, dataUrl);
-      if (!cancelled) setResult(dataUrl);
-    };
-    img.onerror = () => { if (!cancelled) setResult(src); };
-    img.src = src;
-    return () => { cancelled = true; };
-  }, [src, enabled, maxDim]);
-  return result;
-}
-
-// Обёртка-компонент вокруг usePosterizedImage — сам хук нельзя вызывать
-// прямо внутри .map() в теле большого компонента (нарушает правила хуков:
-// число вызовов менялось бы вместе с размером сетки). Отдельный компонент
-// на каждую ячейку — у каждого экземпляра свой, стабильный вызов хука,
-// независимо от общего количества ячеек.
-function PosterizedImg({ src, enabled, style, alt }: { src: string; enabled: boolean; style?: React.CSSProperties; alt?: string }) {
-  const finalSrc = usePosterizedImage(src, enabled);
-  return <img src={finalSrc} alt={alt || ""} decoding="sync" loading="eager" style={style} />;
-}
-
-// Сетка квадратных ячеек, заполняющая экран БЕЗ остатка по краям — раньше
-// фиксированная сетка (3×2/2×3) выбирала cellPx как МЕНЬШЕЕ из "сколько
-// влезает по ширине" и "сколько влезает по высоте" при ФИКСИРОВАННОМ
-// зазоре — если экран не попадал ровно в пропорцию этой сетки, одна из
-// осей оставалась "недозаполненной" этим меньшим cellPx, и на ней
-// появлялось ЛИШНЕЕ поле сверх зазора (именно то, что видно на
-// скриншоте — большие поля по бокам). Теперь — перебор разумных вариантов
-// cols×rows, и для каждого зазор по горизонтали/вертикали считается
-// ОТДЕЛЬНО так, чтобы точно (без остатка) заполнить именно свою ось этим
-// cellPx — гарантированно нулевой остаток по построению. Из всех вариантов
-// выбирается тот, где оба зазора (гориз./верт.) ближе всего к номинальному
-// (тому же GAP, что и у остальных ячеек по сайту) — то есть паттерн ячеек
-// подстраивается под конкретную пропорцию экрана, а не наоборот. Диапазон
-// (2-4 колонки/строки, 4-9 ячеек всего) — специально УЖЕ прежнего (было
-// 2-6/16) — чем МЕНЬШЕ ячеек, тем КАЖДАЯ из них крупнее при том же экране.
+// Сетка квадратных ячеек — зазор ВСЕГДА строго равен nominalGap (тому же
+// GAP, что и между ячейками в цветной сетке "5 рядов") и по горизонтали, и
+// по вертикали, и до краёв экрана — единообразно, как и просили. Из
+// разумных вариантов cols×rows выбирается тот, что МИНИМИЗИРУЕТ возможный
+// остаток (если конкретная пропорция экрана не попадает ровно в сетку с
+// таким зазором) — но сам зазор при этом никогда не отклоняется от
+// nominalGap. Важно: для некоторых пропорций экрана (особенно
+// широкоформатных, 16:9 и шире) физически невозможно подобрать целое число
+// колонок/строк, чтобы зазор точно совпал с nominalGap по ОБЕИМ осям
+// одновременно БЕЗ остатка — тогда на одной из осей может остаться
+// небольшой запас (сверх зазора), но сам зазор между ячейками и до краёв
+// экрана остаётся ровно nominalGap.
 function computeCellGrid(w: number, h: number, nominalGap: number) {
-  let best: { cols: number; rows: number; cellPx: number; gapX: number; gapY: number } | null = null;
+  let best: { cols: number; rows: number; cellPx: number; leftover: number } | null = null;
   for (let cols = 2; cols <= 4; cols++) {
     for (let rows = 2; rows <= 4; rows++) {
       const total = cols * rows;
@@ -129,15 +35,17 @@ function computeCellGrid(w: number, h: number, nominalGap: number) {
       const cellPxH = (h - nominalGap * (rows + 1)) / rows;
       if (cellPxW <= 30 || cellPxH <= 30) continue;
       const cellPx = Math.floor(Math.min(cellPxW, cellPxH));
-      const gapX = (w - cellPx * cols) / (cols + 1);
-      const gapY = (h - cellPx * rows) / (rows + 1);
-      const deviation = Math.abs(gapX - nominalGap) + Math.abs(gapY - nominalGap);
-      if (!best || deviation < (Math.abs(best.gapX - nominalGap) + Math.abs(best.gapY - nominalGap)) - 0.5) {
-        best = { cols, rows, cellPx, gapX, gapY };
+      const usedW = cellPx * cols + nominalGap * (cols + 1);
+      const usedH = cellPx * rows + nominalGap * (rows + 1);
+      const leftover = Math.max(w - usedW, h - usedH);
+      if (!best || leftover < best.leftover - 0.5 || (Math.abs(leftover - best.leftover) <= 0.5 && cellPx > best.cellPx)) {
+        best = { cols, rows, cellPx, leftover };
       }
     }
   }
-  return best || { cols: 3, rows: 2, cellPx: 100, gapX: nominalGap, gapY: nominalGap };
+  return best
+    ? { cols: best.cols, rows: best.rows, cellPx: best.cellPx, gapX: nominalGap, gapY: nominalGap }
+    : { cols: 3, rows: 2, cellPx: 100, gapX: nominalGap, gapY: nominalGap };
 }
 
 // Независимое переключение каждой ячейки сетки — раз в секунду, каждая
@@ -1628,16 +1536,18 @@ export default function Home() {
   // после него (в отличие от useEffect, где порядок объявления в теле
   // компонента не имеет значения).
   const GAP = 20;
-  // Расцветка сайта — 2 режима, переключаются кнопкой (см. ниже): "pinkYellow"
-  // (по умолчанию) ↔ "normal". "pinkYellow" — "постеризация" всей палитры
-  // сайта через SVG-фильтр (см. <filter> в JSX ниже) до 5 опорных цветов:
-  // чёрный, тёмно-розовый ce203a, розовый ff3250, тёмно-жёлтый d0d621,
-  // жёлтый f8ff2f — каждый пиксель сначала переводится в градации серого, а
-  // потом его яркость (жёстко, СТУПЕНЧАТО — см. type="discrete" у самого
-  // фильтра, а не плавной интерполяцией) отображается в один из этих пяти
-  // цветов.
-  const [colorScheme, setColorScheme] = useState<"pinkYellow" | "normal">("pinkYellow");
-  const colorSchemeFilter = colorScheme === "pinkYellow" ? "url(#pinkYellowQuadtoneFilter)" : "none";
+  // Расцветка сайта — теперь автоматически переключается каждые 2 секунды
+  // между полностью чёрно-белой версией (с повышенным контрастом) и
+  // обычной, без ручного управления кнопкой (кнопку и SVG-фильтр
+  // "постеризации" — убрали по просьбе). grayscale(1) — полностью убирает
+  // цвет; contrast(1.4) — повышенный контраст именно у ч/б версии, как и
+  // просили.
+  const [isBW, setIsBW] = useState(true);
+  useEffect(() => {
+    const timer = setInterval(() => setIsBW(v => !v), 2000);
+    return () => clearInterval(timer);
+  }, []);
+  const colorSchemeFilter = isBW ? "grayscale(1) contrast(1.4)" : "none";
   const [videoSrc, setVideoSrc] = useState("/me.mp4");
 
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -3614,68 +3524,12 @@ export default function Home() {
 
   useEffect(() => {
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent); if (isMobile) return;
-    if (cursorRef.current) { cursorRef.current.style.transition = "none"; }
-    // Инерция курсора — полноценная пружинная физика (масса + пружина +
-    // демпфирование), а не простое "подтягивание" долей расстояния за кадр.
-    // STIFFNESS — насколько сильно "пружина" тянет курсор к настоящей
-    // позиции мыши; DAMPING — насколько быстро гасятся колебания (ближе к 1
-    // — меньше "пружинистости", ближе к 0 — курсор долго раскачивается).
-    // Такая модель даёт естественный ПЕРЕЛЁТ и затухание — курсор слегка
-    // проскакивает мимо цели и плавно возвращается, как настоящий тяжёлый
-    // предмет на пружине, а не просто плавно скользит следом.
-    // Поворот и лёгкое "растяжение по направлению движения" считаются от
-    // НАСТОЯЩЕЙ мгновенной скорости курсора (не от того, насколько он
-    // отстаёт от цели) — чем быстрее курсор летит, тем сильнее (плавно,
-    // без резких скачков) он доворачивается в сторону движения и слегка
-    // вытягивается вдоль него, как тяжёлый маятник на инерции.
-    let mouseX = -9999, mouseY = -9999;
-    let curX = -9999, curY = -9999;
-    let velX = 0, velY = 0;
-    let rotation = 0;
-    let stretch = 1;
-    let hasMouse = false;
-    const STIFFNESS = 0.12;
-    const DAMPING = 0.78;
+    if (cursorRef.current) { cursorRef.current.style.opacity = "1"; cursorRef.current.style.transition = "none"; }
     const onMM = (e: MouseEvent) => {
-      mouseX = e.clientX; mouseY = e.clientY;
-      if (!hasMouse) { curX = mouseX; curY = mouseY; hasMouse = true; }
+      if (cursorRef.current) { cursorRef.current.style.transition = "none"; cursorRef.current.style.transform = `translate(${e.clientX}px,${e.clientY}px)`; cursorRef.current.style.opacity = "1"; }
     };
     window.addEventListener("mousemove", onMM);
-    let raf: number;
-    const animate = () => {
-      if (hasMouse) {
-        const ax = (mouseX - curX) * STIFFNESS;
-        const ay = (mouseY - curY) * STIFFNESS;
-        velX = (velX + ax) * DAMPING;
-        velY = (velY + ay) * DAMPING;
-        curX += velX;
-        curY += velY;
-        const speed = Math.sqrt(velX * velX + velY * velY);
-        if (speed > 0.6) {
-          const targetAngle = Math.atan2(velY, velX) * 180 / Math.PI;
-          // Плавный, но заметный доворот — чем выше скорость, тем полнее и
-          // быстрее курсор доворачивается к направлению своего движения
-          // (макс. ~32% угла за кадр — доворот всё ещё идёт за несколько
-          // кадров, не одним резким скачком).
-          const turnAmount = Math.min(speed / 16, 0.32);
-          let diff = targetAngle - rotation;
-          diff = ((diff + 180) % 360 + 360) % 360 - 180;
-          rotation += diff * turnAmount;
-        }
-        // Лёгкое "растяжение" вдоль направления движения — чем быстрее
-        // курсор летит, тем чуть заметнее он вытягивается (макс. +18%),
-        // придаёт ощущение веса и инерции, плавно возвращается к 1 в покое.
-        const targetStretch = 1 + Math.min(speed / 60, 0.18);
-        stretch += (targetStretch - stretch) * 0.2;
-        if (cursorRef.current) {
-          cursorRef.current.style.transform = `translate(${curX}px,${curY}px) rotate(${rotation}deg) scale(${stretch},${2 - stretch})`;
-          cursorRef.current.style.opacity = "1";
-        }
-      }
-      raf = requestAnimationFrame(animate);
-    };
-    raf = requestAnimationFrame(animate);
-    return () => { window.removeEventListener("mousemove", onMM); cancelAnimationFrame(raf); };
+    return () => window.removeEventListener("mousemove", onMM);
   }, []);
 
   useEffect(() => {
@@ -3766,63 +3620,6 @@ export default function Home() {
 
   return (
     <>
-      {/* SVG-фильтр "постеризации" всей палитры сайта до 5 опорных цветов —
-          чёрный, тёмно-розовый (ce203a), розовый (ff3250), тёмно-жёлтый
-          (d0d621), жёлтый (f8ff2f). feColorMatrix сначала переводит всё в
-          градации серого (стандартные ITU-R BT.709 коэффициенты яркости),
-          затем feComponentTransfer прогоняет получившуюся яркость через
-          таблицу — на каждом из трёх RGB-каналов отдельно. type="discrete"
-          — намеренно ЖЁСТКАЯ, СТУПЕНЧАТАЯ постеризация (без плавной
-          интерполяции). Было ровно 5 ступеней (по числу цветов) — из-за
-          этого МНОГИЕ близкие, но визуально РАЗНЫЕ тёмные оттенки (напр.
-          #000 и #111 — разные фоны у разных элементов сайта) попадали в
-          один и тот же, самый тёмный диапазон и схлопывались в АБСОЛЮТНО
-          идентичный чёрный — элементы, которые раньше хоть немного
-          отличались от фона вокруг, становились с ним битово неотличимы и
-          "пропадали". Теперь — 17 ступеней (4 промежуточных шага между
-          каждой парой опорных цветов, интерполированных) — диапазоны
-          заметно уже, коллизий кратно меньше, а резкая, ступенчатая
-          (не плавная) постеризация никуда не делась. */}
-      <svg width="0" height="0" style={{ position: "absolute" }}>
-        <defs>
-          <filter id="pinkYellowQuadtoneFilter">
-            <feColorMatrix type="matrix" values="
-              0.2126 0.7152 0.0722 0 0
-              0.2126 0.7152 0.0722 0 0
-              0.2126 0.7152 0.0722 0 0
-              0      0      0      1 0" />
-            <feComponentTransfer>
-              <feFuncR type="discrete" tableValues="0 0.202 0.4039 0.6059 0.8078 0.8559 0.9039 0.952 1 0.9539 0.9078 0.8618 0.8157 0.8549 0.8941 0.9333 1" />
-              <feFuncG type="discrete" tableValues="0 0.0314 0.0627 0.0941 0.1255 0.1431 0.1608 0.1784 0.1961 0.3569 0.5176 0.6784 0.8392 0.8794 0.9196 0.9598 1" />
-              <feFuncB type="discrete" tableValues="0 0.0569 0.1137 0.1706 0.2275 0.249 0.2706 0.2922 0.3137 0.2676 0.2216 0.1755 0.1294 0.1431 0.1569 0.1706 0.1843" />
-            </feComponentTransfer>
-          </filter>
-        </defs>
-      </svg>
-
-      {/* Кнопка-переключатель расцветки — простая, статичная, левый верхний
-          угол (без перетаскивания и рамки-меню — убраны по просьбе).
-          Теперь всего 2 состояния: pinkYellow ↔ normal. position:fixed, вне
-          <main>, поэтому сама НЕ затрагивается фильтром — иначе стала бы
-          отфильтрованной и потерялась на фоне. */}
-      <button
-        onClick={() => setColorScheme(s => s === "pinkYellow" ? "normal" : "pinkYellow")}
-        aria-label="Переключить расцветку сайта"
-        style={{
-          position: "fixed",
-          top: "clamp(12px,2.5vw,24px)",
-          left: "clamp(12px,2.5vw,24px)",
-          zIndex: 1000000,
-          width: "clamp(36px,6vw,52px)",
-          height: "clamp(36px,6vw,52px)",
-          borderRadius: "50%",
-          border: "2px solid #fff",
-          background: colorScheme === "pinkYellow" ? "#ff3250" : "#000",
-          cursor: "none",
-          padding: 0,
-        }}
-      />
-
       <style>{`
         html,body{margin:0;padding:0;width:100vw;background:black;cursor:none!important;}
         *{font-family:'Arial Black',Arial,sans-serif!important;text-transform:uppercase!important;box-sizing:border-box;cursor:none!important;}
@@ -3954,7 +3751,7 @@ export default function Home() {
                 const cell = alexCells[cellIdx];
                 return (
                   <div key={cellIdx} style={{ width: `${grid.cellPx}px`, height: `${grid.cellPx}px`, borderRadius: "14%", overflow: "hidden", position: "relative", background: "#111" }}>
-                    <PosterizedImg src={ALEX_IMAGES[cell?.imageIndex ?? 0]} enabled={colorScheme === "pinkYellow"}
+                    <img src={ALEX_IMAGES[cell?.imageIndex ?? 0]} alt="" decoding="sync" loading="eager"
                       style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
                     {/* "drink water" — теперь ВНУТРИ каждой ячейки (не общий
                         текст на всю секцию) — центрировано, чуть меньше, чем
@@ -4041,7 +3838,7 @@ export default function Home() {
               <div style={{ display: "grid", gridTemplateColumns: `repeat(${grid.cols},${grid.cellPx}px)`, gridTemplateRows: `repeat(${grid.rows},${grid.cellPx}px)`, gap: `${grid.gapY}px ${grid.gapX}px`, opacity: showArtVideo ? 0 : 1, transition: "opacity 1s ease" }}>
                 {Array.from({ length: grid.cols * grid.rows }, (_, cellIdx) => (
                   <div key={cellIdx} style={{ width: `${grid.cellPx}px`, height: `${grid.cellPx}px`, borderRadius: "14%", overflow: "hidden", position: "relative", background: "#111" }}>
-                    <PosterizedImg src={ART_IMAGES[artCells[cellIdx] ?? 0]} enabled={colorScheme === "pinkYellow"}
+                    <img src={ART_IMAGES[artCells[cellIdx] ?? 0]} alt="" decoding="sync" loading="eager"
                       style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
                   </div>
                 ))}
