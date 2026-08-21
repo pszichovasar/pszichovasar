@@ -1544,7 +1544,7 @@ export default function Home() {
   // просили.
   const [isBW, setIsBW] = useState(true);
   useEffect(() => {
-    const timer = setInterval(() => setIsBW(v => !v), 2000);
+    const timer = setInterval(() => setIsBW(v => !v), 10000);
     return () => clearInterval(timer);
   }, []);
   const colorSchemeFilter = isBW ? "grayscale(1) contrast(1.4)" : "none";
@@ -3730,7 +3730,7 @@ export default function Home() {
         </div>
       )}
 
-      <main ref={mainRef} style={{ position: "relative", width: "100vw", touchAction: "auto", filter: colorSchemeFilter }}>
+      <main ref={mainRef} style={{ position: "relative", width: "100vw", touchAction: "auto", filter: colorSchemeFilter, transition: "filter 1s ease-in-out" }}>
 
         {/* ALEX — теперь самая первая ФИЗИЧЕСКИ проскролливаемая секция —
             обычный блок ровно 100vh, БЕЗ sticky-паузы (по просьбе — пауза
