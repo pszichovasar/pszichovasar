@@ -13,6 +13,97 @@ function shuffleWithSeed(arr: string[], seed: number): string[] {
   return a;
 }
 
+// Палитра "розово-жёлтой" расцветки — те же 5 цветов, что и у SVG-фильтра
+// для всего остального сайта (текст, фон, интерфейс — там дешёвый,
+// в реальном времени работающий luminance-based фильтр остаётся, см. JSX
+// ниже). Для САМИХ КАРТИНОК (alex/галерея) — этого недостаточно: перевод в
+// градации серого ПЕРЕД постеризацией теряет цвет — два РАЗНЫХ по оттенку,
+// но похожих по яркости пикселя (например, насыщенный синий и насыщенный
+// зелёный близкой яркости) схлопываются в ОДИН И ТОТ ЖЕ итоговый цвет.
+// Вместо этого — см. usePosterizedImage ниже — для картинок берётся
+// НАСТОЯЩИЙ ближайший цвет из палитры по полному RGB (Евклидово
+// расстояние в трёхмерном цветовом пространстве), а не только по яркости —
+// так каждый оттенок отображается в максимально похожий на него цвет
+// палитры, различия между разными исходными цветами сохраняются куда
+// лучше.
+const PINK_YELLOW_PALETTE: [number, number, number][] = [
+  [0, 0, 0],
+  [0xce, 0x20, 0x3a],
+  [0xff, 0x32, 0x50],
+  [0xd0, 0xd6, 0x21],
+  [0xf8, 0xff, 0x2f],
+];
+
+// Кэш обработанных картинок — на комбинацию "исходный URL + режим
+// расцветки" (ключ — просто URL, поскольку кэш создаётся заново при каждой
+// смене режима — см. imageCacheRef в самом хуке). Общий на все компоненты/
+// вызовы, чтобы одна и та же картинка не переобрабатывалась повторно, даже
+// если показывается в нескольких ячейках сразу.
+const posterizedImageCache = new Map<string, string>();
+
+// Хук — при enabled=true возвращает URL картинки, обработанной через
+// нахождение ближайшего цвета палитры для КАЖДОГО пикселя (canvas,
+// getImageData/putImageData); при enabled=false — просто исходный src без
+// изменений. Понижение разрешения перед обработкой (до maxDim) — картинки
+// показываются в ячейках небольшого размера, обрабатывать их в полном
+// разрешении было бы намного медленнее без всякой пользы для итоговой
+// картинки.
+function usePosterizedImage(src: string, enabled: boolean, maxDim = 400): string {
+  const [result, setResult] = useState(src);
+  useEffect(() => {
+    if (!enabled) { setResult(src); return; }
+    const cacheKey = src;
+    const cached = posterizedImageCache.get(cacheKey);
+    if (cached) { setResult(cached); return; }
+    let cancelled = false;
+    const img = new window.Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      if (cancelled) return;
+      const scale = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight));
+      const w = Math.max(1, Math.round(img.naturalWidth * scale));
+      const h = Math.max(1, Math.round(img.naturalHeight * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) { setResult(src); return; }
+      ctx.drawImage(img, 0, 0, w, h);
+      const imageData = ctx.getImageData(0, 0, w, h);
+      const data = imageData.data;
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i], g = data[i + 1], b = data[i + 2];
+        let bestIdx = 0, bestDist = Infinity;
+        for (let p = 0; p < PINK_YELLOW_PALETTE.length; p++) {
+          const [pr, pg, pb] = PINK_YELLOW_PALETTE[p];
+          const dr = r - pr, dg = g - pg, db = b - pb;
+          const dist = dr * dr + dg * dg + db * db; // квадрат евклидова расстояния — сравнения ради, корень не нужен
+          if (dist < bestDist) { bestDist = dist; bestIdx = p; }
+        }
+        const [nr, ng, nb] = PINK_YELLOW_PALETTE[bestIdx];
+        data[i] = nr; data[i + 1] = ng; data[i + 2] = nb;
+      }
+      ctx.putImageData(imageData, 0, 0);
+      const dataUrl = canvas.toDataURL("image/png");
+      posterizedImageCache.set(cacheKey, dataUrl);
+      if (!cancelled) setResult(dataUrl);
+    };
+    img.onerror = () => { if (!cancelled) setResult(src); };
+    img.src = src;
+    return () => { cancelled = true; };
+  }, [src, enabled, maxDim]);
+  return result;
+}
+
+// Обёртка-компонент вокруг usePosterizedImage — сам хук нельзя вызывать
+// прямо внутри .map() в теле большого компонента (нарушает правила хуков:
+// число вызовов менялось бы вместе с размером сетки). Отдельный компонент
+// на каждую ячейку — у каждого экземпляра свой, стабильный вызов хука,
+// независимо от общего количества ячеек.
+function PosterizedImg({ src, enabled, style, alt }: { src: string; enabled: boolean; style?: React.CSSProperties; alt?: string }) {
+  const finalSrc = usePosterizedImage(src, enabled);
+  return <img src={finalSrc} alt={alt || ""} decoding="sync" loading="eager" style={style} />;
+}
+
 // Сетка квадратных ячеек, заполняющая экран БЕЗ остатка по краям — раньше
 // фиксированная сетка (3×2/2×3) выбирала cellPx как МЕНЬШЕЕ из "сколько
 // влезает по ширине" и "сколько влезает по высоте" при ФИКСИРОВАННОМ
@@ -3524,22 +3615,27 @@ export default function Home() {
   useEffect(() => {
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent); if (isMobile) return;
     if (cursorRef.current) { cursorRef.current.style.transition = "none"; }
-    // Инерция курсора — раньше позиция курсора ПРЯМО синхронизировалась с
-    // мышью на каждое движение (мгновенно, без задержки). Теперь курсор
-    // "догоняет" реальную позицию мыши с отставанием (FOLLOW — доля
-    // расстояния, проходимая за кадр; меньше значение — сильнее инерция,
-    // курсор "тяжелее"), а не телепортируется в неё мгновенно. Угол поворота
-    // считается из направления и скорости этого "подтягивания" — при
-    // быстром движении мыши курсор не успевает за ней, отстаёт сильнее, и
-    // это отставание (вектор от текущей позиции курсора к цели) даёт более
-    // резкий, выраженный угол — визуально это и есть "переворот в сторону
-    // движения". При медленном/стоящем курсоре поворот плавно возвращается
-    // к 0.
+    // Инерция курсора — полноценная пружинная физика (масса + пружина +
+    // демпфирование), а не простое "подтягивание" долей расстояния за кадр.
+    // STIFFNESS — насколько сильно "пружина" тянет курсор к настоящей
+    // позиции мыши; DAMPING — насколько быстро гасятся колебания (ближе к 1
+    // — меньше "пружинистости", ближе к 0 — курсор долго раскачивается).
+    // Такая модель даёт естественный ПЕРЕЛЁТ и затухание — курсор слегка
+    // проскакивает мимо цели и плавно возвращается, как настоящий тяжёлый
+    // предмет на пружине, а не просто плавно скользит следом.
+    // Поворот и лёгкое "растяжение по направлению движения" считаются от
+    // НАСТОЯЩЕЙ мгновенной скорости курсора (не от того, насколько он
+    // отстаёт от цели) — чем быстрее курсор летит, тем сильнее (плавно,
+    // без резких скачков) он доворачивается в сторону движения и слегка
+    // вытягивается вдоль него, как тяжёлый маятник на инерции.
     let mouseX = -9999, mouseY = -9999;
     let curX = -9999, curY = -9999;
+    let velX = 0, velY = 0;
     let rotation = 0;
+    let stretch = 1;
     let hasMouse = false;
-    const FOLLOW = 0.18;
+    const STIFFNESS = 0.12;
+    const DAMPING = 0.78;
     const onMM = (e: MouseEvent) => {
       mouseX = e.clientX; mouseY = e.clientY;
       if (!hasMouse) { curX = mouseX; curY = mouseY; hasMouse = true; }
@@ -3548,29 +3644,31 @@ export default function Home() {
     let raf: number;
     const animate = () => {
       if (hasMouse) {
-        const dx = mouseX - curX, dy = mouseY - curY;
-        curX += dx * FOLLOW;
-        curY += dy * FOLLOW;
-        const dist = Math.sqrt(dx * dx + dy * dy); // насколько курсор сейчас отстаёт от цели — чем быстрее двигать мышь, тем больше это отставание
-        if (dist > 15) {
-          const targetAngle = Math.atan2(dy, dx) * 180 / Math.PI;
-          // Раньше поворот срабатывал слишком легко — уже на 40px отставания
-          // курсор доворачивался ПОЛНОСТЬЮ (turnAmount=1), из-за чего даже
-          // небольшое движение мыши давало резкий, "дёрганый" разворот.
-          // Теперь порог начала поворота выше (игнорируем совсем мелкие
-          // движения/дрожание руки), а сама чувствительность заметно ниже —
-          // требуется куда более быстрое и уверенное движение мыши, чтобы
-          // курсор довернулся ощутимо, и даже тогда поворот ограничен
-          // максимум ~35% угла за кадр — довороты в сторону нового
-          // направления идут постепенно, за несколько кадров, а не одним
-          // резким скачком.
-          const turnAmount = Math.min(dist / 220, 0.35);
+        const ax = (mouseX - curX) * STIFFNESS;
+        const ay = (mouseY - curY) * STIFFNESS;
+        velX = (velX + ax) * DAMPING;
+        velY = (velY + ay) * DAMPING;
+        curX += velX;
+        curY += velY;
+        const speed = Math.sqrt(velX * velX + velY * velY);
+        if (speed > 0.6) {
+          const targetAngle = Math.atan2(velY, velX) * 180 / Math.PI;
+          // Плавный, но заметный доворот — чем выше скорость, тем полнее и
+          // быстрее курсор доворачивается к направлению своего движения
+          // (макс. ~32% угла за кадр — доворот всё ещё идёт за несколько
+          // кадров, не одним резким скачком).
+          const turnAmount = Math.min(speed / 16, 0.32);
           let diff = targetAngle - rotation;
-          diff = ((diff + 180) % 360 + 360) % 360 - 180; // кратчайший путь поворота, без "перекрута" через 350°
+          diff = ((diff + 180) % 360 + 360) % 360 - 180;
           rotation += diff * turnAmount;
         }
+        // Лёгкое "растяжение" вдоль направления движения — чем быстрее
+        // курсор летит, тем чуть заметнее он вытягивается (макс. +18%),
+        // придаёт ощущение веса и инерции, плавно возвращается к 1 в покое.
+        const targetStretch = 1 + Math.min(speed / 60, 0.18);
+        stretch += (targetStretch - stretch) * 0.2;
         if (cursorRef.current) {
-          cursorRef.current.style.transform = `translate(${curX}px,${curY}px) rotate(${rotation}deg)`;
+          cursorRef.current.style.transform = `translate(${curX}px,${curY}px) rotate(${rotation}deg) scale(${stretch},${2 - stretch})`;
           cursorRef.current.style.opacity = "1";
         }
       }
@@ -3856,7 +3954,7 @@ export default function Home() {
                 const cell = alexCells[cellIdx];
                 return (
                   <div key={cellIdx} style={{ width: `${grid.cellPx}px`, height: `${grid.cellPx}px`, borderRadius: "14%", overflow: "hidden", position: "relative", background: "#111" }}>
-                    <img src={ALEX_IMAGES[cell?.imageIndex ?? 0]} alt="" decoding="sync" loading="eager"
+                    <PosterizedImg src={ALEX_IMAGES[cell?.imageIndex ?? 0]} enabled={colorScheme === "pinkYellow"}
                       style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
                     {/* "drink water" — теперь ВНУТРИ каждой ячейки (не общий
                         текст на всю секцию) — центрировано, чуть меньше, чем
@@ -3943,7 +4041,7 @@ export default function Home() {
               <div style={{ display: "grid", gridTemplateColumns: `repeat(${grid.cols},${grid.cellPx}px)`, gridTemplateRows: `repeat(${grid.rows},${grid.cellPx}px)`, gap: `${grid.gapY}px ${grid.gapX}px`, opacity: showArtVideo ? 0 : 1, transition: "opacity 1s ease" }}>
                 {Array.from({ length: grid.cols * grid.rows }, (_, cellIdx) => (
                   <div key={cellIdx} style={{ width: `${grid.cellPx}px`, height: `${grid.cellPx}px`, borderRadius: "14%", overflow: "hidden", position: "relative", background: "#111" }}>
-                    <img src={ART_IMAGES[artCells[cellIdx] ?? 0]} alt="" decoding="sync" loading="eager"
+                    <PosterizedImg src={ART_IMAGES[artCells[cellIdx] ?? 0]} enabled={colorScheme === "pinkYellow"}
                       style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
                   </div>
                 ))}
